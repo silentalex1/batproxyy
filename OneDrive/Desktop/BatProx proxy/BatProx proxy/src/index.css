@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.prose {
+  color: inherit;
+}
+
+.prose strong {
+  color: inherit;
+  font-weight: 700;
+}
+
+.prose em {
+  color: inherit;
+  font-style: italic;
+}
+
+.prose p {
+  margin-bottom: 0.5em;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}

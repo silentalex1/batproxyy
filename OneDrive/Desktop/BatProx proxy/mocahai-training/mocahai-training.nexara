@@ -1,0 +1,14 @@
+brain "mocahai-training" {
+    architecture = transformer
+    parameters = 8B
+    learning = adaptive
+    memory = intelligent
+    base = "llama3.1:8b"
+    
+    reasoning
+    memory
+    creativity
+    mathematics
+    science
+    language
+}
