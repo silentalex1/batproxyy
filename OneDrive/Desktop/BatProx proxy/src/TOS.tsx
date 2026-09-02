@@ -25,6 +25,10 @@ const rules = [
   {
     title: '6. Pay later.',
     body: 'you are allowed to pay later, you\'ll just be put in my pay-later list in my admin panel that i\'ve made. Your due date to pay $5 later is a week though, if you dont end up paying $5 your account will get removed.'
+  },
+  {
+    title: '7. Ai improvement.',
+    body: 'By using this site platform, many of you know that I make AI\'s, and currently i am making one called MocahAI, for this site platform at least. I know there are other ai\'s out there, but this AI model, will be custom, and brand new suitable for understanding your teacher pov note styles, etc, so by using this site you\'ll be agreeing to allow me to use your chat messages, of the AI chat history, / soon chat room of this website.'
   }
 ];
 
