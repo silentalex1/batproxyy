@@ -7,10 +7,12 @@ function sign(payload, secret){
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
 function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org'); h.set('Access-Control-Allow-Credentials','true'); h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS'); h.set('Access-Control-Allow-Headers','*'); return h; }
-export default {
- async fetch(request, env){
-  const url=new URL(request.url);
-  if(request.method==='OPTIONS'){
+ export default {
+  async fetch(request, env){
+   const url=new URL(request.url);
+   const kv=env.batprox_data;
+   const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
+   if(request.method==='OPTIONS'){
     return new Response(null,{status:204, headers:cors(new Headers())});
   }
   if(url.pathname==='/' ){
@@ -106,8 +108,6 @@ export default {
       return new Response(body,{status:r.status, headers:h});
     }catch(e){ return new Response('Proxy error: '+(e.message||'failed'),{status:502, headers:cors(new Headers())});}
   }
-  const kv=env.batprox_data;
-  const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
   if(url.pathname==='/api/check-blacklist' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const ip=getIP();
