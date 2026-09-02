@@ -50,7 +50,10 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       const blIpsRaw=kv?await kv.get('blacklist_ips'):null;
       const blIps=blIpsRaw?JSON.parse(blIpsRaw):[];
       const ip=getIP();
-      if(blUsers.includes(cu) || blIps.includes(ip)){
+      const now2=Date.now();
+      const blFiltered=blIps.filter(x=> typeof x==='string' ? true : (!x.expiresAt || new Date(x.expiresAt).getTime()>now2));
+      const ipBanned=blFiltered.some(x=> (typeof x==='string'?x:x.ip)===ip);
+      if(blUsers.includes(cu) || ipBanned){
         const h=cors(new Headers()); h.set('Content-Type','application/json');
         return new Response(JSON.stringify({error:'You are banned from using this site.', banned:true}),{status:403, headers:h});
       }
@@ -113,7 +116,9 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     const ip=getIP();
     const blRaw=kv?await kv.get('blacklist_ips'):null;
     const bl=blRaw?JSON.parse(blRaw):[];
-    const isBanned=bl.includes(ip);
+    const now=Date.now();
+    const filtered=bl.filter(x=> typeof x==='string' ? true : (!x.expiresAt || new Date(x.expiresAt).getTime()>now));
+    const isBanned=filtered.some(x=> (typeof x==='string'?x:x.ip)===ip);
     return new Response(JSON.stringify({banned:isBanned, ip}),{headers:h});
   }
   if(url.pathname==='/api/my-games' && request.method==='GET'){
@@ -161,6 +166,42 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       if(kv) await kv.put('users', JSON.stringify(arr));
       VALID_CODES.add(cc);
       return new Response(JSON.stringify({success:true, id:arr.length}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/remove-due' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username,removeAt,inviteCode}=await request.json();
+      const cu=String(username||'').trim();
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const u=arr.find(x=>x.username===cu);
+      if(!u) return new Response(JSON.stringify({error:'Account not found'}),{status:404, headers:h});
+      if(String(inviteCode||'').trim()!==u.invite_code) return new Response(JSON.stringify({error:'Invalid quick-access code'}),{status:403, headers:h});
+      u.removeAt=String(removeAt||'').trim();
+      if(kv) await kv.put('users', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/temp-remove' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username,days}=await request.json();
+      const cu=String(username||'').trim();
+      const d=parseInt(days,10);
+      if(!d||d<1) return new Response(JSON.stringify({error:'Invalid days'}),{status:400, headers:h});
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const u=arr.find(x=>x.username===cu);
+      if(!u) return new Response(JSON.stringify({error:'Account not found'}),{status:404, headers:h});
+      const ip=u.lastIp||getIP();
+      const rawB=kv?await kv.get('blacklist_ips'):null;
+      let bl=rawB?JSON.parse(rawB):[];
+      const expiresAt=new Date(Date.now()+d*24*60*60*1000).toISOString();
+      bl=bl.filter(x=> (typeof x==='string'?x:x.ip)!==ip);
+      bl.push({ip, expiresAt, username:cu});
+      if(kv) await kv.put('blacklist_ips', JSON.stringify(bl));
+      return new Response(JSON.stringify({success:true, expiresAt}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/remove-user' && request.method==='POST'){
