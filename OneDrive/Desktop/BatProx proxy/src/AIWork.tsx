@@ -22,7 +22,7 @@ export default function AIWork() {
   const [isTyping, setIsTyping] = useState(false);
   const [typingContent, setTypingContent] = useState('');
   const [images, setImages] = useState<Array<{ id: string; data: string; file: File }>>([]);
-  const [attachedFiles, setAttachedFiles] = useState<Array<{ id: string; file: File }>>([]);
+  const [attachedFiles, setAttachedFiles] = useState<Array<{ id: string; file: File; label?: string }>>([]);
   const [dragging, setDragging] = useState(false);
     const dragCounterRef = useRef(0);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -38,13 +38,10 @@ export default function AIWork() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
-  const [disableTypingAnimation, setDisableTypingAnimation] = useState(false);
-  
   useEffect(() => {
     const savedSettings = localStorage.getItem('batprox-settings');
     if (savedSettings) {
-      const settings = JSON.parse(savedSettings);
-      setDisableTypingAnimation(settings.disableTypingAnimation || false);
+      JSON.parse(savedSettings);
     }
   }, []);
 
@@ -155,8 +152,8 @@ export default function AIWork() {
     setImages(prev => prev.filter(img => img.id !== id));
   };
 
-  const addFiles = (files: File[]) => {
-    files.forEach((file) => {
+  const addFiles = (files: Array<{ file: File; label?: string }>) => {
+    files.forEach(({ file, label }) => {
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -165,24 +162,24 @@ export default function AIWork() {
         };
         reader.readAsDataURL(file);
       } else {
-        setAttachedFiles(prev => [...prev, { id: Date.now().toString() + Math.random().toString(36).slice(2, 6), file }]);
+        setAttachedFiles(prev => [...prev, { id: Date.now().toString() + Math.random().toString(36).slice(2, 6), file, label }]);
       }
     });
   };
 
-  const readEntry = async (entry: any): Promise<File[]> => {
+  const readEntry = async (entry: any, folderLabel?: string): Promise<Array<{ file: File; label?: string }>> => {
     if (!entry) return [];
     if (entry.isFile) {
-      return new Promise((resolve) => entry.file((f: File) => resolve([f]), () => resolve([])));
+      return new Promise((resolve) => entry.file((f: File) => resolve([{ file: f, label: folderLabel || f.name }]), () => resolve([])));
     }
     if (entry.isDirectory) {
       const reader = entry.createReader();
-      const all: File[] = [];
+      const all: Array<{ file: File; label?: string }> = [];
       const readBatch = (): Promise<any[]> => new Promise((resolve) => reader.readEntries((entries: any[]) => resolve(entries), () => resolve([])));
       let batch = await readBatch();
       while (batch.length > 0) {
         for (const e of batch) {
-          all.push(...(await readEntry(e)));
+          all.push(...(await readEntry(e, entry.name)));
         }
         batch = await readBatch();
       }
@@ -193,89 +190,17 @@ export default function AIWork() {
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    
     if (message.trim() || images.length > 0) {
       const userMessage = message.trim();
       const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
       setMessages(newMessages);
       setMessage('');
-      setIsTyping(true);
-      setTypingContent('');
-      setStopTyping(false);
-      setIsPaused(false);
-      const currentImages = [...images];
       setImages([]);
-      
-      const newCheckpoint = {
-        id: Date.now().toString(),
-        messageIndex: newMessages.length - 1,
-        timestamp: Date.now()
-      };
-      setCheckpoints(prev => [...prev, newCheckpoint]);
-
-      try {
-        const currentFiles = [...attachedFiles];
-        const formData = new FormData();
-        formData.append('message', userMessage);
-        currentImages.forEach((img) => {
-          formData.append('files', img.file);
-        });
-        currentFiles.forEach((f) => {
-          formData.append('files', f.file);
-        });
-        setAttachedFiles([]);
-
-        const response = await fetch('/api/ai/chat', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => null);
-          throw new Error(errData?.error || 'Failed to get AI response');
-        }
-
-        const data = await response.json();
-        const aiResponse = data.response;
-        const aiTerminal: string[] = data.terminal || [];
-
-        if (disableTypingAnimation) {
-          const finalMessages = [...messages, { role: 'assistant' as const, content: aiResponse, terminal: aiTerminal }];
-          setMessages(finalMessages);
-          setIsTyping(false);
-          saveChatToHistory(finalMessages);
-        } else {
-          let index = 0;
-          typingIntervalRef.current = setInterval(() => {
-            if (stopTyping) {
-              clearInterval(typingIntervalRef.current!);
-              setIsTyping(false);
-              setPausedContent(typingContent);
-              setIsPaused(true);
-              return;
-            }
-            
-            if (index < aiResponse.length) {
-              setTypingContent(aiResponse.substring(0, index + 1));
-              index++;
-            } else {
-              clearInterval(typingIntervalRef.current!);
-              setIsTyping(false);
-              const finalMessages = [...messages, { role: 'assistant' as const, content: aiResponse, terminal: aiTerminal }];
-              setMessages(finalMessages);
-              setTypingContent('');
-              setIsPaused(false);
-              saveChatToHistory(finalMessages);
-            }
-          }, 15); }
-      } catch (error) {
-        console.error('Error sending message:', error);
-        setIsTyping(false);
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Please try again.'}`
-        }]);
-      }
+      setAttachedFiles([]);
+      const reply = 'MocahAI is still being trained, and worked on. Please be patient.';
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: reply }]);
+      saveChatToHistory([...newMessages, { role: 'assistant' as const, content: reply }]);
+      return;
     }
   };
 
@@ -339,13 +264,13 @@ export default function AIWork() {
     const items = Array.from(e.dataTransfer.items || []);
     const entries = items.map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null));
     if (entries.some((en) => en)) {
-      const collected: File[] = [];
+      const collected: Array<{ file: File; label?: string }> = [];
       for (const en of entries) {
         collected.push(...(await readEntry(en)));
       }
       addFiles(collected);
     } else {
-      addFiles(Array.from(e.dataTransfer.files || []));
+      addFiles(Array.from(e.dataTransfer.files || []).map((f) => ({ file: f, label: f.name })));
     }
   };
 
@@ -586,6 +511,26 @@ export default function AIWork() {
             </div>
             <div className="fixed bottom-0 left-0 right-0 w-full flex justify-center pb-8 bg-gradient-to-t from-black/90 via-black/70 to-transparent pt-6 z-20">
               <div className="w-full max-w-2xl px-4">
+                {attachedFiles.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2 animate-fade-down">
+                    {attachedFiles.map((f) => (
+                      <div key={f.id} className="group flex items-center gap-2 pl-3 pr-2 py-2 rounded-xl bg-white/[0.06] border border-white/10 hover:border-purple-500/40 transition-all">
+                        <svg className="w-4 h-4 text-purple-300 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                        <span className="text-xs text-white/85 max-w-[180px] truncate">{f.label || f.file.name}</span>
+                        <span className="text-[10px] text-white/35 shrink-0">{Math.max(1, Math.round(f.file.size / 1024))} KB</span>
+                        <button
+                          type="button"
+                          onClick={() => setAttachedFiles(prev => prev.filter(x => x.id !== f.id))}
+                          className="w-5 h-5 rounded-full bg-red-500/80 hover:bg-red-500 text-white text-xs flex items-center justify-center transition-all"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {images.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
                     {images.map((img) => (
@@ -632,7 +577,11 @@ export default function AIWork() {
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      addFiles(Array.from(e.target.files || []));
+                      addFiles(Array.from(e.target.files || []).map((f) => {
+                        const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || '';
+                        const folder = rel.includes('/') ? rel.split('/')[0] : f.name;
+                        return { file: f, label: folder };
+                      }));
                       e.target.value = '';
                     }}
                   />
