@@ -13,6 +13,7 @@ import ApiDocs from './ApiDocs';
 import Chatting from './Chatting';
 import AutoLogout from './AutoLogout';
 import PageChrome from './PageChrome';
+import TOS from './TOS';
 import { AmbientBg, SideRail, DashNav, RotatingTagline } from './Chrome';
 import { buildSearchUrl, MOVIES_URL } from './engines';
 import { initUltraviolet } from './uv';
@@ -458,6 +459,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/search-engine" element={<SearchEngine />} />
         <Route path="/admin-panel" element={<AdminPanel />} />
+        <Route path="/TOS" element={<TOS />} />
         <Route path="/homework" element={<MoreGames />} />
         <Route path="/ai-work" element={<AIWork />} />
         <Route path="/changelog" element={<Changelog />} />

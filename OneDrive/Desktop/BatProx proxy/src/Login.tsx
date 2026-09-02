@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import BatMascot from './BatMascot';
+import { launchBlobCloak } from './cloak';
+import { applyTabCloak } from './tabcloak';
 
 interface FieldErrors {
   username?: string;
@@ -14,13 +16,15 @@ export default function Login() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [shaking, setShaking] = useState<{ username: boolean; inviteCode: boolean }>({ username: false, inviteCode: false });
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [showForgot, setShowForgot] = useState(false);
   const [invitedBy, setInvitedBy] = useState('');
   const [denyNotice, setDenyNotice] = useState(false);
   const [denyFading, setDenyFading] = useState(false);
+  const [tosAgreed, setTosAgreed] = useState(() => localStorage.getItem('batprox-tos-agreed') === '1');
+  const [tosPrompt, setTosPrompt] = useState(false);
 
   const SECRET_KEY = 'QGBoaWJB';
 
@@ -105,7 +109,7 @@ export default function Login() {
       const dx = e.clientX - last.x;
       const dy = e.clientY - last.y;
       const dist = Math.hypot(dx, dy);
-      const steps = Math.min(Math.floor(dist / 5) + 1, 10);
+      const steps = Math.min(Math.floor(dist / 10) + 1, 4);
       for (let i = 0; i < steps; i++) {
         const t = i / steps;
         particles.push({
@@ -158,13 +162,9 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
-    document.title = 'Bat Prox';
+    applyTabCloak();
+    launchBlobCloak();
   }, []);
-
-  const triggerShake = (field: 'username' | 'inviteCode') => {
-    setShaking(prev => ({ ...prev, [field]: true }));
-    setTimeout(() => setShaking(prev => ({ ...prev, [field]: false })), 450);
-  };
 
   const validateUsername = (value: string): string | undefined => {
     if (!value.trim()) return 'Username is required.';
@@ -196,12 +196,11 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!tosAgreed) { setTosPrompt(true); return; }
     setServerError('');
     const usernameError = validateUsername(username);
     const codeError = validateInviteCode(inviteCode);
     setErrors({ username: usernameError, inviteCode: codeError });
-    if (usernameError) triggerShake('username');
-    if (codeError) triggerShake('inviteCode');
     if (usernameError || codeError) return;
 
     setLoading(true);
@@ -227,7 +226,7 @@ export default function Login() {
   };
 
   const inputClasses = (hasError?: string) =>
-    `w-full px-5 py-4 rounded-2xl bg-white/[0.06] border text-white focus:outline-none transition-all backdrop-blur-md text-left shadow-xl ${
+    `w-full px-4 sm:px-5 py-3.5 sm:py-4 rounded-2xl bg-white/[0.06] border text-white text-sm sm:text-base focus:outline-none transition-all backdrop-blur-md text-left shadow-xl ${
       hasError
         ? 'border-red-500/60 focus:border-red-500 focus:ring-2 focus:ring-red-500/30'
         : 'border-white/15 hover:border-white/25 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/70'
@@ -255,27 +254,30 @@ export default function Login() {
             backgroundSize: '350px 350px',
           }}
         />
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-600/25 rounded-full blur-[130px]" />
-        <div className="absolute top-2/3 left-1/3 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/15 rounded-full blur-[90px]" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[28rem] h-[28rem] bg-purple-600/30 rounded-full blur-[140px]" />
+        <div className="absolute top-2/3 left-1/3 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-indigo-500/20 rounded-full blur-[110px]" />
+        <div className="absolute bottom-10 right-1/4 w-64 h-64 bg-fuchsia-600/10 rounded-full blur-[100px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(0,0,0,0.55)_70%,#000_100%)]" />
       </div>
 
       <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none z-[5]" />
 
       <main className="relative z-10 w-full max-w-md">
-        <div className="flex flex-col items-center text-center mb-10">
+        <div className="flex flex-col items-center text-center mb-8 sm:mb-14">
           <div className="relative">
+            <div className="absolute -inset-5 bg-purple-600/25 rounded-full blur-2xl animate-pulse-slow pointer-events-none" />
             <button
               type="button"
               onDoubleClick={openForgot}
               title="Double-click the bat"
-              className="w-24 h-24 rounded-[28px] bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center shadow-2xl shadow-purple-600/30 mb-5 ring-1 ring-white/10 transition-transform hover:scale-105 active:scale-95"
+              className="relative w-24 h-24 rounded-[28px] bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 flex items-center justify-center shadow-2xl shadow-purple-600/40 mb-6 ring-1 ring-white/20 transition-transform duration-300 hover:scale-105 active:scale-95 animate-bat-float"
             >
-              <BatMascot size={84} />
+              <BatMascot size={86} />
             </button>
             {showForgot && (
               <form
                 onSubmit={handleForgotSubmit}
-                className="absolute left-full top-0 ml-5 w-64 bg-[#0d0d12] border border-white/10 rounded-2xl p-4 shadow-2xl z-20"
+                className="absolute left-full top-0 ml-5 w-64 bg-[#0d0d12] border border-white/10 rounded-2xl p-4 shadow-2xl z-20 animate-fade-in"
               >
                 <label className="block text-xs text-white/50 mb-2 text-left">Who invited you?</label>
                 <input
@@ -294,7 +296,7 @@ export default function Login() {
               </form>
             )}
           </div>
-          <h1 className="text-6xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-300 via-purple-400 to-indigo-400 mb-3 drop-shadow-lg">
+          <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight mb-3" style={{ color: 'var(--bp-accent)', textShadow: '0 0 25px rgba(var(--bp-glow), 0.35)' }}>
             Bat Prox
           </h1>
           <p className="text-gray-400 text-sm tracking-wide">Login to your account.</p>
@@ -303,8 +305,9 @@ export default function Login() {
         <form
           onSubmit={handleLogin}
           noValidate
-          className="bg-black/60 border border-white/10 rounded-3xl p-8 backdrop-blur-lg shadow-2xl space-y-5"
+          className="relative bg-black/55 border border-white/[0.12] rounded-3xl p-6 sm:p-9 backdrop-blur-2xl shadow-[0_30px_80px_-20px_rgba(88,28,135,0.55)] space-y-5 sm:space-y-7 overflow-hidden"
         >
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2/3 h-px bg-gradient-to-r from-transparent via-purple-400/60 to-transparent" />
           <div>
             <label
               htmlFor="login-username"
@@ -312,16 +315,21 @@ export default function Login() {
             >
               Username
             </label>
-            <input
-              id="login-username"
-              type="text"
-              autoComplete="off"
-              value={username}
-              onChange={(e) => handleChange('username', e.target.value)}
-              onBlur={() => handleBlur('username')}
-              placeholder="enter the username"
-              className={`${inputClasses(errors.username)} placeholder-gray-400 ${shaking.username ? 'animate-shake' : ''}`}
-            />
+            <div className="relative">
+              <svg className="w-5 h-5 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+              <input
+                id="login-username"
+                type="text"
+                autoComplete="off"
+                value={username}
+                onChange={(e) => handleChange('username', e.target.value)}
+                onBlur={() => handleBlur('username')}
+                placeholder="enter the username"
+                className={`${inputClasses(errors.username)} placeholder-gray-400 pl-12`}
+              />
+            </div>
             {errors.username && (
               <p className="text-red-400 text-xs mt-2 ml-1">{errors.username}</p>
             )}
@@ -334,16 +342,21 @@ export default function Login() {
             >
               Invite Code
             </label>
-            <input
-              id="login-invite"
-              type="password"
-              autoComplete="off"
-              value={inviteCode}
-              onChange={(e) => handleChange('inviteCode', e.target.value)}
-              onBlur={() => handleBlur('inviteCode')}
-              placeholder="invite code: XXXX-XXXX"
-              className={`${inputClasses(errors.inviteCode)} placeholder-gray-400 ${shaking.inviteCode ? 'animate-shake' : ''}`}
-            />
+            <div className="relative">
+              <svg className="w-5 h-5 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+              </svg>
+              <input
+                id="login-invite"
+                type="password"
+                autoComplete="off"
+                value={inviteCode}
+                onChange={(e) => handleChange('inviteCode', e.target.value)}
+                onBlur={() => handleBlur('inviteCode')}
+                placeholder="invite code: XXXX-XXXX"
+                className={`${inputClasses(errors.inviteCode)} placeholder-gray-400 pl-12`}
+              />
+            </div>
             {errors.inviteCode && (
               <p className="text-red-400 text-xs mt-2 ml-1">{errors.inviteCode}</p>
             )}
@@ -378,6 +391,10 @@ export default function Login() {
             beta release (expect some bugs) - if bugs make a report.
           </p>
         </div>
+        <label className="flex items-center justify-center gap-2 mt-4 text-sm cursor-pointer select-none">
+          <input type="checkbox" checked={tosAgreed} onChange={e => { const v=e.target.checked; setTosAgreed(v); if(v) localStorage.setItem('batprox-tos-agreed','1'); else localStorage.removeItem('batprox-tos-agreed'); }} className="w-4 h-4 rounded border-white/20 bg-white/10 text-purple-600 focus:ring-purple-500" />
+          <span className="text-white/70">I have read the <span onClick={(e)=>{e.preventDefault(); navigate('/TOS');}} className="text-purple-400 hover:text-purple-300 underline cursor-pointer">TOS</span> of this platform.</span>
+        </label>
       </main>
 
       {ctxMenu && (
@@ -403,6 +420,14 @@ export default function Login() {
           style={{ transform: 'translateX(-50%)' }}
         >
           we do not detect an recent account from you. Pay up.
+        </div>
+      )}
+      {tosPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+            <p className="text-white text-sm mb-5">please read the tos and agree to the TOS.</p>
+            <button onClick={()=>setTosPrompt(false)} className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Ok</button>
+          </div>
         </div>
       )}
     </div>
