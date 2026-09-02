@@ -78,11 +78,7 @@ export function initUltraviolet(): Promise<void> {
         throw new Error('SharedWorker unavailable');
       }
       const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(
-        registrations
-          .filter((registration) => registration.scope.endsWith('/uv/'))
-          .map((registration) => registration.unregister())
-      );
+      await Promise.all(registrations.map((r) => r.unregister()));
       const reg = await navigator.serviceWorker.register('/uv-sw.js', { scope: '/' });
       await reg.update();
       await waitForWorker(reg.active || reg.installing || reg.waiting);

@@ -37,6 +37,7 @@ export default function SearchEngine() {
   }, []);
 
   const openTarget = useCallback((target: string, forceSandbox = false) => {
+    if (target.includes('triplethd') || target.includes('noordware')) forceSandbox = true;
     setUrl(target);
     setLoading(!skipLoading);
     setHasError(false);
@@ -60,7 +61,7 @@ export default function SearchEngine() {
             setHasError(false);
             setKey(v => v + 1);
           }
-        }, 3200);
+        }, 1800);
       }
       setSrc(getUvUrl(target));
       setKey(v => v + 1);
@@ -179,7 +180,9 @@ export default function SearchEngine() {
   const handleLoad = () => {
     const f = iframeRef.current;
     try {
-      if (f?.contentDocument?.documentElement?.innerHTML.includes('Error processing your request') || f?.contentDocument?.title.includes('Error')) {
+      const html = f?.contentDocument?.documentElement?.innerHTML || '';
+      const title = f?.contentDocument?.title || '';
+      if (html.includes('Error processing your request') || html.includes('Proxy failed to start') || html.includes('Failed to fetch') || title.includes('Error')) {
         if (!useSandbox) {
           clearTimer(); setUseSandbox(true); setSrc(getSandboxUrl(new URLSearchParams(location.search).get('url') || url)); setKey(v => v + 1); return;
         }
