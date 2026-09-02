@@ -47,7 +47,7 @@ function Dashboard() {
         return;
       }
       try {
-        const response = await fetch('/api/auth/me', {
+        const response = await fetch('https://authlogin.stealthlybat.it.com/api/auth/me', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();

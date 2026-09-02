@@ -64,7 +64,7 @@ export default function Login() {
       return;
     }
     try {
-      const response = await fetch('/api/auth/me', {
+      const response = await fetch('https://authlogin.stealthlybat.it.com/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -206,7 +206,7 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('https://authlogin.stealthlybat.it.com/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), inviteCode: inviteCode.trim() })
