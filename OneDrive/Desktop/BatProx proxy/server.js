@@ -13,6 +13,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const http = require('http');
+const https = require('https');
 const { uvPath } = require('@titaniumnetwork-dev/ultraviolet');
 const { epoxyPath } = require('@mercuryworkshop/epoxy-transport');
 const { baremuxPath } = require('@mercuryworkshop/bare-mux/node');
@@ -34,6 +35,9 @@ const PROXY_CACHE_TTL = 2 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
 
 const cookieJar = new Map();
+
+const sharedHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 128, maxFreeSockets: 32 });
+const sharedHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 128, maxFreeSockets: 32 });
 
 function getJarCookies(host) {
   return cookieJar.get(host) || '';
@@ -147,6 +151,42 @@ function initializeDatabase() {
         db.run('INSERT OR IGNORE INTO invite_codes (code) VALUES (?)', [code]);
       });
     });
+
+    db.run(`CREATE TABLE IF NOT EXISTS custom_sites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE NOT NULL,
+      owner TEXT,
+      html TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS changelogs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      version TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, () => {
+      db.get('SELECT id FROM changelogs WHERE version = ?', ['beta v1.0'], (err, row) => {
+        if (!err && !row) {
+          db.run(
+            'INSERT INTO changelogs (version, title, description) VALUES (?, ?, ?)',
+            [
+              'beta v1.0',
+              'Website release - beta v1.0',
+              '+ created and publish bat proxy.\n+ added website themes on release.\n+ added website background choice on release.\n+ added games on release.\n+ meet MocahAI, on release. (still in beta).\n+ added auto-login. Feature (suggested from a friend).\n+ added tab cloak.\n+ added blob cloak (better version), as soon as you get into the website for the first time.'
+            ]
+          );
+        }
+      });
+    });
+
+    db.run(`CREATE TABLE IF NOT EXISTS service_status (
+      name TEXT PRIMARY KEY,
+      color TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
   });
 }
 
@@ -157,10 +197,16 @@ app.use(helmet({
 app.disable('x-powered-by');
 
 app.use(cors({
-  origin: ['https://nightbat.cfd', 'https://www.nightbat.cfd', 'http://nightbat.cfd', 'http://www.nightbat.cfd', 'http://localhost:5179', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'http://localhost:5180'],
+  origin: ['https://stealthybat.org', 'https://www.stealthybat.org', 'http://localhost:5179', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'http://localhost:5180'],
   credentials: true
 }));
 
+app.use(['/baremux', '/epoxy', '/uv'], (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+  res.setHeader('Service-Worker-Allowed', '/');
+  next();
+});
 app.use(express.static('public'));
 app.use('/uv/', express.static(path.join(__dirname, 'public', 'uv')));
 app.use('/uv/', express.static(uvPath));
@@ -294,8 +340,9 @@ function rewriteHtml(html, parsedUrl) {
     });
     return 'srcset=' + quote + parts.join(', ') + quote;
   });
-  const inject = `<script>(function(){window.__bpBase=${JSON.stringify(base)};function p(u){try{if(!u||typeof u!=='string')return u;if(u.indexOf('data:')===0||u.indexOf('blob:')===0||u.indexOf('javascript:')===0||u.indexOf('about:')===0||u.indexOf('mailto:')===0||u.charAt(0)==='#')return u;var a=new URL(u,window.__bpBase||document.baseURI);if(a.pathname==='/proxy'||a.pathname==='/api'||a.pathname==='/wisp'||a.pathname==='/uv'||a.pathname==='/epoxy'||a.pathname==='/baremux')return a.href;var b=new URL(window.__bpBase||document.baseURI);if(a.origin===window.location.origin){return '/proxy?url='+encodeURIComponent(b.protocol+'//'+b.host+a.pathname+a.search+a.hash);}return '/proxy?url='+encodeURIComponent(a.href);}catch(e){return u;}}
-var of=window.fetch;window.fetch=function(i,n){try{if(typeof i==='string')return of(p(i),n);if(i&&i.url)return of(new Request(p(i.url),i),n);}catch(e){}return of(i,n);};
+  const inject = `<script>(function(){window.__bpBase=${JSON.stringify(base)};function p(u){try{if(!u||typeof u!=='string')return u;if(u.indexOf('data:')===0||u.indexOf('blob:')===0||u.indexOf('javascript:')===0||u.indexOf('about:')===0||u.indexOf('mailto:')===0||u.charAt(0)==='#')return u;if(u.indexOf('/proxy?url=')===0)return u;var a=new URL(u,window.__bpBase||document.baseURI);if(a.pathname==='/proxy'||a.pathname.indexOf('/proxy')===0||a.pathname.indexOf('/api')===0||a.pathname.indexOf('/wisp')===0||a.pathname.indexOf('/uv')===0||a.pathname.indexOf('/epoxy')===0||a.pathname.indexOf('/baremux')===0||a.pathname.indexOf('/site')===0)return a.href;var b=new URL(window.__bpBase||document.baseURI);if(a.origin===window.location.origin){return '/proxy?url='+encodeURIComponent(b.protocol+'//'+b.host+a.pathname+a.search+a.hash);}return '/proxy?url='+encodeURIComponent(a.href);}catch(e){return u;}}
+var of=window.fetch;window.fetch=function(i,n){try{if(typeof i==='string')return of(p(i),n);if(i&&typeof Request!=='undefined'&&i instanceof Request)return of(new Request(p(i.url),i),n);if(i&&i.url)return of(new Request(p(i.url),i),n);}catch(e){}return of(i,n);};
+if(window.EventSource){var OE=window.EventSource;window.EventSource=function(u,c){try{return new OE(p(u),c);}catch(e){}return new OE(u,c);};window.EventSource.prototype=OE.prototype;}
 var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=[].slice.call(arguments);if(typeof a[1]==='string')a[1]=p(a[1]);return oo.apply(this,a);};
 if(navigator.sendBeacon){var osb=navigator.sendBeacon.bind(navigator);navigator.sendBeacon=function(u,d){try{if(typeof u==='string')u=p(u);}catch(e){}return osb(u,d);};}
 var osa=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){try{if(typeof v==='string'&&(n==='src'||n==='href'||n==='action')&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.indexOf('javascript:')!==0&&v.charAt(0)!=='#')v=p(v);}catch(e){}return osa.call(this,n,v);};
@@ -303,9 +350,19 @@ function pp(proto,prop){var d=Object.getOwnPropertyDescriptor(proto,prop);if(d&&
 ['HTMLScriptElement','HTMLImageElement','HTMLIFrameElement','HTMLSourceElement','HTMLAudioElement','HTMLVideoElement','HTMLEmbedElement'].forEach(function(c){var k=window[c];if(k)pp(k.prototype,'src');});
 ['HTMLLinkElement','HTMLAnchorElement','HTMLAreaElement'].forEach(function(c){var k=window[c];if(k)pp(k.prototype,'href');});
 pp(HTMLFormElement.prototype,'action');
-document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;if(a.target==='_blank')return;e.preventDefault();var href=a.getAttribute('href')||a.href;try{parent.postMessage({type:'batprox-nav',url:new URL(href,window.__bpBase||document.baseURI).href},'*');}catch(x){}window.location.href=p(href);},true);
-document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.action)return;e.preventDefault();window.location.href=p(f.action);},true);})();</script>`;
-  if (out.includes('</head>')) {
+function notify(u){try{var n=new URL(u,window.__bpBase||document.baseURI);if(n.pathname==='/proxy')u=n.searchParams.get('url')||u;parent.postMessage({type:'batprox-nav',url:u},'*');}catch(x){}}
+document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;e.preventDefault();var href=a.getAttribute('href')||a.href;notify(new URL(href,window.__bpBase||document.baseURI).href);window.location.href=p(href);},true);
+document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.action)return;e.preventDefault();window.location.href=p(f.action);},true);
+function rewriteEl(el){['src','href','action','poster','data-src'].forEach(function(n){var v=el.getAttribute&&el.getAttribute(n);if(v&&v.indexOf('/proxy?url=')!==0&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.charAt(0)!=='#'){try{el.setAttribute(n,p(v));}catch(e){}}});}
+if(document.documentElement)rewriteEl(document.documentElement);
+if(window.MutationObserver){new MutationObserver(function(muts){muts.forEach(function(m){if(m.type==='attributes'&&m.target&&m.target.getAttribute)rewriteEl(m.target);m.addedNodes&&m.addedNodes.forEach(function(n){if(n.nodeType===1){rewriteEl(n);if(n.querySelectorAll)n.querySelectorAll('[src],[href],[action]').forEach(rewriteEl);}});});}).observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['src','href','action','poster','data-src']});}
+window.addEventListener('unhandledrejection',function(e){e.preventDefault();},{capture:true});
+window.addEventListener('error',function(e){if(e&&e.message&&/OW is not defined|WebSocket|CORS|Failed to load/i.test(e.message))e.preventDefault();},{capture:true});
+})();</script>`;
+  const headOpen = out.match(/<head[^>]*>/i);
+  if (headOpen) {
+    out = out.replace(headOpen[0], headOpen[0] + inject);
+  } else if (out.includes('</head>')) {
     out = out.replace('</head>', inject + '</head>');
   } else {
     out = inject + out;
@@ -313,24 +370,36 @@ document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.action)r
   return out;
 }
 
-app.get('/lumin.worker.js', async (req, res) => {
+const LUMIN_JSDELIVR = 'https://cdn.jsdelivr.net/gh/luminsdk/script@latest/fonts.min.js';
+
+async function sendLuminScript(res) {
   try {
     const response = await axios({
       method: 'GET',
-      url: 'https://a.luminsdk.com/v1/lumin.worker.js',
+      url: LUMIN_JSDELIVR,
       responseType: 'text',
-      timeout: 8000,
+      timeout: 12000,
       validateStatus: () => true
     });
     res.set('Content-Type', 'application/javascript; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Access-Control-Allow-Origin', '*');
     if (response.status >= 400 || !response.data) {
-      return res.send('self.onmessage=function(){};self.postMessage({ready:true});');
+      return res.status(502).send('self.onmessage=function(){};');
     }
     res.send(response.data);
   } catch {
     res.set('Content-Type', 'application/javascript; charset=utf-8');
-    res.send('self.onmessage=function(){};self.postMessage({ready:true});');
+    res.status(502).send('self.onmessage=function(){};');
   }
+}
+
+app.get('/lumin.js', (_req, res) => {
+  sendLuminScript(res);
+});
+
+app.get('/lumin.worker.js', (_req, res) => {
+  sendLuminScript(res);
 });
 
 app.all('/proxy', async (req, res) => {
@@ -355,10 +424,26 @@ app.all('/proxy', async (req, res) => {
     const originalOrigin = req.headers['x-original-origin'];
     const originalHost = req.headers['x-original-host'];
 
+    const isSubresource = !req.headers['sec-fetch-dest'] || !['document', 'iframe', 'frame'].includes(req.headers['sec-fetch-dest']);
+    const cacheKey = 'p:' + req.method + ':' + targetUrl;
+    if (req.method === 'GET' && isSubresource) {
+      const cached = proxyCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < PROXY_CACHE_TTL) {
+        res.status(cached.status);
+        res.set('Content-Type', cached.contentType);
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('X-Proxy-Response', 'true');
+        res.set('X-Cache', 'HIT');
+        return res.send(cached.body);
+      }
+    }
+
     const response = await axios({
       method: req.method,
       url: targetUrl,
       responseType: 'arraybuffer',
+      httpAgent: sharedHttpAgent,
+      httpsAgent: sharedHttpsAgent,
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': req.headers['accept'] || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -377,7 +462,7 @@ app.all('/proxy', async (req, res) => {
         'Host': originalHost || parsedUrl.hostname
       },
       ...(req.method !== 'GET' && req.body && Object.keys(req.body).length > 0 ? { data: req.body } : {}),
-      timeout: 15000,
+      timeout: 12000,
       maxRedirects: 5,
       validateStatus: () => true
     });
@@ -395,12 +480,29 @@ app.all('/proxy', async (req, res) => {
       body = rewriteCss(body, parsedUrl.href);
     }
 
+    if (req.method === 'GET' && isSubresource && response.status === 200) {
+      proxyCache.set(cacheKey, {
+        body,
+        contentType,
+        status: response.status,
+        timestamp: Date.now()
+      });
+      if (proxyCache.size > MAX_CACHE_SIZE) {
+        const oldest = proxyCache.keys().next().value;
+        proxyCache.delete(oldest);
+      }
+    }
+
     res.status(response.status);
     res.set('Content-Type', contentType);
     res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
     res.set('Access-Control-Allow-Headers', '*');
+    res.set('Access-Control-Allow-Credentials', 'true');
     res.set('X-Proxy-Response', 'true');
+    res.set('Permissions-Policy', 'unload=*, fullscreen=*, autoplay=*, camera=*, microphone=*, geolocation=*, payment=*');
+    res.set('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     res.removeHeader('Content-Security-Policy');
     res.removeHeader('X-Frame-Options');
     res.send(body);
@@ -515,8 +617,8 @@ async function proxyRequest(targetUrl, req, res) {
       timeout: 8000,
       maxRedirects: 5,
       validateStatus: () => true,
-      httpAgent: new (require('http').Agent)({ keepAlive: true, maxSockets: 50, maxFreeSockets: 10 }),
-      httpsAgent: new (require('https').Agent)({ keepAlive: true, maxSockets: 50, maxFreeSockets: 10 })
+      httpAgent: sharedHttpAgent,
+      httpsAgent: sharedHttpsAgent
     });
     
     const contentType = response.headers['content-type'] || 'application/json';
@@ -1375,7 +1477,7 @@ app.post('/api/ai/chat', aiLimiter, upload.array('files', 20), async (req, res) 
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${OPENROUTER_KEY}`,
-            'HTTP-Referer': 'https://nightbat.cfd',
+            'HTTP-Referer': 'https://stealthybat.org',
             'X-Title': 'Bat Prox'
           },
           body: JSON.stringify({
@@ -1479,8 +1581,146 @@ app.get('/api/my-games', (req, res) => {
   }
 });
 
+app.get('/api/status-overrides', (req, res) => {
+  db.all('SELECT name, color FROM service_status', [], (err, rows) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to load status overrides' });
+    }
+    res.json({ overrides: rows || [] });
+  });
+});
+
+app.post('/api/admin/status', authenticateToken, requireAdmin, (req, res) => {
+  const { name, color } = req.body || {};
+  const cleanName = String(name || '').trim().slice(0, 60);
+  const cleanColor = String(color || '').trim().toLowerCase();
+
+  if (!cleanName) {
+    return res.status(400).json({ error: 'Service name is required' });
+  }
+  if (!['green', 'purple', 'red', 'auto'].includes(cleanColor)) {
+    return res.status(400).json({ error: 'Color must be green, purple, red or auto' });
+  }
+
+  if (cleanColor === 'auto') {
+    db.run('DELETE FROM service_status WHERE name = ?', [cleanName], function (err) {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to reset status' });
+      }
+      res.json({ success: true, name: cleanName, color: 'auto' });
+    });
+    return;
+  }
+
+  db.run(
+    `INSERT INTO service_status (name, color) VALUES (?, ?)
+     ON CONFLICT(name) DO UPDATE SET color = excluded.color, updated_at = CURRENT_TIMESTAMP`,
+    [cleanName, cleanColor],
+    function (err) {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to save status' });
+      }
+      res.json({ success: true, name: cleanName, color: cleanColor });
+    }
+  );
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+const SITE_NAME_RE = /^[a-zA-Z0-9._-]{1,40}$/;
+
+app.get('/api/sites', (req, res) => {
+  db.all('SELECT name, owner, created_at, updated_at FROM custom_sites ORDER BY updated_at DESC', [], (err, rows) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to list sites' });
+    }
+    res.json({ sites: rows || [] });
+  });
+});
+
+app.get('/api/sites/:name', (req, res) => {
+  const name = String(req.params.name || '');
+  if (!SITE_NAME_RE.test(name)) {
+    return res.status(400).json({ error: 'Invalid site name' });
+  }
+  db.get('SELECT name, owner, html, updated_at FROM custom_sites WHERE name = ?', [name], (err, row) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to load site' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Site not found' });
+    }
+    res.json({ site: row });
+  });
+});
+
+app.post('/api/sites', (req, res) => {
+  const { name, html, owner } = req.body || {};
+  const cleanName = String(name || '').trim();
+  const cleanHtml = String(html || '');
+  const cleanOwner = String(owner || 'anonymous').slice(0, 40);
+
+  if (!SITE_NAME_RE.test(cleanName)) {
+    return res.status(400).json({ error: 'Site name must be 1-40 characters (letters, numbers, . _ - only)' });
+  }
+  if (!cleanHtml.trim()) {
+    return res.status(400).json({ error: 'HTML content is required' });
+  }
+  if (cleanHtml.length > 200000) {
+    return res.status(400).json({ error: 'HTML too large (max 200KB)' });
+  }
+
+  db.run(
+    `INSERT INTO custom_sites (name, owner, html) VALUES (?, ?, ?)
+     ON CONFLICT(name) DO UPDATE SET html = excluded.html, updated_at = CURRENT_TIMESTAMP`,
+    [cleanName, cleanOwner, cleanHtml],
+    function (err) {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to save site' });
+      }
+      res.json({ success: true, name: cleanName });
+    }
+  );
+});
+
+app.delete('/api/sites/:name', (req, res) => {
+  const name = String(req.params.name || '');
+  if (!SITE_NAME_RE.test(name)) {
+    return res.status(400).json({ error: 'Invalid site name' });
+  }
+  db.run('DELETE FROM custom_sites WHERE name = ?', [name], function (err) {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to delete site' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'Site not found' });
+    }
+    res.json({ success: true });
+  });
+});
+
+app.get('/site/:name', (req, res) => {
+  const name = String(req.params.name || '');
+  if (!SITE_NAME_RE.test(name)) {
+    return res.status(400).send('Invalid site name');
+  }
+  db.get('SELECT html FROM custom_sites WHERE name = ?', [name], (err, row) => {
+    if (err || !row) {
+      return res.status(404).send('Site not found');
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', 'no-store');
+    res.send(row.html);
+  });
 });
 
 const distDir = path.join(__dirname, 'dist');
@@ -1488,7 +1728,7 @@ app.use(express.static(distDir));
 app.get('*', (req, res, next) => {
   if (req.headers['x-original-url']) return next();
   const p = req.path;
-  if (p.startsWith('/api') || p.startsWith('/proxy') || p.startsWith('/uv') || p.startsWith('/epoxy') || p.startsWith('/baremux') || p.startsWith('/wisp') || p === '/health' || p === '/sw.js' || p === '/uv-sw.js' || p === '/lumin.worker.js' || p.startsWith('/my-games')) {
+  if (p === '/api' || p.startsWith('/api/') || p.startsWith('/proxy') || p.startsWith('/uv') || p.startsWith('/epoxy') || p.startsWith('/baremux') || p.startsWith('/wisp') || p.startsWith('/site') || p === '/health' || p === '/sw.js' || p === '/uv-sw.js' || p === '/lumin.js' || p === '/lumin.worker.js' || p.startsWith('/my-games') || p.startsWith('/cdn-cgi')) {
     return next();
   }
   res.sendFile(path.join(distDir, 'index.html'), (err) => {
@@ -1506,7 +1746,7 @@ const routeWisp = wisp.routeRequest || (wisp.default && wisp.default.routeReques
 const server = http.createServer();
 server.on('request', (req, res) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
   app(req, res);
 });
 server.on('upgrade', (req, socket, head) => {

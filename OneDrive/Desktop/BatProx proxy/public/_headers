@@ -1,0 +1,29 @@
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: unsafe-none
+  X-Frame-Options: ALLOWALL
+  Access-Control-Allow-Origin: https://stealthybat.org
+  Cache-Control: public, max-age=0, must-revalidate
+
+/baremux/*
+  Cross-Origin-Resource-Policy: cross-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Service-Worker-Allowed: /
+
+/epoxy/*
+  Cross-Origin-Resource-Policy: cross-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Service-Worker-Allowed: /
+
+/uv/*
+  Cross-Origin-Resource-Policy: cross-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Service-Worker-Allowed: /
+
+/uv-sw.js
+  Service-Worker-Allowed: /
+  Cache-Control: no-cache
+
+/sw.js
+  Service-Worker-Allowed: /
+  Cache-Control: no-cache

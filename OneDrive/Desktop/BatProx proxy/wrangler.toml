@@ -1,0 +1,10 @@
+name = "stealthybat"
+compatibility_date = "2024-12-01"
+pages_build_output_dir = "dist"
+
+# Custom domain: stealthybat.org
+# After `npx wrangler pages publish dist` -> Cloudflare Dashboard > Pages > stealthybat > Custom domains > Add stealthybat.org
+# Build settings for Cloudflare Pages:
+#   Build command: npm run build
+#   Build output directory: dist
+#   Node version: 20
