@@ -320,6 +320,23 @@ export default function AdminPanel() {
     } catch { setError('Network error while updating pay-later'); }
   };
 
+  const handleBlacklist = async (user: UserAccount) => {
+    if (!confirm(`Blacklist ${user.username}? This will ban their IP and redirect to banned.stealthybat.org`)) return;
+    setError('');
+    try {
+      const response = await fetch('/api/admin/blacklist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+        body: JSON.stringify({ username: user.username })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setMessage(`Blacklisted ${user.username} (IP ${data.ip || ''})`);
+        setTimeout(() => setMessage(''), 2500);
+      } else setError(data.error || 'Failed to blacklist');
+    } catch { setError('Network error while blacklisting'); }
+  };
+
   const logout = () => {
     localStorage.removeItem('batprox-token');
     localStorage.removeItem('batprox-user');
@@ -578,6 +595,12 @@ export default function AdminPanel() {
                               revoke access key
                             </button>
                             <button
+                              onClick={() => handleBlacklist(user)}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-red-900/30 hover:bg-red-800/50 text-red-200 border border-red-700/50 transition-all"
+                            >
+                              blacklist account
+                            </button>
+                            <button
                               onClick={() => handleRemoveUser(user.username)}
                               className="text-xs px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all"
                             >
@@ -643,12 +666,12 @@ export default function AdminPanel() {
                     {filteredUsers.map(u => {
                       const due = u.payLater && u.payLaterSince ? new Date(new Date(u.payLaterSince).getTime()+7*24*60*60*1000).toLocaleDateString() : '';
                       return (
-                        <div key={u.id} className={`flex items-center justify-between gap-4 rounded-lg px-4 py-3 border transition-colors ${u.payLater ? 'bg-orange-500/10 border-orange-500/30' : 'bg-white/[0.03] border-white/5'}`}>
+                        <div key={u.id} className={`flex items-center justify-between gap-4 rounded-xl px-5 py-4 border-2 transition-all ${u.payLater ? 'bg-orange-600/20 border-orange-400/60 shadow-[0_0_22px_rgba(251,146,60,0.35)]' : 'bg-white/[0.04] border-white/10'}`}>
                           <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${u.payLater ? 'text-orange-300' : 'text-white'}`}>{u.username} {u.payLater && <span className="text-[10px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full ml-2">pay-later {due}</span>}</p>
-                            <p className="text-[11px] text-gray-500">code: <span className="text-gray-400">{u.invite_code}</span> · added {new Date(u.created_at).toLocaleDateString()}</p>
+                            <p className={`text-[15px] font-bold truncate ${u.payLater ? 'text-orange-200' : 'text-white'}`}>{u.username} {u.payLater && <span className="text-xs bg-orange-500 text-white px-3 py-1 rounded-full ml-2 font-bold">PAY-LATER DUE {due}</span>}</p>
+                            <p className="text-xs text-gray-400 mt-1">code: <span className="text-gray-200 font-mono">{u.invite_code}</span> · added {new Date(u.created_at).toLocaleDateString()}</p>
                           </div>
-                          <button onClick={() => togglePayLater(u)} className={`text-xs px-3 py-1.5 rounded-lg border transition-all shrink-0 ${u.payLater ? 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10' : 'bg-orange-500/15 text-orange-300 border-orange-500/30 hover:bg-orange-500/30'}`}>{u.payLater ? 'remove' : 'will pay-later'}</button>
+                          <button onClick={() => togglePayLater(u)} className={`text-xs px-4 py-2 rounded-lg border-2 font-semibold transition-all shrink-0 ${u.payLater ? 'bg-white/10 text-white border-white/20 hover:bg-white/15' : 'bg-orange-500 text-white border-orange-600 hover:bg-orange-600'}`}>{u.payLater ? 'remove' : 'will pay-later'}</button>
                         </div>
                       );
                     })}

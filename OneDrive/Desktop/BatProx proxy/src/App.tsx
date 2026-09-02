@@ -35,6 +35,7 @@ function Dashboard() {
   const [showGamesNotice, setShowGamesNotice] = useState(false);
 
   useEffect(() => {
+    fetch('https://api.stealthybat.org/api/check-blacklist').then(r=>r.json()).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
     document.title = "Bat Prox";
     setUsername(localStorage.getItem('batprox-user') || 'user');
 

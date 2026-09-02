@@ -37,6 +37,21 @@ export default {
         }
       }catch{}
       const isAdmin= cc==='FOX-CORE'||cc==='batprox-admin$$'||cu==='realalex'||cu==='admin';
+      try{
+        const raw=kv?await kv.get('users'):null;
+        let arr=raw?JSON.parse(raw||'[]'):[];
+        let u=arr.find(x=>x.username===cu);
+        if(u){ u.lastIp=getIP(); u.lastLogin=new Date().toISOString(); if(kv) await kv.put('users', JSON.stringify(arr));}
+      }catch{}
+      const blRaw=kv?await kv.get('blacklist_users'):null;
+      const blUsers=blRaw?JSON.parse(blRaw):[];
+      const blIpsRaw=kv?await kv.get('blacklist_ips'):null;
+      const blIps=blIpsRaw?JSON.parse(blIpsRaw):[];
+      const ip=getIP();
+      if(blUsers.includes(cu) || blIps.includes(ip)){
+        const h=cors(new Headers()); h.set('Content-Type','application/json');
+        return new Response(JSON.stringify({error:'You are banned from using this site.', banned:true}),{status:403, headers:h});
+      }
       const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
       const token=sign({id:1,username:cu,isAdmin},secret);
       const h=cors(new Headers()); h.set('Content-Type','application/json');
@@ -92,6 +107,15 @@ export default {
     }catch(e){ return new Response('Proxy error: '+(e.message||'failed'),{status:502, headers:cors(new Headers())});}
   }
   const kv=env.batprox_data;
+  const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
+  if(url.pathname==='/api/check-blacklist' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const ip=getIP();
+    const blRaw=kv?await kv.get('blacklist_ips'):null;
+    const bl=blRaw?JSON.parse(blRaw):[];
+    const isBanned=bl.includes(ip);
+    return new Response(JSON.stringify({banned:isBanned, ip}),{headers:h});
+  }
   if(url.pathname==='/api/my-games' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     return new Response(JSON.stringify({games:[]}),{headers:h});
@@ -164,6 +188,29 @@ export default {
       u.payLaterSince=payLater?new Date().toISOString():undefined;
       if(kv) await kv.put('users', JSON.stringify(arr));
       return new Response(JSON.stringify({success:true, payLater:u.payLater}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/blacklist' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username, ip}=await request.json();
+      const cu=String(username||'').trim();
+      let targetIp=String(ip||'').trim();
+      if(!targetIp){
+        const rawU=kv?await kv.get('users'):null;
+        const users=rawU?JSON.parse(rawU):[];
+        const u=users.find(x=>x.username===cu);
+        targetIp=(u&&u.lastIp)||getIP();
+      }
+      const raw=kv?await kv.get('blacklist_ips'):null;
+      let arr=raw?JSON.parse(raw):[];
+      if(!arr.includes(targetIp)) arr.push(targetIp);
+      if(kv) await kv.put('blacklist_ips', JSON.stringify(arr));
+      const rawB=kv?await kv.get('blacklist_users'):null;
+      let bUsers=rawB?JSON.parse(rawB):[];
+      if(cu && !bUsers.includes(cu)) bUsers.push(cu);
+      if(kv) await kv.put('blacklist_users', JSON.stringify(bUsers));
+      return new Response(JSON.stringify({success:true, ip:targetIp}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/revoke-key' && request.method==='POST'){
