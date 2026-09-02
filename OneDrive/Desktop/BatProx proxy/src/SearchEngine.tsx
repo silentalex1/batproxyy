@@ -177,8 +177,15 @@ export default function SearchEngine() {
     if (t) openTarget(t, useSandbox);
   };
   const handleLoad = () => {
-    clearTimer(); setLoading(false); setHasError(false);
     const f = iframeRef.current;
+    try {
+      if (f?.contentDocument?.documentElement?.innerHTML.includes('Error processing your request') || f?.contentDocument?.title.includes('Error')) {
+        if (!useSandbox) {
+          clearTimer(); setUseSandbox(true); setSrc(getSandboxUrl(new URLSearchParams(location.search).get('url') || url)); setKey(v => v + 1); return;
+        }
+      }
+    } catch {}
+    clearTimer(); setLoading(false); setHasError(false);
     try {
       if (!useSandbox && f?.contentDocument) {
         f.contentDocument.addEventListener('click', (e) => {

@@ -58,10 +58,51 @@ export default {
     }catch(e){ return new Response('Proxy error: '+(e.message||'failed'),{status:502});}
   }
   if(url.pathname.startsWith('/api/admin/feedbacks') || url.pathname.startsWith('/api/suggestions') || url.pathname.startsWith('/api/changelogs') || url.pathname.startsWith('/api/sites') || url.pathname==='/api/status-overrides' || url.pathname==='/api/admin/users' || url.pathname==='/api/admin/status'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
-    if(url.pathname==='/api/status-overrides') return new Response(JSON.stringify({overrides:[]}),{headers:h});
-    if(url.pathname==='/api/changelogs' && request.method==='GET') return new Response(JSON.stringify({changelogs:[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}]}),{headers:h});
-    if(url.pathname==='/api/sites' && request.method==='GET') return new Response(JSON.stringify({sites:[]}),{headers:h});
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const kv=env.batprox_data;
+    if(url.pathname==='/api/status-overrides' && request.method==='GET'){
+      const raw=kv?await kv.get('status_overrides'):null;
+      const overrides=raw?JSON.parse(raw):[];
+      return new Response(JSON.stringify({overrides}),{headers:h});
+    }
+    if(url.pathname==='/api/admin/status' && request.method==='POST'){
+      try{
+        const {name,color}=await request.json();
+        const raw=kv?await kv.get('status_overrides'):null;
+        let arr=raw?JSON.parse(raw):[];
+        const cleanName=String(name||'').trim().slice(0,60);
+        const cleanColor=String(color||'').toLowerCase();
+        if(cleanColor==='auto') arr=arr.filter((x)=>x.name!==cleanName);
+        else { const idx=arr.findIndex(x=>x.name===cleanName); if(idx>=0) arr[idx].color=cleanColor; else arr.push({name:cleanName,color:cleanColor}); }
+        if(kv) await kv.put('status_overrides', JSON.stringify(arr));
+        return new Response(JSON.stringify({success:true, name:cleanName, color:cleanColor}),{headers:h});
+      }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+    }
+    if(url.pathname==='/api/changelogs' && request.method==='GET'){
+      const raw=kv?await kv.get('changelogs'):null;
+      const changelogs=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
+      return new Response(JSON.stringify({changelogs}),{headers:h});
+    }
+    if(url.pathname==='/api/changelogs' && request.method==='POST'){
+      try{
+        const {version,title,description}=await request.json();
+        const raw=kv?await kv.get('changelogs'):null;
+        let arr=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
+        const id=arr.length?Math.max(...arr.map(x=>x.id))+1:1;
+        arr.unshift({id, version:String(version).slice(0,30), title:String(title).slice(0,120), description:String(description).slice(0,2000), created_at:new Date().toISOString()});
+        if(kv) await kv.put('changelogs', JSON.stringify(arr));
+        return new Response(JSON.stringify({success:true, id}),{headers:h});
+      }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+    }
+    if(url.pathname.startsWith('/api/changelogs/') && request.method==='DELETE'){
+      const id=parseInt(url.pathname.split('/').pop(),10);
+      const raw=kv?await kv.get('changelogs'):null;
+      let arr=raw?JSON.parse(raw):[];
+      arr=arr.filter(x=>x.id!==id);
+      if(kv) await kv.put('changelogs', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }
+    if(url.pathname==='/api/sites' && request.method==='GET'){ const raw=kv?await kv.get('sites'):null; const sites=raw?JSON.parse(raw):[]; return new Response(JSON.stringify({sites}),{headers:h}); }
     if(url.pathname==='/api/admin/feedbacks' || url.pathname==='/api/admin/users') return new Response(JSON.stringify({feedbacks:[], users:[]}),{headers:h});
     return new Response(JSON.stringify({success:true}),{headers:h});
   }

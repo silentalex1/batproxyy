@@ -98,15 +98,13 @@ export function initUltraviolet(): Promise<void> {
           }, { once: true });
         });
       }
-      const host = location.hostname.includes('stealthybat.org') ? 'api.stealthybat.org' : location.host;
-      const wispUrl =
-        (location.protocol === 'https:' ? 'wss' : 'ws') +
-        '://' +
-        host +
-        '/wisp/';
+      const wispUrl = 'wss://wisp.mercurywork.shop/wisp/';
       const connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
-      const transport = connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
-      await transport;
+      try {
+        await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
+      } catch {
+        await connection.setTransport('/epoxy/index.mjs', [{ wisp: 'wss://anura.terbium.work/wisp/' }]);
+      }
     })().catch((err) => {
       uvReady = null;
       throw err;

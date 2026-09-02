@@ -1,0 +1,14 @@
+name = "api-stealthybat"
+main = "worker.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "batprox_data"
+id = "17c9bb507da244849001427b49031223"
+preview_id = "17c9bb507da244849001427b49031223"
+
+[vars]
+SITE_URL = "https://stealthybat.org"
+
+# After deploy, add custom domain api.stealthybat.org in Dashboard > Workers > api-stealthybat > Settings > Domains & Routes
