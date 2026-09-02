@@ -27,22 +27,18 @@ const db = new sqlite3.Database(database);
 db.serialize(async () => {
   try {
     const hash = await bcrypt.hash(password, 12);
-    db.run('BEGIN TRANSACTION');
-    db.run('DELETE FROM admin_accounts');
-    db.run('DELETE FROM admin_users');
-    db.run('INSERT INTO admin_accounts (username, password_hash) VALUES (?, ?)', [username, hash]);
-    db.run('INSERT INTO admin_users (username, invite_code) VALUES (?, ?)', [username, invite]);
-    db.run('COMMIT', (error) => {
-      if (error) throw error;
-      console.log(JSON.stringify({ success: true, username, verified: true }));
-      db.close();
-    });
+    await new Promise((res, rej) => db.run('DELETE FROM admin_accounts WHERE username=?', [username], e => e?rej(e):res()));
+    await new Promise((res, rej) => db.run('DELETE FROM admin_users WHERE username=?', [username], e => e?rej(e):res()));
+    await new Promise((res, rej) => db.run('DELETE FROM users WHERE username=?', [username], e => e?rej(e):res()));
+    await new Promise((res, rej) => db.run('INSERT INTO admin_accounts (username, password_hash) VALUES (?, ?)', [username, hash], e => e?rej(e):res()));
+    await new Promise((res, rej) => db.run('INSERT INTO admin_users (username, invite_code) VALUES (?, ?)', [username, invite], e => e?rej(e):res()));
+    await new Promise((res, rej) => db.run('INSERT INTO users (username, invite_code) VALUES (?, ?)', [username, invite], e => e?rej(e):res()));
+    console.log(JSON.stringify({ success: true, username, verified: true }));
+    db.close();
   } catch (error) {
-    db.run('ROLLBACK', () => {
-      console.error(error.message);
-      db.close();
-      process.exitCode = 1;
-    });
+    console.error(error.message);
+    db.close();
+    process.exitCode = 1;
   }
 });
 """
