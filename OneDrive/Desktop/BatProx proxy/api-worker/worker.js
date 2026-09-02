@@ -59,13 +59,33 @@ export default {
     try{
       const parsed=new URL(targetUrl);
       if(!['http:','https:'].includes(parsed.protocol)) return new Response('Only HTTP and HTTPS allowed',{status:400});
-      const r=await fetch(targetUrl,{headers:{'User-Agent':'Mozilla/5.0 Chrome/120'}});
+      const r=await fetch(targetUrl,{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36','Accept':request.headers.get('accept')||'text/html,*/*','Accept-Language':'en-US,en;q=0.9'}});
       const ct=r.headers.get('content-type')||'text/html';
       let body=await r.arrayBuffer();
-      if(ct.includes('html')){ let t=new TextDecoder().decode(body); t=t.replace(/<head[^>]*>/i,m=>m+`<script>window.__bpBase=${JSON.stringify(parsed.href)};</script>`); body=new TextEncoder().encode(t); }
-      const h=new Headers(r.headers); h.set('Access-Control-Allow-Origin','*'); h.set('X-Proxy-Response','true'); h.set('Content-Type',ct);
+      const isText=/html|css|javascript|json|xml|svg|text\//i.test(ct);
+      let text=isText?new TextDecoder().decode(body):null;
+      if(text!==null && ct.includes('html')){
+        const base=parsed.href;
+        const proxyAsset=(raw, b)=>{ if(!raw) return raw; const t=String(raw).trim(); if(!t||t.startsWith('data:')||t.startsWith('javascript:')||t.startsWith('mailto:')||t.startsWith('#')||t.startsWith('blob:')||t.startsWith('/proxy')) return t; try{ const abs=new URL(t,b).href; return '/proxy?url='+encodeURIComponent(abs);}catch{return t;}};
+        const rewriteCss=(css,b)=>css.replace(/url\((['"]?)([^'")]+)\1\)/gi,(m,q,u)=>'url('+q+proxyAsset(u,b)+q+')');
+        text=text.replace(/<meta[^>]+http-equiv=["']?content-security-policy["']?[^>]*>/gi,'');
+        text=text.replace(/(src|href|action|poster|data-src|data-href)=(["'])([^"']+)\2/gi,(m,a,q,u)=>a+'='+q+proxyAsset(u,base)+q);
+        text=rewriteCss(text,base);
+        text=text.replace(/srcset=(["'])([^"']+)\1/gi,(m,q,v)=>{ const parts=v.split(',').map(p=>{const b=p.trim().split(/\s+/); b[0]=proxyAsset(b[0],base); return b.join(' ');}); return 'srcset='+q+parts.join(', ')+q;});
+        const inject=`<script>(function(){window.__bpBase=${JSON.stringify(base)};function p(u){try{if(!u||typeof u!=='string')return u;if(u.indexOf('data:')===0||u.indexOf('blob:')===0||u.indexOf('javascript:')===0||u.indexOf('about:')===0||u.indexOf('mailto:')===0||u.charAt(0)==='#')return u;if(u.indexOf('/proxy?url=')===0)return u;var a=new URL(u,window.__bpBase||document.baseURI);if(a.pathname==='/proxy'||a.pathname.indexOf('/proxy')===0||a.pathname.indexOf('/api')===0||a.pathname.indexOf('/wisp')===0||a.pathname.indexOf('/uv')===0||a.pathname.indexOf('/epoxy')===0||a.pathname.indexOf('/baremux')===0||a.pathname.indexOf('/site')===0)return a.href;var b=new URL(window.__bpBase||document.baseURI);if(a.origin===window.location.origin){return '/proxy?url='+encodeURIComponent(b.protocol+'//'+b.host+a.pathname+a.search+a.hash);}return '/proxy?url='+encodeURIComponent(a.href);}catch(e){return u;}}var of=window.fetch;window.fetch=function(i,n){try{if(typeof i==='string')return of(p(i),n);if(i&&typeof Request!=='undefined'&&i instanceof Request)return of(new Request(p(i.url),i),n);if(i&&i.url)return of(new Request(p(i.url),i),n);}catch(e){}return of(i,n);};var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=[].slice.call(arguments);if(typeof a[1]==='string')a[1]=p(a[1]);return oo.apply(this,a);};var osa=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){try{if(typeof v==='string'&&(n==='src'||n==='href'||n==='action')&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.indexOf('javascript:')!==0&&v.charAt(0)!=='#')v=p(v);}catch(e){}return osa.call(this,n,v);};})();<\/script>`;
+        const headOpen=text.match(/<head[^>]*>/i);
+        if(headOpen) text=text.replace(headOpen[0], headOpen[0]+inject);
+        else if(text.includes('</head>')) text=text.replace('</head>', inject+'</head>');
+        else text=inject+text;
+        body=new TextEncoder().encode(text);
+      } else if(text!==null && ct.includes('css')){
+        const proxyAsset=(raw,b)=>{ if(!raw) return raw; const t=String(raw).trim(); if(!t||t.startsWith('data:')) return t; try{return '/proxy?url='+encodeURIComponent(new URL(t,b).href);}catch{return t;}};
+        text=text.replace(/url\((['"]?)([^'")]+)\1\)/gi,(m,q,u)=>'url('+q+proxyAsset(u,parsed.href)+q+')');
+        body=new TextEncoder().encode(text);
+      }
+      const h=new Headers(r.headers); h.delete('content-security-policy'); h.delete('content-security-policy-report-only'); h.delete('x-frame-options'); h.set('Access-Control-Allow-Origin','*'); h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS'); h.set('Access-Control-Allow-Headers','*'); h.set('X-Proxy-Response','true'); h.set('Content-Type',ct);
       return new Response(body,{status:r.status, headers:h});
-    }catch(e){ return new Response('Proxy error: '+(e.message||'failed'),{status:502});}
+    }catch(e){ return new Response('Proxy error: '+(e.message||'failed'),{status:502, headers:cors(new Headers())});}
   }
   const kv=env.batprox_data;
   if(url.pathname==='/api/my-games' && request.method==='GET'){

@@ -7,7 +7,7 @@ function sign(payload: any, secret: string) {
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
 export async function onRequestPost(context: any) {
-  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://api.stealthybat.org';
+  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://authlogin.stealthlybat.it.com';
   const url = backend.replace(/\/$/,'') + '/api/auth/login';
   try {
     const body = await context.request.text();

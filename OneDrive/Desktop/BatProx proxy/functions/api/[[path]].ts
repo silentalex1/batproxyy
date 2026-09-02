@@ -1,6 +1,6 @@
 export async function onRequest(context:any){
   const url=new URL(context.request.url);
-  const target='https://api.stealthybat.org'+url.pathname+url.search;
+  const target='https://authlogin.stealthlybat.it.com'+url.pathname+url.search;
   try{
     const r=await fetch(target,{method:context.request.method, headers:context.request.headers, body:context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer()});
     const body=await r.arrayBuffer();

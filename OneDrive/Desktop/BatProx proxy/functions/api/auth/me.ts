@@ -1,5 +1,5 @@
 export async function onRequestGet(context: any) {
-  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://api.stealthybat.org';
+  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://authlogin.stealthlybat.it.com';
   const url = backend.replace(/\/$/,'') + '/api/auth/me';
   const auth = context.request.headers.get('Authorization') || '';
   try {
