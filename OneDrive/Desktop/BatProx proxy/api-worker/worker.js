@@ -53,6 +53,9 @@ export default {
       return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid token'}),{status:403});}
   }
+  if(url.pathname.includes('/csp_report') || url.pathname.includes('/storage_report') || url.pathname.includes('/logClientError') || url.pathname.includes('/trace/trace')){
+    return new Response(null,{status:204, headers:cors(new Headers())});
+  }
   if(url.pathname==='/proxy' || url.pathname.startsWith('/proxy/')){
     const targetUrl=url.searchParams.get('url');
     if(!targetUrl) return new Response('URL parameter is required',{status:400});
@@ -219,6 +222,25 @@ export default {
     arr=arr.filter(x=>x.id!==id);
     if(kv) await kv.put('changelogs', JSON.stringify(arr));
     return new Response(JSON.stringify({success:true}),{headers:h});
+  }
+  if(url.pathname.startsWith('/api/suggestions/') && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const userId=decodeURIComponent(url.pathname.split('/').pop()||'');
+    const raw=kv?await kv.get('feedbacks'):null;
+    const all=raw?JSON.parse(raw):[];
+    const filtered=all.filter(x=>x.user_identifier===userId && (x.status==='approved'||x.status==='declined')).slice(-5);
+    return new Response(JSON.stringify({notifications:filtered}),{headers:h});
+  }
+  if((url.pathname==='/api/admin/approve-feedback' || url.pathname==='/api/admin/decline-feedback') && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {suggestionId}=await request.json();
+      const raw=kv?await kv.get('feedbacks'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const item=arr.find(x=>x.id===Number(suggestionId));
+      if(item){ item.status=url.pathname.includes('approve')?'approved':'declined'; item.approved_at=new Date().toISOString(); if(kv) await kv.put('feedbacks', JSON.stringify(arr)); }
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/sites' && request.method==='GET'){ const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store'); const raw=kv?await kv.get('sites'):null; const sites=raw?JSON.parse(raw):[]; return new Response(JSON.stringify({sites}),{headers:h}); }
   if(url.pathname==='/api/sites' && request.method==='POST'){
