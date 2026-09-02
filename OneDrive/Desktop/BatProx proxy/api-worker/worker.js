@@ -21,17 +21,27 @@ export default {
   }
   if(url.pathname==='/api/auth/login' && request.method==='POST'){
     try{
-      const {username, inviteCode}=await request.json();
+      const body=await request.json();
+      const username=body.username, inviteCode=body.inviteCode;
       if(!username||!inviteCode) return new Response(JSON.stringify({error:'Username and invite code are required'}),{status:400, headers:{'Content-Type':'application/json'}});
       const cu=String(username).trim(), cc=String(inviteCode).trim();
       if(cu.length<3||cu.length>20) return new Response(JSON.stringify({error:'Username must be between 3 and 20 characters'}),{status:400, headers:{'Content-Type':'application/json'}});
-      if(!VALID_CODES.has(cc)) return new Response(JSON.stringify({error:'Invalid invite code'}),{status:401, headers:{'Content-Type':'application/json'}});
+      try{
+        const rawU=kv?await kv.get('users'):null;
+        const users=rawU?JSON.parse(rawU||'[]'):[];
+        const found=users.find(x=>x.username===cu);
+        if(found){
+          if(found.invite_code!==cc) return new Response(JSON.stringify({error:'Invite code does not match this account'}),{status:401, headers:{'Content-Type':'application/json'}});
+        } else {
+          if(!VALID_CODES.has(cc)) return new Response(JSON.stringify({error:'Invalid invite code'}),{status:401, headers:{'Content-Type':'application/json'}});
+        }
+      }catch{}
       const isAdmin= cc==='FOX-CORE'||cc==='batprox-admin$$'||cu==='realalex'||cu==='admin';
       const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
       const token=sign({id:1,username:cu,isAdmin},secret);
       const h=cors(new Headers()); h.set('Content-Type','application/json');
       return new Response(JSON.stringify({success:true, token, user:{id:1, username:cu}}),{headers:h});
-    }catch(e){ return new Response(JSON.stringify({error:'Internal error'}),{status:500});}
+    }catch(e){ return new Response(JSON.stringify({error:'Login failed: '+(e.message||'unknown')}),{status:500, headers:{'Content-Type':'application/json'}});}
   }
   if(url.pathname==='/api/auth/me'){
     const auth=request.headers.get('Authorization')||'';
@@ -57,60 +67,168 @@ export default {
       return new Response(body,{status:r.status, headers:h});
     }catch(e){ return new Response('Proxy error: '+(e.message||'failed'),{status:502});}
   }
-  if(url.pathname.startsWith('/api/admin/feedbacks') || url.pathname.startsWith('/api/suggestions') || url.pathname.startsWith('/api/changelogs') || url.pathname.startsWith('/api/sites') || url.pathname==='/api/status-overrides' || url.pathname==='/api/admin/users' || url.pathname==='/api/admin/status'){
+  const kv=env.batprox_data;
+  if(url.pathname==='/api/my-games' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
-    const kv=env.batprox_data;
-    if(url.pathname==='/api/status-overrides' && request.method==='GET'){
-      const raw=kv?await kv.get('status_overrides'):null;
-      const overrides=raw?JSON.parse(raw):[];
-      return new Response(JSON.stringify({overrides}),{headers:h});
-    }
-    if(url.pathname==='/api/admin/status' && request.method==='POST'){
-      try{
-        const {name,color}=await request.json();
-        const raw=kv?await kv.get('status_overrides'):null;
-        let arr=raw?JSON.parse(raw):[];
-        const cleanName=String(name||'').trim().slice(0,60);
-        const cleanColor=String(color||'').toLowerCase();
-        if(cleanColor==='auto') arr=arr.filter((x)=>x.name!==cleanName);
-        else { const idx=arr.findIndex(x=>x.name===cleanName); if(idx>=0) arr[idx].color=cleanColor; else arr.push({name:cleanName,color:cleanColor}); }
-        if(kv) await kv.put('status_overrides', JSON.stringify(arr));
-        return new Response(JSON.stringify({success:true, name:cleanName, color:cleanColor}),{headers:h});
-      }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
-    }
-    if(url.pathname==='/api/changelogs' && request.method==='GET'){
-      const raw=kv?await kv.get('changelogs'):null;
-      const changelogs=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
-      return new Response(JSON.stringify({changelogs}),{headers:h});
-    }
-    if(url.pathname==='/api/changelogs' && request.method==='POST'){
-      try{
-        const {version,title,description}=await request.json();
-        const raw=kv?await kv.get('changelogs'):null;
-        let arr=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
-        const id=arr.length?Math.max(...arr.map(x=>x.id))+1:1;
-        arr.unshift({id, version:String(version).slice(0,30), title:String(title).slice(0,120), description:String(description).slice(0,2000), created_at:new Date().toISOString()});
-        if(kv) await kv.put('changelogs', JSON.stringify(arr));
-        return new Response(JSON.stringify({success:true, id}),{headers:h});
-      }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
-    }
-    if(url.pathname.startsWith('/api/changelogs/') && request.method==='DELETE'){
-      const id=parseInt(url.pathname.split('/').pop(),10);
-      const raw=kv?await kv.get('changelogs'):null;
+    return new Response(JSON.stringify({games:[]}),{headers:h});
+  }
+  if(url.pathname==='/api/suggestions' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {content,userIdentifier,genre}=await request.json();
+      const raw=kv?await kv.get('feedbacks'):null;
       let arr=raw?JSON.parse(raw):[];
-      arr=arr.filter(x=>x.id!==id);
-      if(kv) await kv.put('changelogs', JSON.stringify(arr));
-      return new Response(JSON.stringify({success:true}),{headers:h});
+      arr.push({id:arr.length+1, content:String(content).slice(0,1000), user_identifier:userIdentifier||'anonymous', genre:genre||'Feedback suggestions', submitted_at:new Date().toISOString(), status:'pending'});
+      if(kv) await kv.put('feedbacks', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, id:arr.length}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/ai/chat' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const apiKey=env.OPENROUTER_API_KEY;
+    if(apiKey){
+      try{
+        const formData=await request.formData().catch(()=>null);
+        let message='';
+        if(formData) message=String(formData.get('message')||'');
+        else { const j=await request.json().catch(()=>({})); message=String(j.message||''); }
+        const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey,'HTTP-Referer':'https://stealthybat.org','X-Title':'Bat Prox'}, body:JSON.stringify({model:'stealth/ox-alpha', messages:[{role:'user', content:message||'hi'}]})});
+        const d=await r.text();
+        return new Response(d,{status:r.status, headers:h});
+      }catch(e){ return new Response(JSON.stringify({response:'AI temporarily unavailable'}),{headers:h});}
     }
-    if(url.pathname==='/api/sites' && request.method==='GET'){ const raw=kv?await kv.get('sites'):null; const sites=raw?JSON.parse(raw):[]; return new Response(JSON.stringify({sites}),{headers:h}); }
-    if(url.pathname==='/api/admin/feedbacks' || url.pathname==='/api/admin/users') return new Response(JSON.stringify({feedbacks:[], users:[]}),{headers:h});
+    return new Response(JSON.stringify({response:'AI service active — configure OPENROUTER_API_KEY for full responses'}),{headers:h});
+  }
+  if(url.pathname==='/api/admin/create-user' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {username,inviteCode}=await request.json();
+      const cu=String(username||'').trim(), cc=String(inviteCode||'').trim();
+      if(!cu||!cc) return new Response(JSON.stringify({error:'Username and invite code required'}),{status:400, headers:h});
+      if(cu.length<3||cu.length>20) return new Response(JSON.stringify({error:'Username must be 3-20 characters'}),{status:400, headers:h});
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      if(arr.find(x=>x.username===cu)) return new Response(JSON.stringify({error:'Username already exists'}),{status:409, headers:h});
+      arr.push({id:arr.length+1, username:cu, invite_code:cc, created_at:new Date().toISOString()});
+      if(kv) await kv.put('users', JSON.stringify(arr));
+      VALID_CODES.add(cc);
+      return new Response(JSON.stringify({success:true, id:arr.length}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/remove-user' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username}=await request.json();
+      const cu=String(username||'').trim();
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      arr=arr.filter(x=>x.username!==cu);
+      if(kv) await kv.put('users', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/revoke-key' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username,newCode}=await request.json();
+      const cu=String(username||'').trim(), nc=String(newCode||'').trim();
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const u=arr.find(x=>x.username===cu);
+      if(!u) return new Response(JSON.stringify({error:'Account not found'}),{status:404, headers:h});
+      u.invite_code=nc; VALID_CODES.add(nc);
+      if(kv) await kv.put('users', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/users' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('users'):null;
+    const users=raw?JSON.parse(raw):[];
+    return new Response(JSON.stringify({users}),{headers:h});
+  }
+  if(url.pathname==='/api/admin/feedbacks' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('feedbacks'):null;
+    const feedbacks=raw?JSON.parse(raw):[];
+    return new Response(JSON.stringify({feedbacks}),{headers:h});
+  }
+  if(url.pathname==='/api/status-overrides' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('status_overrides'):null;
+    const overrides=raw?JSON.parse(raw):[];
+    return new Response(JSON.stringify({overrides}),{headers:h});
+  }
+  if(url.pathname==='/api/admin/status' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {name,color}=await request.json();
+      const raw=kv?await kv.get('status_overrides'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const cleanName=String(name||'').trim().slice(0,60);
+      const cleanColor=String(color||'').toLowerCase();
+      if(cleanColor==='auto') arr=arr.filter((x)=>x.name!==cleanName);
+      else { const idx=arr.findIndex(x=>x.name===cleanName); if(idx>=0) arr[idx].color=cleanColor; else arr.push({name:cleanName,color:cleanColor}); }
+      if(kv) await kv.put('status_overrides', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, name:cleanName, color:cleanColor}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:cors(new Headers())});}
+  }
+  if(url.pathname==='/api/changelogs' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('changelogs'):null;
+    const changelogs=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
+    return new Response(JSON.stringify({changelogs}),{headers:h});
+  }
+  if(url.pathname==='/api/changelogs' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {version,title,description}=await request.json();
+      const raw=kv?await kv.get('changelogs'):null;
+      let arr=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
+      const id=arr.length?Math.max(...arr.map(x=>x.id))+1:1;
+      arr.unshift({id, version:String(version).slice(0,30), title:String(title).slice(0,120), description:String(description).slice(0,2000), created_at:new Date().toISOString()});
+      if(kv) await kv.put('changelogs', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, id}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname.startsWith('/api/changelogs/') && request.method==='DELETE'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const id=parseInt(url.pathname.split('/').pop(),10);
+    const raw=kv?await kv.get('changelogs'):null;
+    let arr=raw?JSON.parse(raw):[];
+    arr=arr.filter(x=>x.id!==id);
+    if(kv) await kv.put('changelogs', JSON.stringify(arr));
     return new Response(JSON.stringify({success:true}),{headers:h});
   }
+  if(url.pathname==='/api/sites' && request.method==='GET'){ const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store'); const raw=kv?await kv.get('sites'):null; const sites=raw?JSON.parse(raw):[]; return new Response(JSON.stringify({sites}),{headers:h}); }
+  if(url.pathname==='/api/sites' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {name,html,owner}=await request.json();
+      const raw=kv?await kv.get('sites'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const idx=arr.findIndex(x=>x.name===name);
+      if(idx>=0) arr[idx]={name, html, owner, updated_at:new Date().toISOString()};
+      else arr.push({name, html, owner, updated_at:new Date().toISOString()});
+      if(kv) await kv.put('sites', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, name}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
   if(url.pathname.startsWith('/api/')){
-    return new Response(JSON.stringify({error:'Not implemented on edge, use backend'}),{status:501, headers:{'Content-Type':'application/json'}});
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    return new Response(JSON.stringify({error:'Endpoint not implemented', path:url.pathname}),{status:404, headers:h});
   }
   if(url.pathname.startsWith('/wisp')){
-    return new Response('Wisp requires Node backend at api.stealthybat.org — use /proxy fallback', {status:101, headers:cors(new Headers())});
+    const upgrade=request.headers.get('Upgrade');
+    if(upgrade && upgrade.toLowerCase()==='websocket'){
+      try{
+        const upstream='https://wisp.mercurywork.shop/wisp/';
+        const headers=new Headers(request.headers);
+        headers.set('Host','wisp.mercurywork.shop');
+        return await fetch(upstream, {headers, method:request.method});
+      }catch(e){ return new Response('Wisp upstream failed', {status:502, headers:cors(new Headers())});}
+    }
+    return new Response('Wisp requires websocket', {status:426, headers:cors(new Headers())});
   }
   return new Response('Not found',{status:404});
  }
