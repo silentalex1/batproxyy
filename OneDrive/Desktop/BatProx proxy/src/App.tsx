@@ -14,6 +14,7 @@ import Chatting from './Chatting';
 import AutoLogout from './AutoLogout';
 import PageChrome from './PageChrome';
 import TOS from './TOS';
+import { Navigate } from 'react-router-dom';
 import { AmbientBg, SideRail, DashNav, RotatingTagline } from './Chrome';
 import { buildSearchUrl, MOVIES_URL } from './engines';
 import { initUltraviolet } from './uv';
@@ -462,6 +463,7 @@ export default function App() {
         <Route path="/admin-panel" element={<AdminPanel />} />
         <Route path="/TOS" element={<TOS />} />
         <Route path="/homework" element={<MoreGames />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
         <Route path="/ai-work" element={<AIWork />} />
         <Route path="/changelog" element={<Changelog />} />
         <Route path="/bat-status" element={<BatStatus />} />
