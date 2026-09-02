@@ -1,13 +1,12 @@
 export async function onRequestGet(context: any) {
-  const backend = context.env?.BACKEND_URL || context.env?.API_URL;
-  if (backend) {
-    const url = backend.replace(/\/$/,'') + '/api/auth/me';
-    const auth = context.request.headers.get('Authorization') || '';
+  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://api.stealthybat.org';
+  const url = backend.replace(/\/$/,'') + '/api/auth/me';
+  const auth = context.request.headers.get('Authorization') || '';
+  try {
     const r = await fetch(url, { headers:{'Authorization': auth}});
     const data = await r.text();
-    return new Response(data, { status: r.status, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
-  }
-  const auth = context.request.headers.get('Authorization') || '';
+    if (r.ok || r.status===401 || r.status===403) return new Response(data, { status: r.status, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
+  } catch {}
   const token = auth.split(' ')[1] || '';
   if (!token) return new Response(JSON.stringify({error:'Access token required'}),{status:401, headers:{'Content-Type':'application/json'}});
   try {

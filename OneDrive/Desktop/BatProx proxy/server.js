@@ -197,7 +197,7 @@ app.use(helmet({
 app.disable('x-powered-by');
 
 app.use(cors({
-  origin: ['https://stealthybat.org', 'https://www.stealthybat.org', 'http://localhost:5179', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'http://localhost:5180'],
+  origin: ['https://stealthybat.org', 'https://www.stealthybat.org', 'https://api.stealthybat.org', 'http://localhost:5179', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'http://localhost:5180'],
   credentials: true
 }));
 
@@ -1629,7 +1629,13 @@ app.post('/api/admin/status', authenticateToken, requireAdmin, (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  res.json({ status: 'StealthyBat API online — backend is handling accounts & proxy', domain: 'api.stealthybat.org', timestamp: new Date().toISOString() });
+});
+app.get('/', (req, res, next) => {
+  if (req.headers.host && req.headers.host.includes('api.stealthybat.org')) {
+    return res.json({ message: 'StealthyBat backend — not hello world', docs: 'https://stealthybat.org/api-status/docs', health: '/health' });
+  }
+  return next();
 });
 
 const SITE_NAME_RE = /^[a-zA-Z0-9._-]{1,40}$/;

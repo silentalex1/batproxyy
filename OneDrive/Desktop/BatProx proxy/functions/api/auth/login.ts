@@ -7,14 +7,15 @@ function sign(payload: any, secret: string) {
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
 export async function onRequestPost(context: any) {
-  const backend = context.env?.BACKEND_URL || context.env?.API_URL;
-  if (backend) {
-    const url = backend.replace(/\/$/,'') + '/api/auth/login';
+  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://api.stealthybat.org';
+  const url = backend.replace(/\/$/,'') + '/api/auth/login';
+  try {
     const body = await context.request.text();
     const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body });
     const data = await r.text();
-    return new Response(data, { status: r.status, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
-  }
+    if (r.ok) return new Response(data, { status: r.status, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
+  } catch {}
+  // fallback to edge if backend unreachable
   try {
     const {username, inviteCode} = await context.request.json();
     if (!username || !inviteCode) return new Response(JSON.stringify({error:'Username and invite code are required'}),{status:400, headers:{'Content-Type':'application/json'}});

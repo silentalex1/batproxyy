@@ -2,8 +2,9 @@ import json
 import os
 import subprocess
 
-DOMAIN = "https://stealthybat.org"
+DOMAIN = "https://api.stealthybat.org"
 USE_REMOTE = os.environ.get("BATPROX_DOMAIN") or DOMAIN
+SITE_DOMAIN = "https://stealthybat.org"
 
 username = input("Enter account username you want: ").strip()
 if not 3 <= len(username) <= 20:

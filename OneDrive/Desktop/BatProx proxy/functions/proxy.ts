@@ -4,17 +4,19 @@ export async function onRequestOptions() {
   return new Response(null,{status:204, headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'*'}});
 }
 async function handle(context: any) {
-  const backend = context.env?.BACKEND_URL || context.env?.API_URL;
-  if (backend) {
+  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://api.stealthybat.org';
+  try {
     const url = new URL(context.request.url);
     const target = backend.replace(/\/$/,'') + '/proxy' + url.search;
     const r = await fetch(target, { method: context.request.method, headers: context.request.headers });
-    const body = await r.arrayBuffer();
-    const h = new Headers(r.headers);
-    h.set('Access-Control-Allow-Origin','*');
-    h.set('X-Proxy-Response','true');
-    return new Response(body, { status: r.status, headers: h });
-  }
+    if (r.ok || r.status < 500) {
+      const body = await r.arrayBuffer();
+      const h = new Headers(r.headers);
+      h.set('Access-Control-Allow-Origin','*');
+      h.set('X-Proxy-Response','true');
+      return new Response(body, { status: r.status, headers: h });
+    }
+  } catch {}
   const url = new URL(context.request.url);
   const targetUrl = url.searchParams.get('url');
   if (!targetUrl) return new Response('URL parameter is required',{status:400});
