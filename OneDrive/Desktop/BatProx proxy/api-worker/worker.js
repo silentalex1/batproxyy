@@ -151,6 +151,21 @@ export default {
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/admin/pay-later' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username,payLater}=await request.json();
+      const cu=String(username||'').trim();
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const u=arr.find(x=>x.username===cu);
+      if(!u) return new Response(JSON.stringify({error:'Account not found'}),{status:404, headers:h});
+      u.payLater=!!payLater;
+      u.payLaterSince=payLater?new Date().toISOString():undefined;
+      if(kv) await kv.put('users', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, payLater:u.payLater}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
   if(url.pathname==='/api/admin/revoke-key' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json');
     try{

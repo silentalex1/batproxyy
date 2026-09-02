@@ -15,13 +15,17 @@ interface UserAccount {
   username: string;
   invite_code: string;
   created_at: string;
+  payLater?: boolean;
+  payLaterSince?: string;
 }
 
 export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'accounts'>('feedbacks');
+  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater'>('feedbacks');
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
+  const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [userSearch, setUserSearch] = useState('');
@@ -94,10 +98,77 @@ export default function AdminPanel() {
     check();
   }, []);
 
+  const loadStatusOverrides = async () => {
+    try {
+      const response = await fetch('/api/status-overrides', { cache: 'no-store' });
+      const data = await response.json();
+      const map: Record<string, string> = {};
+      (data.overrides || []).forEach((o: { name: string; color: string }) => {
+        map[o.name] = o.color;
+      });
+      setStatusOverrides(map);
+    } catch {
+    }
+  };
+
+  const saveStatus = async (name: string, color: string) => {
+    setError('');
+    try {
+      const response = await fetch('/api/admin/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ name, color })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setStatusOverrides(prev => {
+          const next = { ...prev };
+          if (color === 'auto') delete next[name];
+          else next[name] = color;
+          return next;
+        });
+        try {
+          localStorage.setItem('bp-status-bump', String(Date.now()));
+          const ch = new BroadcastChannel('batprox-status');
+          ch.postMessage({ type: 'status-updated', name, color });
+          ch.close();
+        } catch {
+        }
+        setMessage(`Status for ${name} set to ${color}`);
+        setTimeout(() => setMessage(''), 2000);
+      } else {
+        setError(data.error || 'Failed to save status');
+      }
+    } catch {
+      setError('Network error while saving status');
+    }
+  };
+
   useEffect(() => {
     if (isAuthed && tab === 'feedbacks') loadFeedbacks();
-    if (isAuthed && tab === 'accounts') loadUsers();
+    if (isAuthed && (tab === 'accounts' || tab === 'paylater')) loadUsers();
+    if (isAuthed && tab === 'status') loadStatusOverrides();
   }, [isAuthed, tab]);
+
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('batprox-status');
+      channel.onmessage = () => loadStatusOverrides();
+    } catch {
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'bp-status-bump') loadStatusOverrides();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      channel?.close();
+    };
+  }, []);
 
   const handleDecline = async (suggestionId: number) => {
     setError('');
@@ -232,6 +303,23 @@ export default function AdminPanel() {
     }
   };
 
+  const togglePayLater = async (user: UserAccount) => {
+    setError('');
+    try {
+      const response = await fetch('/api/admin/pay-later', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+        body: JSON.stringify({ username: user.username, payLater: !user.payLater })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setUsers(prev => prev.map(u => u.username === user.username ? { ...u, payLater: !u.payLater, payLaterSince: !u.payLater ? new Date().toISOString() : undefined } : u));
+        setMessage(data.message || (!user.payLater ? 'Marked as pay-later (due in 7 days)' : 'Removed from pay-later'));
+        setTimeout(() => setMessage(''), 2000);
+      } else setError(data.error || 'Failed to update pay-later');
+    } catch { setError('Network error while updating pay-later'); }
+  };
+
   const logout = () => {
     localStorage.removeItem('batprox-token');
     localStorage.removeItem('batprox-user');
@@ -343,6 +431,28 @@ export default function AdminPanel() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3" />
               </svg>
               Create user accounts
+            </button>
+            <button
+              onClick={() => setTab('status')}
+              className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${
+                tab === 'status' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Status change
+            </button>
+            <button
+              onClick={() => setTab('paylater')}
+              className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${
+                tab === 'paylater' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0 0V6m0 8v2m-7-4a7 7 0 1114 0 7 7 0 01-14 0z" />
+              </svg>
+              Pay-later reminder
             </button>
           </nav>
 
@@ -479,6 +589,71 @@ export default function AdminPanel() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {tab === 'status' && (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">Status change</h2>
+                <p className="text-gray-500 text-sm mb-5">Manually set how each service shows on the API Status page. Green = available, purple = fixing, red = down, auto = real check.</p>
+                <div className="space-y-3">
+                  {SERVICES.map((service) => {
+                    const current = statusOverrides[service] || 'auto';
+                    const options = [
+                      { id: 'green', label: 'Green', dot: 'bg-green-400' },
+                      { id: 'purple', label: 'Purple', dot: 'bg-purple-400' },
+                      { id: 'red', label: 'Red', dot: 'bg-red-400' },
+                      { id: 'auto', label: 'Auto', dot: 'bg-white/40' }
+                    ];
+                    return (
+                      <div key={service} className="bg-black/40 border border-white/10 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`w-2.5 h-2.5 rounded-full ${options.find(o => o.id === current)?.dot}`} />
+                          <span className="text-sm font-medium text-white/90">{service}</span>
+                          <span className="text-[11px] text-gray-500 uppercase tracking-wide">{current}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          {options.map((o) => (
+                            <button
+                              key={o.id}
+                              onClick={() => saveStatus(service, o.id)}
+                              className={`text-xs px-3.5 py-1.5 rounded-lg border transition-all font-medium flex items-center gap-1.5 ${
+                                current === o.id
+                                  ? 'bg-white/[0.1] text-white border-white/25'
+                                  : 'bg-white/[0.03] text-white/55 border-white/10 hover:bg-white/[0.07] hover:text-white'
+                              }`}
+                            >
+                              <span className={`w-2 h-2 rounded-full ${o.dot}`} />
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {tab === 'paylater' && (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">Pay-later reminder</h2>
+                <p className="text-gray-500 text-sm mb-5">Validated users due within 7 days. Orange = pay-later.</p>
+                {filteredUsers.length === 0 ? <p className="text-gray-500 text-sm text-center py-6">No validated users.</p> : (
+                  <div className="space-y-2">
+                    {filteredUsers.map(u => {
+                      const due = u.payLater && u.payLaterSince ? new Date(new Date(u.payLaterSince).getTime()+7*24*60*60*1000).toLocaleDateString() : '';
+                      return (
+                        <div key={u.id} className={`flex items-center justify-between gap-4 rounded-lg px-4 py-3 border transition-colors ${u.payLater ? 'bg-orange-500/10 border-orange-500/30' : 'bg-white/[0.03] border-white/5'}`}>
+                          <div className="min-w-0">
+                            <p className={`text-sm font-medium truncate ${u.payLater ? 'text-orange-300' : 'text-white'}`}>{u.username} {u.payLater && <span className="text-[10px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full ml-2">pay-later {due}</span>}</p>
+                            <p className="text-[11px] text-gray-500">code: <span className="text-gray-400">{u.invite_code}</span> · added {new Date(u.created_at).toLocaleDateString()}</p>
+                          </div>
+                          <button onClick={() => togglePayLater(u)} className={`text-xs px-3 py-1.5 rounded-lg border transition-all shrink-0 ${u.payLater ? 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10' : 'bg-orange-500/15 text-orange-300 border-orange-500/30 hover:bg-orange-500/30'}`}>{u.payLater ? 'remove' : 'will pay-later'}</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
