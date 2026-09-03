@@ -18,15 +18,18 @@ export async function onRequest(context:any){
       }catch{}
     }
   }
-  const target='https://authlogin.stealthlybat.it.com'+url.pathname+url.search;
-  try{
-    const r=await fetch(target,{method:context.request.method, headers:context.request.headers, body:context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer()});
-    const body=await r.arrayBuffer();
-    const h=new Headers(r.headers);
-    h.set('Access-Control-Allow-Origin','https://stealthybat.org');
-    h.set('Access-Control-Allow-Credentials','true');
-    return new Response(body,{status:r.status, headers:h});
-  }catch(e:any){
-    return new Response(JSON.stringify({error:'Backend unreachable'}),{status:502, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
+  const backends=['https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
+  const reqBody=context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer();
+  for(const backend of backends){
+    try{
+      const r=await fetch(backend+url.pathname+url.search,{method:context.request.method, headers:context.request.headers, body:reqBody});
+      if(r.status>=500) continue;
+      const body=await r.arrayBuffer();
+      const h=new Headers(r.headers);
+      h.set('Access-Control-Allow-Origin','https://stealthybat.org');
+      h.set('Access-Control-Allow-Credentials','true');
+      return new Response(body,{status:r.status, headers:h});
+    }catch{}
   }
+  return new Response(JSON.stringify({error:'Backend unreachable'}),{status:502, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
 }
