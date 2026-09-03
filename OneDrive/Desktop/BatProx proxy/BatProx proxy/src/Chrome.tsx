@@ -180,8 +180,11 @@ export function TopBar({ children }: { children: React.ReactNode }) {
 export function DashNav({
   username,
   isAdmin,
+  isMod,
   onLogout,
   onAdmin,
+  onStaff,
+  onLeaderboards,
   onChangelogs,
   onStatus,
   onSuggestions,
@@ -189,8 +192,11 @@ export function DashNav({
 }: {
   username: string;
   isAdmin: boolean;
+  isMod?: boolean;
   onLogout: () => void;
   onAdmin: () => void;
+  onStaff?: () => void;
+  onLeaderboards?: () => void;
   onChangelogs: () => void;
   onStatus: () => void;
   onSuggestions: () => void;
@@ -206,10 +212,15 @@ export function DashNav({
           {isAdmin && (
             <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-emerald-950/80 text-emerald-300">ADMIN</span>
           )}
+          {!isAdmin && isMod && (
+            <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-blue-950/80 text-blue-300">MODERATOR</span>
+          )}
         </span>
       </div>
       <div className="flex items-center gap-2">
         {isAdmin && <NavBtn onClick={onAdmin}>Admin</NavBtn>}
+        {(isMod || isAdmin) && onStaff && <NavBtn onClick={onStaff}>Staff panel</NavBtn>}
+        {onLeaderboards && <NavBtn onClick={onLeaderboards}>User Leaderboards</NavBtn>}
         <NavBtn onClick={onChangelogs}>Changelogs</NavBtn>
         <NavBtn className="hidden md:inline-flex" onClick={onStatus}>Status</NavBtn>
         <NavBtn className="hidden md:inline-flex" onClick={onSuggestions}>Suggestions</NavBtn>

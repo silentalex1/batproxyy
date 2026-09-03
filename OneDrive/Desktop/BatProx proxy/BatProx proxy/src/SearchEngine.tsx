@@ -4,6 +4,8 @@ import Settings from './Settings';
 import { initUltraviolet, getUvUrl, getSandboxUrl, decodeProxiedLocation } from './uv';
 import { AmbientBg, BatteryIndicator, SideRail, NavBtn } from './Chrome';
 import { buildSearchUrl, MOVIES_URL } from './engines';
+import { startPresence } from './presence';
+import { useLowPower } from './power';
 
 export default function SearchEngine() {
   const navigate = useNavigate();
@@ -21,7 +23,9 @@ export default function SearchEngine() {
   const [newSiteHtml, setNewSiteHtml] = useState('');
   const [sitesNotice, setSitesNotice] = useState('');
   const [suggestionText, setSuggestionText] = useState('');
+  const [suggestionTitle, setSuggestionTitle] = useState('');
   const [showSuggest, setShowSuggest] = useState(false);
+  useLowPower();
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -37,6 +41,10 @@ export default function SearchEngine() {
   }, []);
 
   const openTarget = useCallback((target: string, forceSandbox = false) => {
+    try {
+      const u = new URL(target.includes('://') ? target : 'https://' + target);
+      if (u.hostname.includes('stealthybat.org') || u.hostname.includes('stealthlybat.it.com')) { navigate('/dashboard'); return; }
+    } catch {}
     if (target.includes('stealthybat.org') || target.includes('stealthlybat.it.com') || target.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
     if (target.includes('triplethd') || target.includes('noordware')) forceSandbox = true;
     setUrl(target);
@@ -73,7 +81,7 @@ export default function SearchEngine() {
     });
   }, [clearTimer, skipLoading]);
 
-  useEffect(() => { initUltraviolet().catch(() => {}); return () => clearTimer(); }, [clearTimer]);
+  useEffect(() => { initUltraviolet().catch(() => {}); startPresence(); return () => clearTimer(); }, [clearTimer]);
 
   useEffect(() => {
     const t = new URLSearchParams(location.search).get('url');
@@ -96,6 +104,7 @@ export default function SearchEngine() {
     const onMessage = (e: MessageEvent) => {
       if (!e.data || e.data.type !== 'batprox-nav' || !e.data.url) return;
       const next = e.data.url;
+      if (next.includes('stealthybat.org') || next.includes('stealthlybat.it.com')) return;
       skipNext.current = true;
       setUrl(next);
       setHistory(prev => {
@@ -210,7 +219,14 @@ export default function SearchEngine() {
         }, true);
       }
       const href = f?.contentWindow?.location.href;
-      if (href) { const d = decodeProxiedLocation(href); if (d) setUrl(d); }
+      if (href) {
+        if (href.includes('stealthybat.org') && !href.includes('/proxy?url=') && !href.includes('/__uv/') && !href.includes('/uv/')) { navigate('/dashboard'); return; }
+        const d = decodeProxiedLocation(href);
+        if (d) {
+          if (d.includes('stealthybat.org') || d.includes('stealthlybat.it.com')) { navigate('/dashboard'); return; }
+          setUrl(d);
+        }
+      }
     } catch {}
   };
   const handleError = () => {
@@ -222,8 +238,8 @@ export default function SearchEngine() {
     e.preventDefault();
     if (!suggestionText.trim()) return;
     try {
-      const r = await fetch('/api/suggestions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: suggestionText, userIdentifier: 'user-' + Math.random().toString(36).slice(2, 9) }) });
-      if (r.ok) { setShowSuggest(false); setSuggestionText(''); } else { const d = await r.json(); setSitesNotice(d.error || 'Failed'); }
+      const r = await fetch('/api/suggestions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: suggestionTitle, content: suggestionText, userIdentifier: 'user-' + Math.random().toString(36).slice(2, 9) }) });
+      if (r.ok) { setShowSuggest(false); setSuggestionText(''); setSuggestionTitle(''); } else { const d = await r.json(); setSitesNotice(d.error || 'Failed'); }
     } catch { setSitesNotice('Network error'); }
   };
 
@@ -284,9 +300,10 @@ export default function SearchEngine() {
           <div className="bg-black/60 border border-white/10 rounded-2xl p-8 max-w-lg w-full mx-4 backdrop-blur-md shadow-2xl">
             <h2 className="text-2xl font-bold text-white mb-6 text-center">Feedback</h2>
             <form onSubmit={handleSuggestion}>
+              <input value={suggestionTitle} onChange={e => setSuggestionTitle(e.target.value)} placeholder="Enter suggestion title:" className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 mb-3 text-sm" />
               <textarea value={suggestionText} onChange={e => setSuggestionText(e.target.value)} placeholder="Enter your suggestion..." className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 mb-4 min-h-[120px] resize-none" />
               <div className="flex gap-3 justify-center">
-                <button type="button" onClick={() => { setShowSuggest(false); setSuggestionText(''); }} className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm">Cancel</button>
+                <button type="button" onClick={() => { setShowSuggest(false); setSuggestionText(''); setSuggestionTitle(''); }} className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm">Cancel</button>
                 <button type="submit" className="px-6 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 text-sm">Submit</button>
               </div>
             </form>

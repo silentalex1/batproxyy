@@ -18,13 +18,14 @@ interface UserAccount {
   payLater?: boolean;
   payLaterSince?: string;
   removeAt?: string;
+  rank?: string;
 }
 
 export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands'>('feedbacks');
+  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks'>('feedbacks');
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
@@ -109,7 +110,7 @@ export default function AdminPanel() {
 
   useEffect(() => {
     if (isAuthed && tab === 'feedbacks') loadFeedbacks();
-    if (isAuthed && (tab === 'accounts' || tab === 'paylater' || tab === 'commands')) loadUsers();
+    if (isAuthed && (tab === 'accounts' || tab === 'paylater' || tab === 'commands' || tab === 'ranks')) loadUsers();
     if (isAuthed && tab === 'status') loadStatusOverrides();
   }, [isAuthed, tab]);
 
@@ -245,6 +246,15 @@ export default function AdminPanel() {
     setCmdLog(prev => [...prev, 'Unknown command - type "show commands"']);
   };
 
+  const handleSetRank = async (username: string, rank: string) => {
+    try {
+      const response = await fetch('/api/admin/set-rank', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ username, rank }) });
+      const data = await response.json();
+      if (response.ok) { setUsers(prev => prev.map(u => u.username === username ? { ...u, rank: data.rank } : u)); setMessage(`${username} is now ${data.rank}`); setTimeout(() => setMessage(''), 2000); }
+      else setError(data.error || 'Failed to set rank');
+    } catch { setError('Network error'); }
+  };
+
   const logout = () => { localStorage.removeItem('batprox-token'); localStorage.removeItem('batprox-user'); navigate('/'); };
 
   const background = (
@@ -327,6 +337,10 @@ export default function AdminPanel() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               Command panel
             </button>
+            <button onClick={() => setTab('ranks')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'ranks' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+              User ranks
+            </button>
           </nav>
           <div className="mt-auto space-y-1">
             <button onClick={() => navigate('/dashboard')} className="w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors">Back to Dashboard</button>
@@ -391,6 +405,37 @@ export default function AdminPanel() {
                             <button onClick={() => { setTempTarget(user); setTempDays(''); setTempError(''); }} className="text-xs px-3 py-1.5 rounded-lg bg-purple-600/15 hover:bg-purple-600/30 text-purple-300 border border-purple-500/25 transition-all">temp remove account</button>
                             <button onClick={() => handleBlacklist(user)} className="text-xs px-3 py-1.5 rounded-lg bg-red-900/30 hover:bg-red-800/50 text-red-200 border border-red-700/50 transition-all">blacklist account</button>
                             <button onClick={() => handleRemoveUser(user.username)} className="text-xs px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all">remove account</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {tab === 'ranks' && (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">User ranks</h2>
+                <p className="text-gray-500 text-sm mb-5">Validated users. Make someone staff to give them the moderator rank and staff panel access.</p>
+                <div className="bg-black/40 border border-white/10 rounded-xl p-5 backdrop-blur-md">
+                  {users.length === 0 ? <p className="text-gray-500 text-sm text-center py-6">No users found.</p> : (
+                    <div className="space-y-2">
+                      {users.map((user) => (
+                        <div key={user.id} className="flex items-center justify-between gap-4 bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 rounded-lg px-4 py-3 transition-colors">
+                          <div className="min-w-0 flex items-center gap-3">
+                            <p className="text-sm text-white font-medium truncate">{user.username}</p>
+                            {user.rank === 'moderator' ? (
+                              <span className="text-[10px] font-bold tracking-widest px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">MODERATOR</span>
+                            ) : (
+                              <span className="text-[10px] font-bold tracking-widest px-2 py-0.5 rounded-full bg-white/5 text-white/40 border border-white/10">VISITOR</span>
+                            )}
+                          </div>
+                          <div className="shrink-0">
+                            {user.rank === 'moderator' ? (
+                              <button onClick={() => handleSetRank(user.username, 'user')} className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 border border-white/10 transition-all">remove staff</button>
+                            ) : (
+                              <button onClick={() => handleSetRank(user.username, 'moderator')} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/45 text-blue-200 border border-blue-500/30 transition-all font-medium">put as mod/staff</button>
+                            )}
                           </div>
                         </div>
                       ))}

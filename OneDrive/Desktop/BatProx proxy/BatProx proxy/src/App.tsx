@@ -18,6 +18,10 @@ import { Navigate } from 'react-router-dom';
 import { AmbientBg, SideRail, DashNav, RotatingTagline } from './Chrome';
 import { buildSearchUrl, MOVIES_URL } from './engines';
 import { initUltraviolet } from './uv';
+import UserActivity from './UserActivity';
+import StaffPanel from './StaffPanel';
+import { startPresence } from './presence';
+import { useLowPower } from './power';
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -27,10 +31,13 @@ function Dashboard() {
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [suggestionText, setSuggestionText] = useState('');
+  const [suggestionTitle, setSuggestionTitle] = useState('');
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
   const [username, setUsername] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [approvedFeedback, setApprovedFeedback] = useState<{ id: number; content: string; status: string } | null>(null);
+  const [isMod, setIsMod] = useState<boolean>(false);
+  const [approvedFeedback, setApprovedFeedback] = useState<{ id: number; content: string; status: string; title?: string } | null>(null);
+  useLowPower();
   const [showThanks, setShowThanks] = useState(false);
   const [thanksFading, setThanksFading] = useState(false);
   const [showGamesNotice, setShowGamesNotice] = useState(false);
@@ -57,6 +64,7 @@ function Dashboard() {
           navigate('/');
         } else {
           setIsAdmin(!!data.isAdmin);
+          setIsMod(!!(data.isMod || data.rank === 'moderator'));
           if (isAboutBlankTabEnabled()) {
             launchAboutBlankCloak();
           }
@@ -66,6 +74,7 @@ function Dashboard() {
       }
     };
     verify();
+    startPresence();
     initUltraviolet().catch(() => {});
     const token = localStorage.getItem('batprox-token');
     if (token) {
@@ -126,7 +135,7 @@ function Dashboard() {
             if (fresh) {
               dismissed.push(fresh.id);
               localStorage.setItem('batprox-dismissed-feedback', JSON.stringify(dismissed));
-              setApprovedFeedback({ id: fresh.id, content: fresh.content, status: fresh.status });
+              setApprovedFeedback({ id: fresh.id, content: fresh.content, status: fresh.status, title: fresh.title || '' });
             }
           }
         } catch {
@@ -201,7 +210,7 @@ function Dashboard() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ content: suggestionText, userIdentifier: username || 'anonymous', genre: suggestionGenre }),
+          body: JSON.stringify({ title: suggestionTitle, content: suggestionText, userIdentifier: username || 'anonymous', genre: suggestionGenre }),
         });
 
         if (response.ok) {
@@ -209,6 +218,7 @@ function Dashboard() {
           console.log('Suggestion submitted:', data);
           setShowSuggestionsModal(false);
           setSuggestionText('');
+          setSuggestionTitle('');
           setShowThanks(true);
           setThanksFading(false);
           setTimeout(() => setThanksFading(true), 3200);
@@ -246,12 +256,15 @@ function Dashboard() {
         <DashNav
           username={username}
           isAdmin={isAdmin}
+          isMod={isMod}
           onLogout={() => {
             localStorage.removeItem('batprox-token');
             localStorage.removeItem('batprox-user');
             navigate('/');
           }}
           onAdmin={() => navigate('/admin-panel')}
+          onStaff={() => navigate('/moderate-staff')}
+          onLeaderboards={() => navigate('/useractivity')}
           onChangelogs={() => navigate('/changelog')}
           onStatus={() => navigate('/bat-status')}
           onSuggestions={() => setShowSuggestionsModal(true)}
@@ -360,6 +373,12 @@ function Dashboard() {
                 <option value="Feedback suggestions">Feedback suggestions</option>
                 <option value="Website bug">Website bug</option>
               </select>
+              <input
+                value={suggestionTitle}
+                onChange={(e) => setSuggestionTitle(e.target.value)}
+                placeholder="Enter suggestion title:"
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md mb-3 text-sm"
+              />
               <textarea
                 value={suggestionText}
                 onChange={(e) => setSuggestionText(e.target.value)}
@@ -372,6 +391,7 @@ function Dashboard() {
                   onClick={() => {
                     setShowSuggestionsModal(false);
                     setSuggestionText('');
+                    setSuggestionTitle('');
                   }}
                   className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium"
                 >
@@ -413,9 +433,9 @@ function Dashboard() {
               </svg>
             </div>
             {approvedFeedback.status === 'declined' ? (
-              <h3 className="text-lg font-semibold text-white mb-2">your feedback suggestion has been declined.</h3>
+              <h3 className="text-lg font-semibold text-white mb-2">your suggestion{approvedFeedback.title ? ` "${approvedFeedback.title}"` : ''} has been declined.</h3>
             ) : (
-              <h3 className="text-lg font-semibold text-white mb-2">your feedback has been approved.</h3>
+              <h3 className="text-lg font-semibold text-white mb-2">your suggestion{approvedFeedback.title ? ` "${approvedFeedback.title}"` : ''} has been accepted.</h3>
             )}
             {approvedFeedback.status !== 'declined' && (
               <p className="text-sm text-gray-400 mb-6">however feedback may take a bit to be added so please be patient.</p>
@@ -475,6 +495,8 @@ export default function App() {
         <Route path="/bat-status" element={<BatStatus />} />
         <Route path="/api-status/docs" element={<ApiDocs />} />
         <Route path="/chatting" element={<Chatting />} />
+        <Route path="/useractivity" element={<UserActivity />} />
+        <Route path="/moderate-staff" element={<StaffPanel />} />
       </Routes>
     </Router>
   );

@@ -246,8 +246,15 @@ export default function Login() {
         setLoading(false);
         return;
       }
-      localStorage.setItem('batprox-token', data.token);
-      localStorage.setItem('batprox-user', data.user.username);
+      const gotToken = data && typeof data.token === 'string' ? data.token : '';
+      const gotUser = data && data.user && typeof data.user.username === 'string' ? data.user.username : '';
+      if (!gotToken || !gotUser) {
+        setServerError('Login backend returned an incomplete response. Please try again.');
+        setLoading(false);
+        return;
+      }
+      localStorage.setItem('batprox-token', gotToken);
+      localStorage.setItem('batprox-user', gotUser);
       navigate('/dashboard');
     } catch (e: any) {
       setServerError(e?.message || 'Network error. Please make sure the backend server is running.');

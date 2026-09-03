@@ -33,6 +33,18 @@ const rules = [
   {
     title: '8. May temporarily remove account if you are being investigated.',
     body: 'I may end up temporarily removing your account from this website if you tell me that you are being investigated. Investigating as in, a teacher is trying to find out who owns this website and by temporarily removing your account, they won\'t be able to access the website to see that it\'s full of games, etc. (By the way, it\'s not that serious if you\'re a teacher going this far).'
+  },
+  {
+    title: '9. Free entry means pay later.',
+    body: 'If you got in for free, that means I let you get in for free so you can test out the games, test out how the site is and how it works, and if you like it then you can keep your account as long as you pay the $5. I\'ll be putting people in my pay-later reminder list so I won\'t forget.'
+  },
+  {
+    title: '10. Do not tell teachers who the site owner is.',
+    body: 'Please do not tell the teachers who the site owner is, and don\'t point out who made the website. If a teacher is nearby you, or if a teacher is close by you, then don\'t tell your friend who made the website while the teacher is near you. Once the teacher leaves, then you can tell your friend who made the site. As always, please look around your classroom for any teachers nearby so they won\'t know or hear what you\'re talking about. Once the teacher leaves from near you, then you can tell your friend who made the website.'
+  },
+  {
+    title: '11. Keep things low.',
+    body: 'Do not spread the website owner\'s name around. Do not be like: "the website owner made a proxy" or anything like that. Because that will put me back on their list or whatever, and I do not want that to happen as I do want to keep the website active so users can actively "learn" on this website. So yeah, do not keep spreading news about who made this site.'
   }
 ];
 

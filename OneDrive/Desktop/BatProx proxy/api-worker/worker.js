@@ -70,8 +70,10 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     if(!token) return new Response(JSON.stringify({error:'Access token required'}),{status:401});
     try{
       const payload=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+      let rank='user';
+      try{ const rawU=kv?await kv.get('users'):null; const arr=rawU?JSON.parse(rawU||'[]'):[]; const f=arr.find(x=>x.username===payload.username); if(f&&f.rank) rank=f.rank; }catch{}
       const h=cors(new Headers()); h.set('Content-Type','application/json');
-      return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin}),{headers:h});
+      return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin, rank, isMod:rank==='moderator'||!!payload.isAdmin}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid token'}),{status:403});}
   }
   if(url.pathname.includes('/csp_report') || url.pathname.includes('/storage_report') || url.pathname.includes('/logClientError') || url.pathname.includes('/trace/trace')){
@@ -146,10 +148,10 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
   if(url.pathname==='/api/suggestions' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json');
     try{
-      const {content,userIdentifier,genre}=await request.json();
+      const {content,userIdentifier,genre,title}=await request.json();
       const raw=kv?await kv.get('feedbacks'):null;
       let arr=raw?JSON.parse(raw):[];
-      arr.push({id:arr.length+1, content:String(content).slice(0,1000), user_identifier:userIdentifier||'anonymous', genre:genre||'Feedback suggestions', submitted_at:new Date().toISOString(), status:'pending'});
+      arr.push({id:arr.length+1, title:String(title||'').slice(0,80), content:String(content).slice(0,1000), user_identifier:userIdentifier||'anonymous', genre:genre||'Feedback suggestions', submitted_at:new Date().toISOString(), status:'pending'});
       if(kv) await kv.put('feedbacks', JSON.stringify(arr));
       return new Response(JSON.stringify({success:true, id:arr.length}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
@@ -402,6 +404,93 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       if(kv) await kv.put('user_settings_'+username, JSON.stringify(body));
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400,headers:h});}
+  }
+  if(url.pathname==='/api/presence' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {username,visible,game}=await request.json();
+      const cu=String(username||'').trim().slice(0,20);
+      if(!cu) return new Response(JSON.stringify({error:'Username required'}),{status:400, headers:h});
+      const raw=kv?await kv.get('presence'):null;
+      const map=raw?JSON.parse(raw):{};
+      map[cu]={ts:Date.now(), visible:visible!==false, game:String(game||'').slice(0,80)};
+      for(const k of Object.keys(map)){ if(Date.now()-map[k].ts>300000) delete map[k]; }
+      if(kv) await kv.put('presence', JSON.stringify(map));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/presence' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('presence'):null;
+    const map=raw?JSON.parse(raw):{};
+    const now=Date.now();
+    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<75000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts}));
+    return new Response(JSON.stringify({users}),{headers:h});
+  }
+  if(url.pathname==='/api/gamestats' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {username,game,seconds}=await request.json();
+      const cu=String(username||'').trim().slice(0,20), g=String(game||'').trim().slice(0,80);
+      const s=Math.max(0, Math.min(86400, parseInt(seconds,10)||0));
+      if(!cu||!g||!s) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('gamestats'):null;
+      const map=raw?JSON.parse(raw):{};
+      if(!map[cu]) map[cu]={};
+      map[cu][g]=(map[cu][g]||0)+s;
+      if(kv) await kv.put('gamestats', JSON.stringify(map));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/gamestats' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('gamestats'):null;
+    const map=raw?JSON.parse(raw):{};
+    const user=url.searchParams.get('user');
+    if(user) return new Response(JSON.stringify({stats:map[user]||{}}),{headers:h});
+    return new Response(JSON.stringify({stats:map}),{headers:h});
+  }
+  if(url.pathname==='/api/admin/set-rank' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {username,rank}=await request.json();
+      const cu=String(username||'').trim();
+      const r=String(rank||'').trim()==='moderator'?'moderator':'user';
+      const raw=kv?await kv.get('users'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const u=arr.find(x=>x.username===cu);
+      if(!u) return new Response(JSON.stringify({error:'Account not found'}),{status:404, headers:h});
+      u.rank=r;
+      if(kv) await kv.put('users', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, rank:r}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/feedbacks' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('feedbacks'):null;
+    const feedbacks=raw?JSON.parse(raw):[];
+    return new Response(JSON.stringify({feedbacks}),{headers:h});
+  }
+  if(url.pathname==='/api/feedback-comments' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('feedback_comments'):null;
+    const all=raw?JSON.parse(raw):[];
+    const fid=url.searchParams.get('feedbackId');
+    return new Response(JSON.stringify({comments:fid?all.filter(x=>String(x.feedbackId)===String(fid)):all}),{headers:h});
+  }
+  if(url.pathname==='/api/feedback-comments' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    try{
+      const {feedbackId,user,text}=await request.json();
+      const t=String(text||'').trim().slice(0,500);
+      if(!feedbackId||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('feedback_comments'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const id=arr.length?Math.max(...arr.map(x=>x.id))+1:1;
+      arr.push({id, feedbackId:Number(feedbackId), user:String(user||'anonymous').slice(0,20), text:t, created_at:new Date().toISOString()});
+      if(kv) await kv.put('feedback_comments', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, id}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname.startsWith('/api/')){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');

@@ -161,6 +161,7 @@ const bgPreview = (id: BackgroundId, upload?: string): React.CSSProperties => {
   if (id === 'girl') return { background: 'url(/backgrounds/backgroundgirl.png) center / cover' };
   if (id === 'crows') return { background: 'url(/backgrounds/crows.gif) center / cover' };
   if (id === 'japanese') return { background: 'url(/backgrounds/japanese%20words.png) center / cover' };
+  if (id === 'boondocks') return { background: 'url(/backgrounds/boondocks-4hbyyrax1z1nnufn.png) center / cover' };
   if (id === 'upload' && upload) {
     return { backgroundImage: `url(${upload})`, backgroundSize: 'cover', backgroundPosition: 'center' };
   }

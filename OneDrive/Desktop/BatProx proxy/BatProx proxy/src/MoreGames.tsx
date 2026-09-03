@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import Settings from './Settings';
 import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome';
+import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames } from './presence';
+import { useLowPower } from './power';
 
 declare global {
   interface Window {
@@ -30,13 +32,36 @@ export default function MoreGames() {
   const [notice, setNotice] = useState('');
   const [showGamesNotice, setShowGamesNotice] = useState(() => !localStorage.getItem('batprox-games-seen'));
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
+  const [suggestionTitle, setSuggestionTitle] = useState('');
   const [userIdentifier] = useState(() => localStorage.getItem('batprox-user') || 'anonymous');
+  const [recentGames, setRecentGames] = useState<Array<{ name: string; plays: number; ts: number }>>(() => getRecentGames());
   const gamesContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const luminReadyRef = useRef(false);
+  const gameStartRef = useRef<{ name: string; at: number } | null>(null);
+  useLowPower();
 
   useEffect(() => {
     loadMyGames();
+    startPresence();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const tag = t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return;
+      if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const inGames = t.closest && (t.closest('#games') || t.closest('iframe'));
+        if (inGames || tag === 'BODY' || tag === 'HTML') {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
   useEffect(() => {
@@ -258,10 +283,19 @@ export default function MoreGames() {
             setLoading(false);
           },
           onGameStart: (game: any) => {
-            console.log('Game started:', game);
+            const name = String((game && (game.title || game.name)) || 'game');
+            gameStartRef.current = { name, at: Date.now() };
+            recordRecentGame(name);
+            setRecentGames(getRecentGames());
+            setPresenceGame(name);
           },
           onGameEnd: () => {
-            console.log('Game ended');
+            const s = gameStartRef.current;
+            if (s) {
+              trackGameSeconds(s.name, (Date.now() - s.at) / 1000);
+              gameStartRef.current = null;
+            }
+            setPresenceGame('');
           },
           onGameError: (err: any) => {
             console.error('Game error:', err);
@@ -554,6 +588,26 @@ export default function MoreGames() {
             ref={gamesContainerRef}
             className="relative z-0 w-full flex-1 min-h-[420px] bg-black/30 border border-white/10 rounded-2xl p-6 backdrop-blur-md"
           />
+          <div className="w-full max-w-3xl bg-black/40 border border-white/10 rounded-2xl p-6 backdrop-blur-md shadow-2xl mt-6">
+            <p className="text-sm font-semibold text-white/90 mb-1">your recent game played:</p>
+            <p className="text-xs text-white/35 mb-4">most played first — never randomized.</p>
+            {recentGames.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-4">Play a game and it will show up here.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {recentGames.map((g) => (
+                  <button
+                    key={g.name}
+                    onClick={() => { setSearchQuery(g.name); if (window.Lumin) window.Lumin.search(g.name); }}
+                    className="group flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all text-center"
+                  >
+                    <span className="text-sm text-gray-200 group-hover:text-white font-medium break-words w-full truncate">{g.name}</span>
+                    <span className="text-[11px] text-purple-300/80">{g.plays} play{g.plays === 1 ? '' : 's'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="mt-16 mb-8 max-w-5xl mx-auto w-full flex flex-col items-center">
@@ -628,11 +682,12 @@ export default function MoreGames() {
                 const response = await fetch('/api/suggestions', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: suggestionText, userIdentifier, genre: suggestionGenre }),
+                  body: JSON.stringify({ title: suggestionTitle, content: suggestionText, userIdentifier, genre: suggestionGenre }),
                 });
                 if (response.ok) {
                   setShowSuggestionsModal(false);
                   setSuggestionText('');
+                  setSuggestionTitle('');
                   setNotice('thank you for your feedback!'); setTimeout(() => setNotice(''), 3500);
                 } else {
                   setNotice('Failed to submit suggestion'); setTimeout(() => setNotice(''), 3500);
@@ -649,6 +704,12 @@ export default function MoreGames() {
                 <option value="Feedback suggestions">Feedback suggestions</option>
                 <option value="Website bug">Website bug</option>
               </select>
+              <input
+                value={suggestionTitle}
+                onChange={(e) => setSuggestionTitle(e.target.value)}
+                placeholder="Enter suggestion title:"
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md mb-3 text-sm"
+              />
               <textarea
                 value={suggestionText}
                 onChange={(e) => setSuggestionText(e.target.value)}
@@ -661,6 +722,7 @@ export default function MoreGames() {
                   onClick={() => {
                     setShowSuggestionsModal(false);
                     setSuggestionText('');
+                    setSuggestionTitle('');
                   }}
                   className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium"
                 >

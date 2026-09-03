@@ -1,10 +1,11 @@
-export type BackgroundId = 'anime' | 'girl' | 'crows' | 'japanese' | 'synthwave' | 'bokeh' | 'rain' | 'hive' | 'stars' | 'grid' | 'upload';
+export type BackgroundId = 'anime' | 'girl' | 'crows' | 'japanese' | 'boondocks' | 'synthwave' | 'bokeh' | 'rain' | 'hive' | 'stars' | 'grid' | 'upload';
 
 export const BACKGROUNDS: { id: BackgroundId; name: string; kind: 'image' | 'design' | 'upload' }[] = [
   { id: 'anime', name: 'anime background', kind: 'image' },
   { id: 'girl', name: 'for the girls', kind: 'image' },
   { id: 'crows', name: 'crows', kind: 'image' },
   { id: 'japanese', name: 'random japanese/chinese words', kind: 'image' },
+  { id: 'boondocks', name: 'tuff background idk', kind: 'image' },
   { id: 'synthwave', name: 'Synthwave', kind: 'design' },
   { id: 'bokeh', name: 'Bokeh', kind: 'design' },
   { id: 'rain', name: 'Rain', kind: 'design' },
@@ -53,6 +54,8 @@ export function applyBackground() {
     layer.style.background = 'linear-gradient(rgba(5,5,12,0.58), rgba(5,5,12,0.64)), url(/backgrounds/crows.gif) center / cover no-repeat fixed';
   } else if (id === 'japanese') {
     layer.style.background = 'linear-gradient(rgba(5,5,12,0.58), rgba(5,5,12,0.64)), url(/backgrounds/japanese%20words.png) center / cover no-repeat fixed';
+  } else if (id === 'boondocks') {
+    layer.style.background = 'linear-gradient(rgba(5,5,12,0.58), rgba(5,5,12,0.64)), url(/backgrounds/boondocks-4hbyyrax1z1nnufn.png) center / cover no-repeat fixed';
   } else if (id === 'upload' && s.backgroundUpload) {
     layer.style.background = `linear-gradient(rgba(5,5,12,0.58), rgba(5,5,12,0.64)), url(${s.backgroundUpload}) center / cover no-repeat fixed`;
   } else {

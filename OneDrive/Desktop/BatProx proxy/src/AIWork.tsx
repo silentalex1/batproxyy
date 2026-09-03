@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import Cookies from 'js-cookie';
 import Settings from './Settings';
+import { startPresence } from './presence';
+import { useLowPower } from './power';
 
 interface ChatHistory {
   id: string;
@@ -43,7 +45,9 @@ export default function AIWork() {
     if (savedSettings) {
       JSON.parse(savedSettings);
     }
+    startPresence();
   }, []);
+  useLowPower();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
