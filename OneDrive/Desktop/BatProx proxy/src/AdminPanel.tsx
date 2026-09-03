@@ -225,7 +225,7 @@ export default function AdminPanel() {
       setCmdLog(prev => [...prev, lines || 'No users']);
       return;
     }
-    if (lower === 'show commands' || lower === 'help' || lower === 'commands') {
+    if (lower === 'show commands' || lower === 'show all' || lower === 'help' || lower === 'commands') {
       const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
       setCmdLog(prev => [...prev, lines]);
       return;
