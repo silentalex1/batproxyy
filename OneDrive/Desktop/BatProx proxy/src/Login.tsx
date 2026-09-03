@@ -164,7 +164,7 @@ export default function Login() {
   useEffect(() => {
     applyTabCloak();
     launchBlobCloak();
-    fetch('https://api.stealthybat.org/api/check-blacklist').then(r=>r.json()).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
+    fetch('https://authlogin.stealthlybat.it.com/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
   }, []);
 
   const validateUsername = (value: string): string | undefined => {
