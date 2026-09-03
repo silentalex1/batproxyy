@@ -51,6 +51,32 @@ export default function Login() {
     }, 3700);
   };
 
+  const API_BASES = ['https://api.stealthybat.org', ''];
+
+  const fetchWithTimeout = async (input: string, init: RequestInit, ms = 12000) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(input, { ...init, signal: ctrl.signal });
+    } finally {
+      clearTimeout(t);
+    }
+  };
+
+  const tryBases = async (path: string, init: RequestInit) => {
+    let lastErr: unknown = null;
+    for (const base of API_BASES) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await fetchWithTimeout(`${base}${path}`, init);
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+    }
+    throw lastErr || new Error('Network error');
+  };
+
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (invitedBy.trim().toLowerCase() !== decodeKey().toLowerCase()) {
@@ -64,7 +90,7 @@ export default function Login() {
       return;
     }
     try {
-      const response = await fetch('/api/auth/me', {
+      const response = await tryBases('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -206,7 +232,7 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await tryBases('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), inviteCode: inviteCode.trim() })
