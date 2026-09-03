@@ -160,13 +160,8 @@ export default function MoreGames() {
         return nativeFetch(input as RequestInfo, init);
       }) as typeof fetch;
 
-      const script = document.createElement('script');
-      script.src = '/lumin.js';
-      script.async = true;
-      script.onload = () => {
-        setTimeout(() => initializeLumin(), 120);
-      };
-      script.onerror = () => {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const loadCdn = () => {
         const fallback = document.createElement('script');
         fallback.src = LUMIN_CDN;
         fallback.async = true;
@@ -178,6 +173,14 @@ export default function MoreGames() {
         };
         document.body.appendChild(fallback);
       };
+      if (!isLocal) { loadCdn(); return; }
+      const script = document.createElement('script');
+      script.src = '/lumin.js';
+      script.async = true;
+      script.onload = () => {
+        setTimeout(() => initializeLumin(), 120);
+      };
+      script.onerror = loadCdn;
       document.body.appendChild(script);
     };
 

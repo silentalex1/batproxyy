@@ -116,12 +116,12 @@ export default function StaffPanel() {
                   <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${f.status === 'approved' ? 'bg-green-500/15 text-green-300 border border-green-500/25' : f.status === 'declined' ? 'bg-red-500/15 text-red-300 border border-red-500/25' : 'bg-white/5 text-white/50 border border-white/10'}`}>{(f.status || 'pending').toUpperCase()}</span>
                 </div>
                 <p className="text-xs text-white/40 mb-1">by {f.user_identifier} - {f.genre}</p>
-                <p className="text-sm text-white/70 leading-relaxed mb-4">{f.content}</p>
+                <p className="text-sm text-white/70 leading-relaxed mb-4 whitespace-pre-wrap">{f.content}</p>
                 <div className="space-y-2 mb-3">
                   {(comments[f.id] || []).map(c => (
                     <div key={c.id} className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
                       <p className="text-[11px] text-blue-300 font-semibold">{c.user}</p>
-                      <p className="text-xs text-white/70">{c.text}</p>
+                      <p className="text-xs text-white/70 whitespace-pre-wrap">{c.text}</p>
                     </div>
                   ))}
                 </div>

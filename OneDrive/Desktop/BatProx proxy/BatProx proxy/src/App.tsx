@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import SearchEngine from './SearchEngine';
 import AdminPanel from './AdminPanel';
@@ -37,6 +37,7 @@ function Dashboard() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isMod, setIsMod] = useState<boolean>(false);
   const [approvedFeedback, setApprovedFeedback] = useState<{ id: number; content: string; status: string; title?: string } | null>(null);
+  const pendingNotesRef = useRef<number[]>([]);
   useLowPower();
   const [showThanks, setShowThanks] = useState(false);
   const [thanksFading, setThanksFading] = useState(false);
@@ -131,6 +132,7 @@ function Dashboard() {
             } catch {
               dismissed = [];
             }
+            pendingNotesRef.current = (data.notifications || []).map((n: { id: number }) => n.id);
             const fresh = data.notifications.find((n: { id: number }) => !dismissed.includes(n.id));
             if (fresh) {
               dismissed.push(fresh.id);
@@ -448,7 +450,9 @@ function Dashboard() {
                 } catch {
                   dismissed = [];
                 }
-                dismissed.push(approvedFeedback.id);
+                for (const id of [...pendingNotesRef.current, approvedFeedback.id]) {
+                  if (!dismissed.includes(id)) dismissed.push(id);
+                }
                 localStorage.setItem('batprox-dismissed-feedback', JSON.stringify(dismissed));
                 setApprovedFeedback(null);
               }}

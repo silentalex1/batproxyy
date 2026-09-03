@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 interface Feedback {
   id: number;
+  title?: string;
   content: string;
   user_identifier: string | null;
   submitted_at: string;
@@ -366,7 +367,8 @@ export default function AdminPanel() {
                         <div className="flex justify-between items-start gap-4">
                           <div className="min-w-0">
                             <p className="text-xs text-gray-500 mb-1.5">feedback from <span className="text-purple-300 font-medium">{feedback.user_identifier || 'unknown'}</span><span className="text-gray-600"> · {new Date(feedback.submitted_at).toLocaleString()}</span><span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full border align-middle ${feedback.genre === 'Website bug' ? 'text-red-300 border-red-500/25 bg-red-500/10' : 'text-blue-300 border-blue-500/25 bg-blue-500/10'}`}>{feedback.genre || 'Feedback suggestions'}</span></p>
-                            <p className="text-gray-200 text-sm break-words">{feedback.content}</p>
+                            {feedback.title && <p className="text-sm text-white font-semibold mb-1 break-words">{feedback.title}</p>}
+                            <p className="text-gray-200 text-sm break-words whitespace-pre-wrap">{feedback.content}</p>
                           </div>
                           <div className="flex gap-2 shrink-0">
                             <button onClick={() => handleDecline(feedback.id)} className="text-xs px-4 py-2 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>

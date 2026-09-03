@@ -24,11 +24,20 @@ export default function UserActivity() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch('/api/presence');
-      if (r.ok) {
-        const d = await r.json();
-        setUsers(((d.users || []) as PresenceUser[]).filter(u => u.username && u.username !== 'anonymous').sort((a: PresenceUser, b: PresenceUser) => Number(b.active) - Number(a.active) || a.username.localeCompare(b.username)));
+      const [pr, ur] = await Promise.all([fetch('/api/presence'), fetch('/api/users')]);
+      const pd = pr.ok ? await pr.json() : { users: [] };
+      const ud = ur.ok ? await ur.json() : { users: [] };
+      const seen: Record<string, PresenceUser> = {};
+      for (const u of ((pd.users || []) as PresenceUser[])) {
+        if (u.username && u.username !== 'anonymous') seen[u.username] = u;
       }
+      const merged: PresenceUser[] = ((ud.users || []) as Array<{ username: string }>).filter(u => u.username && u.username !== 'anonymous').map(u => (
+        seen[u.username] || { username: u.username, active: false, game: '', lastSeen: 0 }
+      ));
+      for (const k of Object.keys(seen)) {
+        if (!merged.find(m => m.username === k)) merged.push(seen[k]);
+      }
+      setUsers(merged.sort((a, b) => Number(b.active) - Number(a.active) || a.username.localeCompare(b.username)));
     } catch {}
     try {
       const r = await fetch('/api/gamestats');

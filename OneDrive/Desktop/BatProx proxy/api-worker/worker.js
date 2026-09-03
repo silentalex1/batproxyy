@@ -465,6 +465,12 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       return new Response(JSON.stringify({success:true, rank:r}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/users' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('users'):null;
+    const arr=raw?JSON.parse(raw):[];
+    return new Response(JSON.stringify({users:arr.map(x=>({username:x.username, rank:x.rank||'user'}))}),{headers:h});
+  }
   if(url.pathname==='/api/feedbacks' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('feedbacks'):null;
