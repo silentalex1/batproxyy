@@ -22,20 +22,21 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     return new Response(JSON.stringify({status:'StealthyBat API online — backend is handling accounts & proxy', domain:'api.stealthybat.org', timestamp:new Date().toISOString()}),{headers:{'Content-Type':'application/json',...Object.fromEntries(cors(new Headers()))}});
   }
   if(url.pathname==='/api/auth/login' && request.method==='POST'){
+    const jh=()=>{ const hb=cors(new Headers()); hb.set('Content-Type','application/json'); return hb; };
     try{
       const body=await request.json();
       const username=body.username, inviteCode=body.inviteCode;
-      if(!username||!inviteCode) return new Response(JSON.stringify({error:'Username and invite code are required'}),{status:400, headers:{'Content-Type':'application/json'}});
+      if(!username||!inviteCode) return new Response(JSON.stringify({error:'Username and invite code are required'}),{status:400, headers:jh()});
       const cu=String(username).trim(), cc=String(inviteCode).trim();
-      if(cu.length<3||cu.length>20) return new Response(JSON.stringify({error:'Username must be between 3 and 20 characters'}),{status:400, headers:{'Content-Type':'application/json'}});
+      if(cu.length<3||cu.length>20) return new Response(JSON.stringify({error:'Username must be between 3 and 20 characters'}),{status:400, headers:jh()});
       try{
         const rawU=kv?await kv.get('users'):null;
         const users=rawU?JSON.parse(rawU||'[]'):[];
         const found=users.find(x=>x.username===cu);
         if(found){
-          if(found.invite_code!==cc) return new Response(JSON.stringify({error:'Invite code does not match this account'}),{status:401, headers:{'Content-Type':'application/json'}});
+          if(found.invite_code!==cc) return new Response(JSON.stringify({error:'Invite code does not match this account'}),{status:401, headers:jh()});
         } else {
-          if(!VALID_CODES.has(cc)) return new Response(JSON.stringify({error:'Invalid invite code'}),{status:401, headers:{'Content-Type':'application/json'}});
+          if(!VALID_CODES.has(cc)) return new Response(JSON.stringify({error:'Invalid invite code'}),{status:401, headers:jh()});
         }
       }catch{}
       const isAdmin= cc==='FOX-CORE'||cc==='batprox-admin$$'||cu==='realalex'||cu==='admin';
@@ -61,7 +62,7 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       const token=sign({id:1,username:cu,isAdmin},secret);
       const h=cors(new Headers()); h.set('Content-Type','application/json');
       return new Response(JSON.stringify({success:true, token, user:{id:1, username:cu}}),{headers:h});
-    }catch(e){ return new Response(JSON.stringify({error:'Login failed: '+(e.message||'unknown')}),{status:500, headers:{'Content-Type':'application/json'}});}
+    }catch(e){ return new Response(JSON.stringify({error:'Login failed: '+(e.message||'unknown')}),{status:500, headers:jh()});}
   }
   if(url.pathname==='/api/auth/me'){
     const auth=request.headers.get('Authorization')||'';

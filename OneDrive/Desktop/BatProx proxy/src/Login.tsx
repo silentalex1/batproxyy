@@ -51,7 +51,7 @@ export default function Login() {
     }, 3700);
   };
 
-  const API_BASES = ['https://api.stealthybat.org', ''];
+  const API_BASES = ['', 'https://api.stealthybat.org'];
 
   const fetchWithTimeout = async (input: string, init: RequestInit, ms = 12000) => {
     const ctrl = new AbortController();
