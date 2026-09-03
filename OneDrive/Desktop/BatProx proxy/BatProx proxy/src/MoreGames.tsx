@@ -1,12 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
+import Settings from './Settings';
+import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome';
 
 declare global {
   interface Window {
     Lumin: any;
   }
 }
+
+const FALLBACK_GENRES = ['Action', 'Adventure', 'Arcade', 'Puzzle', 'Racing', 'Shooting', 'Sports', 'Strategy', 'Retro', 'Multiplayer', 'Idle', '2 Player'];
 
 export default function MoreGames() {
   const navigate = useNavigate();
@@ -15,13 +19,21 @@ export default function MoreGames() {
   const [myGames, setMyGames] = useState<Array<{ name: string; filename: string; url: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [containerId] = useState(() => `games-container-${Date.now()}`);
+  const CONTAINER_ID = 'games';
   const [luminInitialized, setLuminInitialized] = useState(false);
   const [selectedGenre, setSelectedGenre] = useState<string>('');
   const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [suggestionText, setSuggestionText] = useState('');
+  const [notice, setNotice] = useState('');
+  const [showGamesNotice, setShowGamesNotice] = useState(() => !localStorage.getItem('batprox-games-seen'));
+  const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
+  const [userIdentifier] = useState(() => localStorage.getItem('batprox-user') || 'anonymous');
   const gamesContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const luminReadyRef = useRef(false);
 
   useEffect(() => {
     loadMyGames();
@@ -37,10 +49,14 @@ export default function MoreGames() {
     try {
       if (window.Lumin && luminInitialized) {
         const { categories } = await window.Lumin.getCategories();
-        setAvailableCategories(categories || []);
+        if (categories && categories.length > 0) {
+          setAvailableCategories(categories);
+        } else {
+          setAvailableCategories(FALLBACK_GENRES);
+        }
       }
-    } catch (error) {
-      console.error('Failed to load categories:', error);
+    } catch {
+      setAvailableCategories(FALLBACK_GENRES);
     }
   };
 
@@ -53,14 +69,12 @@ export default function MoreGames() {
     abortControllerRef.current = controller;
     
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const response = await fetch(`${apiUrl}/api/my-games`, {
+      const response = await fetch('/api/my-games', {
         signal: controller.signal
       });
       
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('Non-JSON response from my-games API:', contentType);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
         setMyGames([]);
         return;
       }
@@ -71,10 +85,8 @@ export default function MoreGames() {
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Request aborted');
         return;
       }
-      console.error('Failed to load my games:', error);
       setMyGames([]);
     } finally {
       abortControllerRef.current = null;
@@ -86,7 +98,7 @@ export default function MoreGames() {
       setLoading(true);
       
       const cleanupContainer = () => {
-        const container = document.getElementById(containerId);
+        const container = document.getElementById(CONTAINER_ID);
         if (container) {
           container.innerHTML = '';
           if (container.shadowRoot) {
@@ -97,20 +109,49 @@ export default function MoreGames() {
 
       cleanupContainer();
 
+      const LUMIN_CDN = 'https://cdn.jsdelivr.net/gh/luminsdk/script@latest/fonts.min.js';
+      const NativeWorker = window.Worker;
+      window.Worker = class extends NativeWorker {
+        constructor(scriptURL: string | URL, options?: WorkerOptions) {
+          const raw = String(scriptURL);
+          if (/^(blob:|data:)/i.test(raw) || /cdn\.jsdelivr\.net\/gh\/luminsdk/i.test(raw) || /\/lumin\.(js|worker\.js)/i.test(raw)) {
+            super(scriptURL, options);
+            return;
+          }
+          if (/lumin\.worker|milpagan|drkesten|catholicrebuttals|hpsschools|luminsdk/i.test(raw)) {
+            super(LUMIN_CDN, options);
+            return;
+          }
+          super(scriptURL, options);
+        }
+      } as typeof Worker;
+
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+        const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (href && /https?:\/\/([a-z0-9.-]+\.)?luminsdk\.com/i.test(href)) {
+          return nativeFetch('/proxy?url=' + encodeURIComponent(href), init);
+        }
+        return nativeFetch(input as RequestInfo, init);
+      }) as typeof fetch;
+
       const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/gh/luminsdk/script@latest/lumin.min.js';
+      script.src = '/lumin.js';
       script.async = true;
-      script.crossOrigin = 'anonymous';
-      // Note: For production, use a specific version and add SRI hash
-      // script.integrity = 'sha384-...';
       script.onload = () => {
-        console.log('Lumin SDK loaded successfully');
-        setTimeout(() => initializeLumin(), 200);
+        setTimeout(() => initializeLumin(), 120);
       };
       script.onerror = () => {
-        console.error('Failed to load Lumin SDK');
-        setError('Failed to load Lumin SDK. Please check your internet connection.');
-        setLoading(false);
+        const fallback = document.createElement('script');
+        fallback.src = LUMIN_CDN;
+        fallback.async = true;
+        fallback.crossOrigin = 'anonymous';
+        fallback.onload = () => setTimeout(() => initializeLumin(), 120);
+        fallback.onerror = () => {
+          setError('Failed to load Lumin SDK. Please check your internet connection.');
+          setLoading(false);
+        };
+        document.body.appendChild(fallback);
       };
       document.body.appendChild(script);
     };
@@ -119,15 +160,22 @@ export default function MoreGames() {
 
     const handleGameErrors = (event: ErrorEvent) => {
       if (event.filename && (event.filename.includes('lumin') || event.filename.includes('scramjet') || event.filename.includes('fn'))) {
-        console.warn('Game library warning:', event.message);
+        event.preventDefault();
+        return;
+      }
+      if (event.message && /domain fetch failed|luminsdk|lumin\.worker/i.test(event.message)) {
         event.preventDefault();
       }
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      if (event.reason && event.reason.message && event.reason.message.includes('BareMux')) {
-        console.warn('Game library dependency warning:', event.reason.message);
+      const msg = event.reason && (event.reason.message || String(event.reason));
+      if (msg && /BareMux|domain fetch failed|luminsdk|lumin/i.test(msg)) {
         event.preventDefault();
+        if (/domain fetch failed/i.test(msg) && !luminReadyRef.current) {
+          setAvailableCategories(FALLBACK_GENRES);
+          setLoading(false);
+        }
       }
     };
 
@@ -145,30 +193,28 @@ export default function MoreGames() {
         }
       });
       
-      const container = document.getElementById(containerId);
+      const container = document.getElementById(CONTAINER_ID);
       if (container) {
         container.innerHTML = '';
       }
     };
-  }, [containerId]);
+  }, [CONTAINER_ID]);
 
   const initializeLumin = () => {
     try {
-      // Prevent multiple initializations
       if (luminInitialized) {
         console.log('LuminSDK already initialized');
         return;
       }
 
-      const container = document.getElementById(containerId);
+      const container = document.getElementById(CONTAINER_ID);
       if (!container) {
-        console.error('Container not found:', containerId);
+        console.error('Container not found:', CONTAINER_ID);
         setError('Games container not found. Retrying...');
         setTimeout(() => initializeLumin(), 500);
         return;
       }
 
-      // Check if container already has shadow root
       if (container.shadowRoot) {
         console.log('Container already has shadow root, skipping initialization');
         setLoading(false);
@@ -177,7 +223,7 @@ export default function MoreGames() {
 
       if (window.Lumin) {
         window.Lumin.init({
-          container: `#${containerId}`,
+          container: `#${CONTAINER_ID}`,
           theme: 'dark',
           columns: 4,
           rows: 3,
@@ -187,22 +233,29 @@ export default function MoreGames() {
           showRandom: true,
           onReady: () => {
             console.log('LuminSDK is ready');
+            luminReadyRef.current = true;
             setLuminInitialized(true);
             setLoading(false);
-            applyCustomStyles(containerId);
+            applyCustomStyles(CONTAINER_ID);
           },
           onError: (err: any) => {
-            console.error('LuminSDK error:', err);
-            if (err.message && err.message.includes('shadow')) {
+            const msg = err && err.message ? String(err.message) : '';
+            if (/domain fetch failed|network|fetch/i.test(msg)) {
+              setAvailableCategories(FALLBACK_GENRES);
+              setNotice('Game network is slow right now. My Games below still work.');
+              setTimeout(() => setNotice(''), 4000);
+              setLoading(false);
+              return;
+            }
+            if (!msg || /shadow/i.test(msg)) {
               setError('SDK initialization conflict. Please refresh the page.');
-            } else if (err.message && err.message.includes('Container not found')) {
+            } else if (msg.includes('Container not found')) {
               setError('Container initialization failed. Retrying...');
               setTimeout(() => initializeLumin(), 1000);
             } else {
-              setError('LuminSDK error: ' + (err.message || 'Unknown error'));
+              setError('LuminSDK error: ' + msg);
             }
             setLoading(false);
-            // Don't crash, just show error state
           },
           onGameStart: (game: any) => {
             console.log('Game started:', game);
@@ -242,7 +295,6 @@ export default function MoreGames() {
       return;
     }
 
-    // Sanitize input to prevent XSS attacks
     const sanitizedQuery = DOMPurify.sanitize(searchQuery.trim());
     
     setLoading(true);
@@ -264,7 +316,6 @@ export default function MoreGames() {
     } catch (err) {
       console.error('Search error:', err);
       setError('Search failed. Please try again.');
-      // Don't crash the app, just show error
     } finally {
       setLoading(false);
     }
@@ -276,7 +327,6 @@ export default function MoreGames() {
       return;
     }
 
-    // Sanitize genre input
     const sanitizedGenre = DOMPurify.sanitize(genre);
     
     setSelectedGenre(sanitizedGenre);
@@ -366,201 +416,281 @@ export default function MoreGames() {
 
   return (
     <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div
-          className="absolute inset-0 bg-repeat opacity-60"
-          style={{
-            backgroundImage: `radial-gradient(1px 1px at 20px 30px, #fff, rgba(0,0,0,0)), 
-                              radial-gradient(1.5px 1.5px at 40px 70px, #fff, rgba(0,0,0,0)), 
-                              radial-gradient(1px 1px at 90px 40px, #fff, rgba(0,0,0,0)), 
-                              radial-gradient(2px 2px at 160px 120px, #ddd, rgba(0,0,0,0)),
-                              radial-gradient(1.5px 1.5px at 230px 190px, #fff, rgba(0,0,0,0)),
-                              radial-gradient(1px 1px at 300px 80px, #fff, rgba(0,0,0,0))`,
-            backgroundSize: '350px 350px',
-          }}
-        />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 sm:w-96 sm:h-96 bg-purple-600/30 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-purple-400/20 rounded-full blur-[60px] pointer-events-none" />
+      <AmbientBg />
+      <SideRail onSettings={() => setShowSettingsModal(true)} />
+      <div className="fixed top-4 right-4 z-30">
+        <BatteryIndicator />
       </div>
 
-      <div className="relative z-10 flex flex-col min-h-screen px-4 py-8">
-        <div className="w-full flex justify-center py-4">
-          <div className="flex gap-3 px-10 py-3 rounded-2xl bg-black/60 border border-white/20 backdrop-blur-2xl shadow-2xl w-full max-w-6xl mx-4 justify-end">
-            <button 
-              onClick={() => navigate('/')}
-              className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium hover:scale-105 shadow-lg"
-            >
-              Home
-            </button>
-            <button 
-              onClick={() => navigate('/search-engine?url=https://youtube.com')}
-              className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium hover:scale-105 shadow-lg"
-            >
-              YouTube
-            </button>
-            <button 
-              onClick={() => navigate('/search-engine?url=https://music.octavestreaming.com/')}
-              className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium hover:scale-105 shadow-lg"
-            >
-              Music
-            </button>
+      <main className="relative z-10 flex flex-col min-h-screen px-4 py-8 sm:pl-20">
+        {notice && (
+          <div
+            className="fixed top-6 left-1/2 z-[60] px-6 py-3.5 rounded-xl bg-purple-600/25 border border-purple-500/40 text-purple-100 text-sm font-medium shadow-2xl backdrop-blur-md animate-fade-down"
+            style={{ transform: 'translateX(-50%)' }}
+          >
+            {notice}
           </div>
-        </div>
+        )}
+        <TopBar>
+          <NavBtn onClick={() => navigate('/dashboard')}>Home</NavBtn>
+          <div className="flex items-center gap-2">
+            <NavBtn onClick={() => setShowSuggestionsModal(true)}>Suggestions</NavBtn>
+            <NavBtn onClick={() => setShowSettingsModal(true)}>Settings</NavBtn>
+          </div>
+        </TopBar>
 
-        <div className="flex-1 flex flex-col items-center max-w-4xl mx-auto w-full">
-          <h1 className="text-4xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400 mb-8 drop-shadow-lg">
-            More Games
-          </h1>
+        <div className="flex-1 flex flex-col items-center max-w-5xl mx-auto w-full">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-extrabold tracking-tight" style={{ color: 'var(--bp-accent)' }}>
+              Games
+            </h1>
+            <p className="text-white/40 text-sm mt-2">Thousands of games, playable instantly</p>
+          </div>
 
-          <form onSubmit={handleSearch} className="w-full max-w-2xl mb-6 flex gap-2">
-            <input 
-              type="text" 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="search for games" 
-              className="flex-1 px-6 py-4 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md text-center shadow-2xl"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  if (window.Lumin) {
-                    window.Lumin.search('');
-                  }
-                }}
-                className="px-6 py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all backdrop-blur-md shadow-2xl"
-              >
-                Clear
-              </button>
-            )}
-          </form>
+          <div className="relative z-30 w-full max-w-3xl bg-black/40 border border-white/10 rounded-2xl p-4 backdrop-blur-md shadow-2xl mb-6">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <form onSubmit={handleSearch} className="flex-1 flex gap-2">
+                <div className="relative flex-1">
+                  <svg className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search for games"
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/40 transition-all text-sm"
+                  />
+                </div>
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      if (window.Lumin) {
+                        window.Lumin.search('');
+                      }
+                    }}
+                    className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 transition-all text-sm"
+                  >
+                    Clear
+                  </button>
+                )}
+              </form>
 
-          {error && (
-            <div className="text-red-400 mb-4 text-center">
-              {error}
-              <button 
-                onClick={() => window.location.reload()}
-                className="ml-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all text-sm"
-              >
-                Retry
-              </button>
-            </div>
-          )}
+              <div className="flex gap-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
+                    className="h-full px-4 py-3 rounded-xl text-sm font-medium bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-purple-500/30 transition-all flex items-center gap-2"
+                  >
+                    <span>{selectedGenre || 'Select genre'}</span>
+                    <svg className={`w-4 h-4 transition-transform duration-300 ${isGenreDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
 
-          {loading && (
-            <div className="text-gray-400 text-center">
-              Loading games...
-            </div>
-          )}
-
-          {/* Genre Filters inside game container */}
-          <div className="w-full mb-4 flex flex-wrap gap-2 justify-center items-center">
-            {/* Genre Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-purple-500/30 transition-all flex items-center gap-2"
-              >
-                <span>{selectedGenre || 'Select genre'}</span>
-                <svg className={`w-4 h-4 transition-transform duration-300 ${isGenreDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              
-              {isGenreDropdownOpen && (
-                <div className="absolute top-full left-0 mt-2 bg-black/90 border border-white/20 rounded-xl backdrop-blur-xl shadow-2xl transition-all duration-300 ease-out z-50 max-h-64 overflow-y-auto min-w-[150px]">
-                  {availableCategories.length > 0 ? (
-                    availableCategories.map((category: string) => (
-                      <button
-                        key={category}
-                        onClick={() => handleGenreSelect(category)}
-                        className="w-full px-4 py-2 text-left text-gray-200 hover:bg-purple-600/30 hover:text-white transition-all first:rounded-t-xl last:rounded-b-xl text-sm"
-                      >
-                        {category}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-4 py-2 text-gray-500 text-sm">
-                      Loading categories...
+                  {isGenreDropdownOpen && (
+                    <div className="absolute top-full right-0 mt-2 bg-[#12121a] border border-white/15 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto min-w-[160px]">
+                      {(() => {
+                        const cats = availableCategories.length > 0 ? availableCategories : FALLBACK_GENRES;
+                        return cats.map((category: string) => (
+                          <button
+                            key={category}
+                            onClick={() => handleGenreSelect(category)}
+                            className={`w-full px-4 py-2.5 text-left text-sm transition-all first:rounded-t-xl last:rounded-b-xl ${
+                              selectedGenre === category
+                                ? 'bg-purple-600/30 text-white'
+                                : 'text-gray-300 hover:bg-purple-600/20 hover:text-white'
+                            }`}
+                          >
+                            {category}
+                          </button>
+                        ));
+                      })()}
                     </div>
                   )}
                 </div>
-              )}
+
+                {selectedGenre && (
+                  <button
+                    onClick={() => {
+                      setSelectedGenre('');
+                      setIsGenreDropdownOpen(false);
+                      if (window.Lumin) {
+                        window.Lumin.search('');
+                      }
+                    }}
+                    className="px-4 py-3 rounded-xl text-sm font-medium bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/40 transition-all"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
-            {selectedGenre && (
-              <button
-                onClick={() => {
-                  setSelectedGenre('');
-                  setIsGenreDropdownOpen(false);
-                  if (window.Lumin) {
-                    window.Lumin.search('');
-                  }
-                }}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-red-600/30 text-red-300 border border-red-500/30 hover:bg-red-600/50 transition-all"
-              >
-                Clear
-              </button>
+            {error && (
+              <div className="text-red-400 mt-3 text-sm text-center">
+                {error}
+                <button
+                  onClick={() => window.location.reload()}
+                  className="ml-2 px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all text-xs"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {loading && (
+              <div className="text-gray-400 text-sm text-center mt-3">
+                Loading games...
+              </div>
             )}
           </div>
 
-          <div 
-            key={containerId}
-            id={containerId} 
-            ref={gamesContainerRef} 
-            className="w-full flex-1 bg-black/30 border border-white/10 rounded-2xl p-6 backdrop-blur-md"
+          <div
+            key={CONTAINER_ID}
+            id={CONTAINER_ID}
+            ref={gamesContainerRef}
+            className="relative z-0 w-full flex-1 min-h-[420px] bg-black/30 border border-white/10 rounded-2xl p-6 backdrop-blur-md"
           />
         </div>
 
-        {/* My Games Section */}
-        <div className="mt-16 mb-8 max-w-4xl mx-auto w-full flex flex-col items-center">
-          <h2 className="text-3xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400 mb-2 drop-shadow-lg text-center">
-            My Games
-          </h2>
-          <p className="text-gray-500 text-sm mb-6 text-center">
-            (some are unofficial btw)
-          </p>
-          
-          <form onSubmit={(e) => { e.preventDefault(); }} className="w-full max-w-2xl mb-6">
-            <input 
-              type="text" 
-              value={myGamesSearch}
-              onChange={(e) => setMyGamesSearch(e.target.value)}
-              placeholder="Search my games..." 
-              className="w-full px-6 py-4 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md text-center shadow-2xl"
-            />
-          </form>
+        <div className="mt-16 mb-8 max-w-5xl mx-auto w-full flex flex-col items-center">
+          <div className="w-full max-w-3xl bg-black/40 border border-white/10 rounded-2xl p-6 backdrop-blur-md shadow-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400 drop-shadow-lg">
+                  My Games
+                </h2>
+                <p className="text-gray-500 text-xs mt-1">(some are unofficial btw)</p>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <svg className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  value={myGamesSearch}
+                  onChange={(e) => setMyGamesSearch(e.target.value)}
+                  placeholder="Search my games..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/40 transition-all text-sm"
+                />
+              </div>
+            </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {myGames
-              .filter(game => game.name.toLowerCase().includes(myGamesSearch.toLowerCase()))
-              .map((game) => (
-                <a
-                  key={game.filename}
-                  href={game.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all cursor-pointer font-medium backdrop-blur-sm text-sm text-gray-200 hover:text-white hover:scale-105 shadow-lg text-center"
-                >
-                  {game.name}
-                </a>
-              ))}
+            {myGames.length === 0 ? (
+              <div className="text-center text-gray-500 text-sm py-10">
+                No games added yet. Add games to the public/my-games folder.
+              </div>
+            ) : myGames.filter(game => game.name.toLowerCase().includes(myGamesSearch.toLowerCase())).length === 0 ? (
+              <div className="text-center text-gray-500 text-sm py-10">
+                No games found matching "{myGamesSearch}"
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {myGames
+                  .filter(game => game.name.toLowerCase().includes(myGamesSearch.toLowerCase()))
+                  .map((game) => (
+                    <a
+                      key={game.filename}
+                      href={game.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex flex-col items-center gap-2 px-4 py-5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all cursor-pointer text-center hover:scale-105 shadow-lg"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 group-hover:text-white group-hover:bg-purple-600/40 transition-all">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <span className="text-sm text-gray-200 group-hover:text-white font-medium break-words w-full">{game.name}</span>
+                    </a>
+                  ))}
+              </div>
+            )}
           </div>
-
-          {myGames.length === 0 && (
-            <div className="text-center text-gray-500 text-sm py-8">
-              No games added yet. Add games to the public/my-games folder.
-            </div>
-          )}
-
-          {myGames.length > 0 && myGames.filter(game => game.name.toLowerCase().includes(myGamesSearch.toLowerCase())).length === 0 && (
-            <div className="text-center text-gray-500 text-sm py-8">
-              No games found matching "{myGamesSearch}"
-            </div>
-          )}
         </div>
-      </div>
+      </main>
+
+      {showSuggestionsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-black/60 border border-white/10 rounded-2xl p-8 max-w-lg w-full mx-4 backdrop-blur-md shadow-2xl">
+            <h2 className="text-2xl font-bold text-white mb-6 text-center">Feedback</h2>
+            <p className="text-gray-300 mb-4 text-center text-sm">
+              Submit your suggestions for either: website improvements, what games to add, what features to add onto the website.
+            </p>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!suggestionText.trim()) return;
+              try {
+                const response = await fetch('/api/suggestions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: suggestionText, userIdentifier, genre: suggestionGenre }),
+                });
+                if (response.ok) {
+                  setShowSuggestionsModal(false);
+                  setSuggestionText('');
+                  setNotice('thank you for your feedback!'); setTimeout(() => setNotice(''), 3500);
+                } else {
+                  setNotice('Failed to submit suggestion'); setTimeout(() => setNotice(''), 3500);
+                }
+              } catch {
+                setNotice('Network error. Is the backend running?'); setTimeout(() => setNotice(''), 3500);
+              }
+            }}>
+              <select
+                value={suggestionGenre}
+                onChange={(e) => setSuggestionGenre(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md mb-4 cursor-pointer"
+              >
+                <option value="Feedback suggestions">Feedback suggestions</option>
+                <option value="Website bug">Website bug</option>
+              </select>
+              <textarea
+                value={suggestionText}
+                onChange={(e) => setSuggestionText(e.target.value)}
+                placeholder="Enter your suggestion..."
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md mb-4 min-h-[120px] resize-none"
+              />
+              <div className="flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSuggestionsModal(false);
+                    setSuggestionText('');
+                  }}
+                  className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition-all text-sm font-medium"
+                >
+                  Submit your suggestion
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showGamesNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+            <p className="text-xs tracking-[0.3em] uppercase text-white/40 mb-3">[attention]</p>
+            <p className="text-sm text-white/90 leading-relaxed mb-6">few of you might be waiting on five nights at detention game, my game thats being worked on. That game is still being worked on currently, so please understand that it will take awhile for that game to finish.</p>
+            <button onClick={() => { localStorage.setItem('batprox-games-seen','1'); setShowGamesNotice(false); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay i understand.</button>
+          </div>
+        </div>
+      )}
+      <Settings 
+        isOpen={showSettingsModal} 
+        onClose={() => setShowSettingsModal(false)} 
+      />
     </div>
   );
 }

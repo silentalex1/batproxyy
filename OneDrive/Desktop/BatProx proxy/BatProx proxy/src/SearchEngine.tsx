@@ -1,259 +1,261 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Settings from './Settings';
+import { initUltraviolet, getUvUrl, getSandboxUrl, decodeProxiedLocation } from './uv';
+import { AmbientBg, BatteryIndicator, SideRail, NavBtn } from './Chrome';
+import { buildSearchUrl, MOVIES_URL } from './engines';
 
 export default function SearchEngine() {
   const navigate = useNavigate();
   const location = useLocation();
   const [url, setUrl] = useState('');
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [iframeKey, setIframeKey] = useState(0);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [key, setKey] = useState(0);
+  const [src, setSrc] = useState('');
+  const [useSandbox, setUseSandbox] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSites, setShowSites] = useState(false);
+  const [sites, setSites] = useState<Array<{ name: string; owner: string; updated_at: string }>>([]);
+  const [newSiteName, setNewSiteName] = useState('');
+  const [newSiteHtml, setNewSiteHtml] = useState('');
+  const [sitesNotice, setSitesNotice] = useState('');
   const [suggestionText, setSuggestionText] = useState('');
-  const [userIdentifier] = useState(() => 'user-' + Math.random().toString(36).substr(2, 9));
+  const [showSuggest, setShowSuggest] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const skipNext = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stampRef = useRef(0);
+  const skipLoading = (() => {
+    try { return JSON.parse(localStorage.getItem('batprox-settings') || '{}').skipLoading === true; } catch { return false; }
+  })();
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+  }, []);
+
+  const openTarget = useCallback((target: string, forceSandbox = false) => {
+    if (target.includes('stealthybat.org') || target.includes('stealthlybat.it.com') || target.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
+    if (target.includes('triplethd') || target.includes('noordware')) forceSandbox = true;
+    setUrl(target);
+    setLoading(!skipLoading);
+    setHasError(false);
+    if (forceSandbox) {
+      setUseSandbox(true);
+      setSrc(getSandboxUrl(target));
+      setKey(v => v + 1);
+      return;
+    }
+    setUseSandbox(false);
+    setSrc('');
+    initUltraviolet().then(() => {
+      if (!skipLoading) {
+        const s = ++stampRef.current;
+        clearTimer();
+        timerRef.current = setTimeout(() => {
+          if (stampRef.current === s) {
+            setUseSandbox(true);
+            setSrc(getSandboxUrl(target));
+            setLoading(!skipLoading);
+            setHasError(false);
+            setKey(v => v + 1);
+          }
+        }, 1800);
+      }
+      setSrc(getUvUrl(target));
+      setKey(v => v + 1);
+    }).catch(() => {
+      setUseSandbox(true);
+      setSrc(getSandboxUrl(target));
+      setKey(v => v + 1);
+    });
+  }, [clearTimer, skipLoading]);
+
+  useEffect(() => { initUltraviolet().catch(() => {}); return () => clearTimer(); }, [clearTimer]);
 
   useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const targetUrl = searchParams.get('url');
-    if (targetUrl) {
-      setUrl(targetUrl);
-      setIsLoading(true);
-      setHasError(false);
+    const t = new URLSearchParams(location.search).get('url');
+    if (!t) return;
+    if (skipNext.current) { skipNext.current = false; setUrl(t); return; }
+    setHistory(prev => {
+      const n = prev.slice(0, historyIndex + 1);
+      if (!n.includes(t)) return [...n, t];
+      return n;
+    });
+    setHistoryIndex(prev => {
+      const n = history.slice(0, prev + 1);
+      if (!n.includes(t)) return n.length;
+      return prev;
+    });
+    openTarget(t);
+  }, [location.search]);
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (!e.data || e.data.type !== 'batprox-nav' || !e.data.url) return;
+      const next = e.data.url;
+      skipNext.current = true;
+      setUrl(next);
       setHistory(prev => {
-        const newHistory = prev.slice(0, historyIndex + 1);
-        if (!newHistory.includes(targetUrl)) {
-          return [...newHistory, targetUrl];
-        }
-        return newHistory;
+        const trim = prev.slice(0, historyIndex + 1);
+        if (trim[trim.length - 1] === next) return trim;
+        return [...trim, next];
       });
-      setHistoryIndex(prev => {
-        const newHistory = history.slice(0, prev + 1);
-        if (!newHistory.includes(targetUrl)) {
-          return newHistory.length;
-        }
-        return prev;
-      });
-    }
-  }, [location]);
+      setHistoryIndex(v => v + 1);
+      navigate(`/search-engine?url=${encodeURIComponent(next)}`);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [historyIndex, navigate]);
+
+  const INTERNAL: Record<string, string> = {
+    home: '/dashboard', dashboard: '/dashboard', games: '/homework#help', homework: '/homework#help',
+    ai: '/ai-work', changelog: '/changelog', changelogs: '/changelog', status: '/bat-status', 'api status': '/bat-status',
+    movies: '/search-engine?url=' + encodeURIComponent(MOVIES_URL)
+  };
+
+  const resolveInternal = (q: string): string | null => {
+    const v = q.trim().toLowerCase();
+    if (INTERNAL[v]) return INTERNAL[v];
+    if (/^(site|mysite):[\w.-]{1,40}$/i.test(q)) return `/site/${q.split(':')[1]}`;
+    return null;
+  };
+
+  const loadSites = async () => {
+    try {
+      const r = await fetch('/api/sites');
+      if (r.ok) setSites((await r.json()).sites || []);
+    } catch { setSites([]); }
+  };
+
+  const saveSite = async () => {
+    const name = newSiteName.trim();
+    if (!name || !newSiteHtml.trim()) { setSitesNotice('Site name and HTML are required.'); return; }
+    try {
+      const r = await fetch('/api/sites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, html: newSiteHtml, owner: localStorage.getItem('batprox-user') || 'anonymous' }) });
+      const d = await r.json();
+      if (r.ok) {
+        setSitesNotice(`Saved "${name}". Opening...`);
+        setNewSiteName(''); setNewSiteHtml(''); setShowSites(false); loadSites();
+        setTimeout(() => { setSitesNotice(''); navigate(`/search-engine?url=${encodeURIComponent(`/site/${d.name || name}`)}`); }, 600);
+      } else setSitesNotice(d.error || 'Failed to save site.');
+    } catch { setSitesNotice('Network error while saving site.'); }
+  };
+
+  const deleteSite = async (name: string) => {
+    try { const r = await fetch(`/api/sites/${encodeURIComponent(name)}`, { method: 'DELETE' }); if (r.ok) setSites(p => p.filter(s => s.name !== name)); } catch {}
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (url.trim()) {
-      const formattedUrl = url.startsWith('http') ? url : `https://${url}`;
-      navigate(`/search-engine?url=${encodeURIComponent(formattedUrl)}`);
+    if (!url.trim()) return;
+    const internal = resolveInternal(url);
+    if (internal) {
+      if (internal.startsWith('/site/')) navigate(`/search-engine?url=${encodeURIComponent(window.location.origin + internal)}`);
+      else navigate(internal);
+      return;
     }
+    navigate(`/search-engine?url=${encodeURIComponent(buildSearchUrl(url))}`);
   };
 
   const handleBack = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndex(newIndex);
-      navigate(`/search-engine?url=${encodeURIComponent(history[newIndex])}`);
-    } else {
-      navigate('/');
-    }
+    if (historyIndex > 0) { const n = historyIndex - 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeURIComponent(history[n])}`); }
+    else navigate('/dashboard');
   };
-
   const handleForward = () => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setHistoryIndex(newIndex);
-      navigate(`/search-engine?url=${encodeURIComponent(history[newIndex])}`);
-    }
+    if (historyIndex < history.length - 1) { const n = historyIndex + 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeURIComponent(history[n])}`); }
   };
-
-  const handleHome = () => {
-    navigate('/');
-  };
-
+  const handleHome = () => navigate('/dashboard');
   const handleFullscreen = () => {
-    if (iframeRef.current) {
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      } else {
-        iframeRef.current.requestFullscreen();
-      }
-    }
+    const f = iframeRef.current;
+    if (!f) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else f.requestFullscreen();
   };
-
   const handleRefresh = () => {
-    setIframeKey(prev => prev + 1);
-    setIsLoading(true);
-    setHasError(false);
+    const t = new URLSearchParams(location.search).get('url') || url;
+    if (t) openTarget(t, useSandbox);
   };
-
-  const handleIframeLoad = () => {
-    setIsLoading(false);
-    setHasError(false);
-    console.log('Iframe loaded successfully');
-  };
-
-  const handleIframeError = () => {
-    setIsLoading(false);
-    setHasError(true);
-    console.log('Iframe loading error - backend server may not be running');
-  };
-
-  const handleSuggestionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (suggestionText.trim()) {
-      try {
-        const response = await fetch('http://localhost:3000/api/suggestions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ content: suggestionText, userIdentifier }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Suggestion submitted:', data);
-          setShowSuggestionsModal(false);
-          setSuggestionText('');
-          alert('Suggestion submitted successfully!');
-        } else {
-          const error = await response.json();
-          console.error('Submission error:', error);
-          alert('Failed to submit suggestion: ' + (error.error || 'Unknown error'));
+  const handleLoad = () => {
+    const f = iframeRef.current;
+    try {
+      const html = f?.contentDocument?.documentElement?.innerHTML || '';
+      const title = f?.contentDocument?.title || '';
+      if (html.includes('Error processing your request') || html.includes('Proxy failed to start') || html.includes('Failed to fetch') || title.includes('Error')) {
+        if (!useSandbox) {
+          clearTimer(); setUseSandbox(true); setSrc(getSandboxUrl(new URLSearchParams(location.search).get('url') || url)); setKey(v => v + 1); return;
         }
-      } catch (error) {
-        console.error('Network error:', error);
-        alert('Network error. Please make sure the backend server is running.');
       }
-    }
+    } catch {}
+    clearTimer(); setLoading(false); setHasError(false);
+    try {
+      if (!useSandbox && f?.contentDocument) {
+        f.contentDocument.addEventListener('click', (e) => {
+          const a = (e.target as HTMLElement | null)?.closest('a');
+          if (!a?.href) return;
+          const d = decodeProxiedLocation(a.href);
+          if (!d) return;
+          e.preventDefault(); e.stopPropagation();
+          navigate(`/search-engine?url=${encodeURIComponent(d)}`);
+        }, true);
+        f.contentDocument.addEventListener('submit', (e) => {
+          const form = e.target as HTMLFormElement | null;
+          if (!form?.action) return;
+          const d = decodeProxiedLocation(form.action);
+          if (!d) return;
+          e.preventDefault(); e.stopPropagation();
+          navigate(`/search-engine?url=${encodeURIComponent(d)}`);
+        }, true);
+      }
+      const href = f?.contentWindow?.location.href;
+      if (href) { const d = decodeProxiedLocation(href); if (d) setUrl(d); }
+    } catch {}
+  };
+  const handleError = () => {
+    clearTimer();
+    if (!useSandbox) { setUseSandbox(true); setSrc(getSandboxUrl(new URLSearchParams(location.search).get('url') || url)); setLoading(!skipLoading); setHasError(false); setKey(v => v + 1); return; }
+    setLoading(false); setHasError(true);
+  };
+  const handleSuggestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!suggestionText.trim()) return;
+    try {
+      const r = await fetch('/api/suggestions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: suggestionText, userIdentifier: 'user-' + Math.random().toString(36).slice(2, 9) }) });
+      if (r.ok) { setShowSuggest(false); setSuggestionText(''); } else { const d = await r.json(); setSitesNotice(d.error || 'Failed'); }
+    } catch { setSitesNotice('Network error'); }
   };
 
-  const searchParams = new URLSearchParams(location.search);
-  const targetUrl = searchParams.get('url');
+  const targetUrl = new URLSearchParams(location.search).get('url');
 
   return (
     <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div
-          className="absolute inset-0 bg-repeat opacity-60"
-          style={{
-            backgroundImage: `radial-gradient(1px 1px at 20px 30px, #fff, rgba(0,0,0,0)), 
-                              radial-gradient(1.5px 1.5px at 40px 70px, #fff, rgba(0,0,0,0)), 
-                              radial-gradient(1px 1px at 90px 40px, #fff, rgba(0,0,0,0)), 
-                              radial-gradient(2px 2px at 160px 120px, #ddd, rgba(0,0,0,0)),
-                              radial-gradient(1.5px 1.5px at 230px 190px, #fff, rgba(0,0,0,0)),
-                              radial-gradient(1px 1px at 300px 80px, #fff, rgba(0,0,0,0))`,
-            backgroundSize: '350px 350px',
-          }}
-        />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 sm:w-96 sm:h-96 bg-purple-600/30 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-purple-400/20 rounded-full blur-[60px] pointer-events-none" />
-      </div>
-
-      <div className="relative z-10 flex flex-col h-screen">
-        <div className="flex justify-center py-4">
-          <div className="flex gap-2 px-8 py-4 rounded-2xl bg-black/40 border border-white/10 backdrop-blur-md shadow-xl">
-            <button 
-              onClick={() => setShowSettingsModal(true)}
-              className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium hover:scale-105"
-            >
-              Settings
-            </button>
-            <button 
-              onClick={() => setShowSuggestionsModal(true)}
-              className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium hover:scale-105"
-            >
-              Suggestions
-            </button>
-            <button 
-              onClick={() => navigate('/more-games')}
-              className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium hover:scale-105"
-            >
-              More Games
-            </button>
+      <AmbientBg />
+      <SideRail onSettings={() => setShowSettings(true)} />
+      <main className="relative z-10 flex flex-col h-screen sm:pl-16">
+        <div className="flex items-center gap-2 h-14 px-3 sm:px-4 bg-black/40 backdrop-blur-xl">
+          <div className="flex items-center gap-1">
+            <button onClick={handleBack} disabled={historyIndex <= 0} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10 disabled:opacity-30">←</button>
+            <button onClick={handleForward} disabled={historyIndex >= history.length - 1} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10 disabled:opacity-30">→</button>
+            <button onClick={handleRefresh} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10">↻</button>
+            <button onClick={handleHome} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10">⌂</button>
           </div>
+          <form onSubmit={handleSearch} className="flex-1">
+            <div className="relative flex items-center gap-2 bg-[#14141a] rounded-full px-4 py-1.5">
+              <svg className="w-4 h-4 text-white/35 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Search or type a URL" className="flex-1 bg-transparent text-white placeholder-white/35 focus:outline-none text-sm" />
+            </div>
+          </form>
+          {targetUrl && <NavBtn className="hidden sm:inline-flex" onClick={handleFullscreen}>Fullscreen</NavBtn>}
+          <NavBtn className="hidden md:inline-flex" onClick={() => setShowSettings(true)}>Settings</NavBtn>
+          <BatteryIndicator />
         </div>
-
-        <div className="flex justify-center py-2 gap-4">
-          <button 
-            onClick={handleHome}
-            className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all backdrop-blur-sm text-sm"
-          >
-            🏠 Home
-          </button>
-          <button 
-            onClick={handleBack}
-            disabled={historyIndex <= 0}
-            className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all backdrop-blur-sm text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            ← Back
-          </button>
-          <button 
-            onClick={handleForward}
-            disabled={historyIndex >= history.length - 1}
-            className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all backdrop-blur-sm text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Forward →
-          </button>
-          {targetUrl && (
-            <>
-              <button 
-                onClick={handleRefresh}
-                className="px-4 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-300 transition-all backdrop-blur-sm text-sm flex items-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.001 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Refresh
-              </button>
-              <button 
-                onClick={handleFullscreen}
-                className="px-4 py-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 text-purple-300 transition-all backdrop-blur-sm text-sm flex items-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                </svg>
-                Fullscreen
-              </button>
-            </>
-          )}
-        </div>
-
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="w-full px-4 pt-4">
-            <form onSubmit={handleSearch} className="max-w-4xl mx-auto">
-              <div className="relative flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl backdrop-blur-md shadow-xl px-4 py-2">
-                <div className="text-gray-400 text-sm">
-                  🔒
-                </div>
-                <input 
-                  type="text" 
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  onClick={() => setIsExpanded(true)}
-                  onBlur={() => setIsExpanded(false)}
-                  placeholder="Enter web address..."
-                  className={`flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none transition-all ${
-                    isExpanded ? 'py-2 text-base' : 'py-1 text-sm'
-                  }`}
-                />
-                <button 
-                  type="submit"
-                  className="px-4 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition-all text-sm"
-                >
-                  Go
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div className="flex-1 px-4 pt-4 pb-4 min-h-0">
+          <div className="flex-1 px-3 sm:px-4 pt-3 pb-3 min-h-0">
             {targetUrl && (
               <div className="w-full h-full bg-white/5 rounded-xl border border-white/10 backdrop-blur-md overflow-hidden relative">
-                {isLoading && (
+                {loading && !skipLoading && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
@@ -266,76 +268,63 @@ export default function SearchEngine() {
                     <div className="flex flex-col items-center gap-3 text-center px-4">
                       <div className="text-red-400 text-4xl">⚠️</div>
                       <p className="text-red-300 text-sm font-medium">Failed to load content</p>
-                      <p className="text-gray-400 text-xs">The backend server may not be running or the URL is blocked</p>
-                      <button 
-                        onClick={handleRefresh}
-                        className="px-4 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 transition-all text-sm"
-                      >
-                        Try Again
-                      </button>
+                      <p className="text-gray-400 text-xs">Could not load this page through the proxy</p>
+                      <button onClick={handleRefresh} className="px-4 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 text-sm">Try Again</button>
                     </div>
                   </div>
                 )}
-                <iframe 
-                  key={iframeKey}
-                  ref={iframeRef}
-                  src={`http://localhost:3000/proxy?url=${encodeURIComponent(targetUrl)}`}
-                  className="w-full h-full border-0"
-                  title="Proxy Content"
-                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-pointer-lock allow-presentation allow-downloads allow-top-navigation-by-user-activation allow-storage-access-by-user-activation"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  allow="accelerometer; autoplay; camera; clipboard-read; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; microphone; midi; payment; picture-in-picture; screen-wake-lock; web-share; xr-spatial-tracking; usb; serial; magnetometer"
-                  loading="eager"
-                  onLoad={handleIframeLoad}
-                  onError={handleIframeError}
-                />
+                <iframe key={key} ref={iframeRef} src={src || 'about:blank'} className="w-full h-full border-0" title="Proxy" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-pointer-lock allow-presentation allow-downloads allow-storage-access-by-user-activation" referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; camera; clipboard-read; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; microphone; midi; payment; picture-in-picture; screen-wake-lock; web-share" loading="eager" onLoad={handleLoad} onError={handleError} />
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      {showSuggestionsModal && (
+      </main>
+      {showSuggest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <div className="bg-black/60 border border-white/10 rounded-2xl p-8 max-w-lg w-full mx-4 backdrop-blur-md shadow-2xl">
             <h2 className="text-2xl font-bold text-white mb-6 text-center">Feedback</h2>
-            <p className="text-gray-300 mb-4 text-center text-sm">
-              Submit your suggestions for either: website improvements, what games to add, what features to add onto the website.
-            </p>
-            <form onSubmit={handleSuggestionSubmit}>
-              <textarea
-                value={suggestionText}
-                onChange={(e) => setSuggestionText(e.target.value)}
-                placeholder="Enter your suggestion..."
-                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all backdrop-blur-md mb-4 min-h-[120px] resize-none"
-              />
+            <form onSubmit={handleSuggestion}>
+              <textarea value={suggestionText} onChange={e => setSuggestionText(e.target.value)} placeholder="Enter your suggestion..." className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 mb-4 min-h-[120px] resize-none" />
               <div className="flex gap-3 justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSuggestionsModal(false);
-                    setSuggestionText('');
-                  }}
-                  className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-all text-sm font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 transition-all text-sm font-medium"
-                >
-                  Submit your suggestion
-                </button>
+                <button type="button" onClick={() => { setShowSuggest(false); setSuggestionText(''); }} className="px-6 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm">Cancel</button>
+                <button type="submit" className="px-6 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 text-sm">Submit</button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      <Settings 
-        isOpen={showSettingsModal} 
-        onClose={() => setShowSettingsModal(false)} 
-      />
+      {showSites && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0b0b10]/95 border border-white/10 rounded-3xl p-7 max-w-2xl w-full backdrop-blur-md shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <div><h2 className="text-xl font-bold text-white">My Sites</h2><p className="text-xs text-gray-400 mt-1">Your own hosted pages.</p></div>
+              <button onClick={() => setShowSites(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M6 6l12 12M18 6L6 18" /></svg></button>
+            </div>
+            {sitesNotice && <div className="mb-4 px-4 py-2.5 rounded-xl bg-purple-600/15 border border-purple-500/25 text-purple-200 text-sm">{sitesNotice}</div>}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 mb-5">
+              <p className="text-sm font-medium text-white/90 mb-3">Create or update a site</p>
+              <input type="text" value={newSiteName} onChange={e => setNewSiteName(e.target.value)} placeholder="site name (e.g. my-page)" className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 mb-3" />
+              <textarea value={newSiteHtml} onChange={e => setNewSiteHtml(e.target.value)} placeholder="<h1>Hello world</h1>" className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 mb-3 min-h-[110px] resize-none font-mono" />
+              <button onClick={saveSite} className="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-sm font-semibold">Save & Open</button>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white/90 mb-3">Saved sites</p>
+              {sites.length === 0 ? <p className="text-gray-500 text-sm py-4 text-center">No sites yet.</p> : (
+                <div className="space-y-2">{sites.map(s => (
+                  <div key={s.name} className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                    <div className="min-w-0"><p className="text-sm text-white font-medium truncate">{s.name}</p><p className="text-[11px] text-gray-500">by {s.owner} - {new Date(s.updated_at).toLocaleString()}</p></div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => { setShowSites(false); navigate(`/search-engine?url=${encodeURIComponent(`${window.location.origin}/site/${s.name}`)}`); }} className="px-4 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 border border-purple-500/30 text-xs">Open</button>
+                      <button onClick={() => deleteSite(s.name)} className="px-4 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 text-xs">Delete</button>
+                    </div>
+                  </div>
+                ))}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      <Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 }

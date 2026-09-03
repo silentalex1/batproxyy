@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import Cookies from 'js-cookie';
+import Settings from './Settings';
 
 interface ChatHistory {
   id: string;
   title: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[] }>;
   timestamp: number;
   checkpoints?: Array<{ id: string; messageIndex: number; timestamp: number }>;
 }
@@ -14,13 +15,17 @@ interface ChatHistory {
 export default function AIWork() {
   const navigate = useNavigate();
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[] }>>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [typingContent, setTypingContent] = useState('');
   const [images, setImages] = useState<Array<{ id: string; data: string; file: File }>>([]);
+  const [attachedFiles, setAttachedFiles] = useState<Array<{ id: string; file: File; label?: string }>>([]);
+  const [dragging, setDragging] = useState(false);
+    const dragCounterRef = useRef(0);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [stopTyping, setStopTyping] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [pausedContent, setPausedContent] = useState('');
@@ -28,17 +33,15 @@ export default function AIWork() {
   const [checkpoints, setCheckpoints] = useState<Array<{ id: string; messageIndex: number; timestamp: number }>>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [expandedChats, setExpandedChats] = useState<Set<string>>(new Set());
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
-  // Load settings for typing animation
-  const [disableTypingAnimation, setDisableTypingAnimation] = useState(false);
-  
   useEffect(() => {
     const savedSettings = localStorage.getItem('batprox-settings');
     if (savedSettings) {
-      const settings = JSON.parse(savedSettings);
-      setDisableTypingAnimation(settings.disableTypingAnimation || false);
+      JSON.parse(savedSettings);
     }
   }, []);
 
@@ -149,89 +152,55 @@ export default function AIWork() {
     setImages(prev => prev.filter(img => img.id !== id));
   };
 
+  const addFiles = (files: Array<{ file: File; label?: string }>) => {
+    files.forEach(({ file, label }) => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          setImages(prev => [...prev, { id: Date.now().toString() + Math.random().toString(36).slice(2, 6), data: dataUrl, file }]);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setAttachedFiles(prev => [...prev, { id: Date.now().toString() + Math.random().toString(36).slice(2, 6), file, label }]);
+      }
+    });
+  };
+
+  const readEntry = async (entry: any, folderLabel?: string): Promise<Array<{ file: File; label?: string }>> => {
+    if (!entry) return [];
+    if (entry.isFile) {
+      return new Promise((resolve) => entry.file((f: File) => resolve([{ file: f, label: folderLabel || f.name }]), () => resolve([])));
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all: Array<{ file: File; label?: string }> = [];
+      const readBatch = (): Promise<any[]> => new Promise((resolve) => reader.readEntries((entries: any[]) => resolve(entries), () => resolve([])));
+      let batch = await readBatch();
+      while (batch.length > 0) {
+        for (const e of batch) {
+          all.push(...(await readEntry(e, entry.name)));
+        }
+        batch = await readBatch();
+      }
+      return all;
+    }
+    return [];
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    
     if (message.trim() || images.length > 0) {
       const userMessage = message.trim();
       const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
       setMessages(newMessages);
       setMessage('');
-      setIsTyping(true);
-      setTypingContent('');
-      setStopTyping(false);
-      setIsPaused(false);
-      const currentImages = [...images];
       setImages([]);
-      
-      // Create checkpoint after user message
-      const newCheckpoint = {
-        id: Date.now().toString(),
-        messageIndex: newMessages.length - 1,
-        timestamp: Date.now()
-      };
-      setCheckpoints(prev => [...prev, newCheckpoint]);
-
-      try {
-        const formData = new FormData();
-        formData.append('message', userMessage);
-        currentImages.forEach((img) => {
-          formData.append('images', img.file);
-        });
-
-        const response = await fetch('http://localhost:3000/api/ai/chat', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to get AI response');
-        }
-
-        const data = await response.json();
-        const aiResponse = data.response;
-        
-        if (disableTypingAnimation) {
-          // Instant response without typing animation
-          const finalMessages = [...messages, { role: 'assistant' as const, content: aiResponse }];
-          setMessages(finalMessages);
-          setIsTyping(false);
-          saveChatToHistory(finalMessages);
-        } else {
-          // Typing animation
-          let index = 0;
-          typingIntervalRef.current = setInterval(() => {
-            if (stopTyping) {
-              clearInterval(typingIntervalRef.current!);
-              setIsTyping(false);
-              setPausedContent(typingContent);
-              setIsPaused(true);
-              return;
-            }
-            
-            if (index < aiResponse.length) {
-              setTypingContent(aiResponse.substring(0, index + 1));
-              index++;
-            } else {
-              clearInterval(typingIntervalRef.current!);
-              setIsTyping(false);
-              const finalMessages = [...messages, { role: 'assistant' as const, content: aiResponse }];
-              setMessages(finalMessages);
-              setTypingContent('');
-              setIsPaused(false);
-              // Save chat after AI responds
-              saveChatToHistory(finalMessages);
-            }
-          }, 15); // Speed of typing
-        }
-      } catch (error) {
-        console.error('Error sending message:', error);
-        setIsTyping(false);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: 'Sorry, I encountered an error. Please try again.' 
-        }]);
-      }
+      setAttachedFiles([]);
+      const reply = 'MocahAI is still being trained, and worked on. Please be patient.';
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: reply }]);
+      saveChatToHistory([...newMessages, { role: 'assistant' as const, content: reply }]);
+      return;
     }
   };
 
@@ -244,7 +213,6 @@ export default function AIWork() {
     setStopTyping(false);
     setIsTyping(true);
     
-    // Get the last AI message to continue from
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'assistant') {
       const fullResponse = lastMessage.content;
@@ -274,6 +242,38 @@ export default function AIWork() {
     }
   };
 
+  const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    setDragging(true);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDragging(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    dragCounterRef.current = 0;
+    const items = Array.from(e.dataTransfer.items || []);
+    const entries = items.map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null));
+    if (entries.some((en) => en)) {
+      const collected: Array<{ file: File; label?: string }> = [];
+      for (const en of entries) {
+        collected.push(...(await readEntry(en)));
+      }
+      addFiles(collected);
+    } else {
+      addFiles(Array.from(e.dataTransfer.files || []).map((f) => ({ file: f, label: f.name })));
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -282,7 +282,24 @@ export default function AIWork() {
   };
 
   return (
-    <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
+    <div
+      className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white"
+      onDragEnter={onDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={onDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragging && (
+        <div className="fixed inset-0 z-[60] bg-purple-600/10 backdrop-blur-sm border-2 border-dashed border-purple-500/60 flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <svg className="w-14 h-14 text-purple-300 mx-auto mb-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+            <p className="text-lg font-medium text-purple-200">drop your files here</p>
+            <p className="text-xs text-purple-300/60 mt-1">images, folders and .zip archives are supported</p>
+          </div>
+        </div>
+      )}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div
           className="absolute inset-0 bg-repeat opacity-60"
@@ -300,29 +317,29 @@ export default function AIWork() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-purple-400/20 rounded-full blur-[60px] pointer-events-none" />
       </div>
 
-      <div className="relative z-10 flex flex-col min-h-screen">
-        {/* Navbar */}
+      <main className="relative z-10 flex flex-col min-h-screen">
         <div className="w-full flex justify-center py-4 relative z-30">
-          <div className="flex gap-3 px-10 py-3 rounded-2xl bg-black/60 border border-white/20 backdrop-blur-2xl shadow-2xl w-full max-w-6xl mx-4 justify-end items-center">
-            {/* Chat History Dropdown */}
-            <div className="relative mr-4">
+          <div className="flex gap-3 px-10 py-3 rounded-2xl bg-black/60 border border-white/20 backdrop-blur-2xl shadow-2xl w-full max-w-6xl mx-4 items-center">
+            <div className="relative mr-auto">
               <button
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="px-6 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 transition-all text-sm font-medium hover:scale-105 shadow-lg flex items-center gap-2"
+                className="px-5 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 transition-all text-sm font-medium shadow-lg flex items-center gap-2"
               >
                 <span>Chat History</span>
                 <svg className={`w-4 h-4 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
-              
-              {/* Dropdown Content */}
               {isDropdownOpen && (
-                <div className="absolute top-full left-0 mt-2 w-80 max-h-96 overflow-y-auto bg-black/90 border border-white/20 rounded-xl backdrop-blur-xl shadow-2xl transition-all duration-300 ease-out z-50">
-                  <div className="p-4 border-b border-white/10">
-                    <button 
+                <div className="absolute top-full left-0 mt-3 w-80 max-h-96 overflow-y-auto bg-[#0d0d12]/95 border border-white/10 rounded-2xl backdrop-blur-xl shadow-2xl z-50">
+                  <div className="sticky top-0 bg-[#0d0d12]/95 backdrop-blur-xl p-3 border-b border-white/5">
+                    <div className="flex items-center justify-between px-1 mb-2.5">
+                      <p className="text-[11px] uppercase tracking-widest text-white/35 font-semibold">Chat history</p>
+                      <span className="text-[11px] text-white/25">{chatHistory.length}</span>
+                    </div>
+                    <button
                       onClick={startNewChat}
-                      className="w-full px-4 py-3 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 transition-all text-sm font-medium shadow-lg"
+                      className="w-full px-4 py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/45 text-purple-200 border border-purple-500/30 transition-all text-sm font-medium"
                     >
                       + New Chat
                     </button>
@@ -349,18 +366,33 @@ export default function AIWork() {
                                 return newSet;
                               });
                             }}
-                            className={`px-4 py-3 rounded-xl cursor-pointer transition-all text-sm truncate flex items-center justify-between ${
-                              currentChatId === chat.id 
-                                ? 'bg-purple-600/40 border border-purple-500/50 text-white shadow-md' 
-                                : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-transparent hover:border-white/20'
+                            className={`group px-3.5 py-2.5 rounded-xl cursor-pointer transition-all text-sm truncate flex items-center gap-2 ${
+                              currentChatId === chat.id
+                                ? 'bg-purple-600/25 border border-purple-500/40 text-white'
+                                : 'bg-white/[0.03] hover:bg-white/[0.08] text-gray-300 border border-transparent hover:border-white/15'
                             }`}
                           >
-                            <span>{chat.title}</span>
-                            <svg className={`w-4 h-4 transition-transform duration-300 ${expandedChats.has(chat.id) ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <span className="truncate flex-1">
+                              {chat.title}
+                              <span className="block text-[10px] text-white/25 mt-0.5">
+                                {new Date(chat.timestamp).toLocaleDateString()} · {chat.messages.length} messages
+                              </span>
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteChat(chat.id);
+                              }}
+                              className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-white/30 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+                              </svg>
+                            </button>
+                            <svg className={`w-4 h-4 shrink-0 text-white/30 transition-transform duration-300 ${expandedChats.has(chat.id) ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                             </svg>
                           </div>
-                          {/* Checkpoints for expanded chat */}
                           {expandedChats.has(chat.id) && chat.checkpoints && chat.checkpoints.length > 0 && (
                             <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-2 duration-300">
                               {chat.checkpoints.map((checkpoint, index) => (
@@ -394,14 +426,20 @@ export default function AIWork() {
               )}
             </div>
             
-            <button 
-              onClick={() => navigate('/')}
-              className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium hover:scale-105 shadow-lg"
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/15 text-white border border-white/15 hover:border-purple-500/50 transition-all text-sm font-medium shadow-lg flex items-center gap-2 group"
             >
-              &lt; Go back
+              <svg className="w-4 h-4 text-purple-400 group-hover:-translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span>Go back</span>
             </button>
             
-            <button className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium hover:scale-105 shadow-lg">
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="px-6 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium hover:scale-105 shadow-lg"
+            >
               Settings
             </button>
             <button 
@@ -412,12 +450,8 @@ export default function AIWork() {
             </button>
           </div>
         </div>
-
-        {/* Main Content Area */}
         <div className="flex flex-1 overflow-hidden relative">
-          {/* Chat Area */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Chat Messages Area */}
             <div className="flex-1 overflow-y-auto px-4 py-8 max-w-4xl mx-auto w-full pb-32">
               <div className="space-y-4">
                 {messages.length === 0 && (
@@ -442,6 +476,14 @@ export default function AIWork() {
                     >
                       {msg.role === 'assistant' ? (
                         <div className="prose prose-invert max-w-none">
+                          {msg.terminal && msg.terminal.length > 0 && (
+                            <div className="mb-3 rounded-lg bg-black/70 border border-white/10 p-3 font-mono text-[11px] text-gray-400 opacity-75 max-h-52 overflow-y-auto">
+                              <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-1.5">MocahAI terminal</p>
+                              {msg.terminal.map((line, li) => (
+                                <p key={li} className={line.startsWith('$') ? 'text-purple-300/90' : 'text-gray-500'}>{line}</p>
+                              ))}
+                            </div>
+                          )}
                           <ReactMarkdown>
                             {msg.content}
                           </ReactMarkdown>
@@ -467,11 +509,28 @@ export default function AIWork() {
                 <div ref={messagesEndRef} />
               </div>
             </div>
-
-            {/* Input Area */}
             <div className="fixed bottom-0 left-0 right-0 w-full flex justify-center pb-8 bg-gradient-to-t from-black/90 via-black/70 to-transparent pt-6 z-20">
               <div className="w-full max-w-2xl px-4">
-                {/* Image Preview Area */}
+                {attachedFiles.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2 animate-fade-down">
+                    {attachedFiles.map((f) => (
+                      <div key={f.id} className="group flex items-center gap-2 pl-3 pr-2 py-2 rounded-xl bg-white/[0.06] border border-white/10 hover:border-purple-500/40 transition-all">
+                        <svg className="w-4 h-4 text-purple-300 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                        <span className="text-xs text-white/85 max-w-[180px] truncate">{f.label || f.file.name}</span>
+                        <span className="text-[10px] text-white/35 shrink-0">{Math.max(1, Math.round(f.file.size / 1024))} KB</span>
+                        <button
+                          type="button"
+                          onClick={() => setAttachedFiles(prev => prev.filter(x => x.id !== f.id))}
+                          className="w-5 h-5 rounded-full bg-red-500/80 hover:bg-red-500 text-white text-xs flex items-center justify-center transition-all"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {images.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
                     {images.map((img) => (
@@ -492,49 +551,111 @@ export default function AIWork() {
                     ))}
                   </div>
                 )}
-                <form onSubmit={handleSendMessage} className="relative">
+                <form onSubmit={handleSendMessage} className="relative flex items-center gap-2.5">
                   <input
-                    ref={inputRef}
-                    type="text"
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    placeholder="Ask MocahAI anything.."
-                    className="w-full px-6 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all duration-300 backdrop-blur-md text-center shadow-2xl py-4 text-lg"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      files.forEach((file) => {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const dataUrl = event.target?.result as string;
+                          setImages((prev) => [...prev, { id: Date.now().toString() + Math.random().toString(36).slice(2, 6), data: dataUrl, file }]);
+                        };
+                        reader.readAsDataURL(file);
+                      });
+                      e.target.value = '';
+                    }}
                   />
-                  
-                  {/* Stop Button */}
-                  {isTyping && (
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      addFiles(Array.from(e.target.files || []).map((f) => {
+                        const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || '';
+                        const folder = rel.includes('/') ? rel.split('/')[0] : f.name;
+                        return { file: f, label: folder };
+                      }));
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className="relative flex-1 min-w-0">
                     <button
                       type="button"
-                      onClick={handleStopTyping}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-red-500/90 hover:bg-red-600 rounded-lg transition-all duration-300 shadow-lg z-30 flex items-center justify-center"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute left-3 top-3.5 w-10 h-10 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-white/60 hover:text-purple-300 transition-all flex items-center justify-center z-10"
+                      title="Add images"
                     >
-                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <rect x="6" y="6" width="12" height="12" rx="1" />
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 15l-5-5L5 21" />
                       </svg>
                     </button>
-                  )}
-                  
-                  {/* Continue Button */}
-                  {isPaused && (
-                    <button
-                      type="button"
-                      onClick={handleContinueTyping}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 bg-green-500/90 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-all duration-300 shadow-lg z-30"
-                    >
-                      Continue
-                    </button>
-                  )}
+                    <textarea
+                      ref={inputRef}
+                      value={message}
+                      onChange={(e) => {
+                        setMessage(e.target.value);
+                        const el = e.target;
+                        el.style.height = 'auto';
+                        el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onPaste={handlePaste}
+                      rows={1}
+                      placeholder="Ask MocahAI anything.."
+                      className="w-full pl-14 pr-5 py-4 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all duration-300 backdrop-blur-md shadow-2xl text-lg resize-none max-h-40"
+                    />
+                    {isTyping && (
+                      <button
+                        type="button"
+                        onClick={handleStopTyping}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-red-500/90 hover:bg-red-600 rounded-lg transition-all duration-300 shadow-lg z-30 flex items-center justify-center"
+                      >
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <rect x="6" y="6" width="12" height="12" rx="1" />
+                        </svg>
+                      </button>
+                    )}
+                    {isPaused && (
+                      <button
+                        type="button"
+                        onClick={handleContinueTyping}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 bg-green-500/90 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-all duration-300 shadow-lg z-30"
+                      >
+                        Continue
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => folderInputRef.current?.click()}
+                    className="shrink-0 w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/15 border border-white/10 text-white/60 hover:text-purple-300 transition-all flex items-center justify-center"
+                    title="Add folders or files"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                  </button>
                 </form>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
-      {/* Context Menu */}
+      <Settings
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+      />
+
       {contextMenu && (
         <div
           className="fixed z-50 bg-black/90 border border-white/20 rounded-xl shadow-2xl backdrop-blur-md"
@@ -550,7 +671,6 @@ export default function AIWork() {
         </div>
       )}
 
-      {/* Click outside to close context menu */}
       {contextMenu && (
         <div
           className="fixed inset-0 z-40"
