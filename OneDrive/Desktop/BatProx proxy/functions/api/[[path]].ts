@@ -23,7 +23,7 @@ export async function onRequest(context:any){
   for(const backend of backends){
     try{
       const r=await fetch(backend+url.pathname+url.search,{method:context.request.method, headers:context.request.headers, body:reqBody});
-      if(r.status>=500) continue;
+      if(r.status>=500||r.status===404) continue;
       const body=await r.arrayBuffer();
       const h=new Headers(r.headers);
       h.set('Access-Control-Allow-Origin','https://stealthybat.org');

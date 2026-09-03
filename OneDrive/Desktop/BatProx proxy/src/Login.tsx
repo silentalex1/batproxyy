@@ -64,17 +64,19 @@ export default function Login() {
   };
 
   const tryBases = async (path: string, init: RequestInit) => {
-    let lastErr: unknown = null;
+    let lastErr = 'Network error. Please make sure the backend server is running.';
     for (const base of API_BASES) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          return await fetchWithTimeout(`${base}${path}`, init);
-        } catch (e) {
-          lastErr = e;
+          const r = await fetchWithTimeout(`${base}${path}`, init);
+          if (r.status < 500) return r;
+          lastErr = `Server error (${r.status}). Please try again.`;
+        } catch {
+          lastErr = 'Network error. Please make sure the backend server is running.';
         }
       }
     }
-    throw lastErr || new Error('Network error');
+    throw new Error(lastErr);
   };
 
   const handleForgotSubmit = async (e: React.FormEvent) => {
@@ -237,17 +239,18 @@ export default function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), inviteCode: inviteCode.trim() })
       });
-      const data = await response.json();
+      let data: any = {};
+      try { data = await response.json(); } catch { data = {}; }
       if (!response.ok) {
-        setServerError(data.error || 'Login failed');
+        setServerError(data.error || `Login failed (${response.status})`);
         setLoading(false);
         return;
       }
       localStorage.setItem('batprox-token', data.token);
       localStorage.setItem('batprox-user', data.user.username);
       navigate('/dashboard');
-    } catch {
-      setServerError('Network error. Please make sure the backend server is running.');
+    } catch (e: any) {
+      setServerError(e?.message || 'Network error. Please make sure the backend server is running.');
       setLoading(false);
     }
   };
