@@ -219,9 +219,15 @@ export default function AdminPanel() {
     if (!raw) return;
     setCmdLog(prev => [...prev, `> ${raw}`]);
     setCmdInput('');
-    if (raw.toLowerCase() === 'show quick-access codes') {
+    const lower = raw.toLowerCase();
+    if (lower === 'show quick-access codes') {
       const lines = users.map(u => `${u.username}: ${u.invite_code}`).join('\n');
       setCmdLog(prev => [...prev, lines || 'No users']);
+      return;
+    }
+    if (lower === 'show commands' || lower === 'help' || lower === 'commands') {
+      const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
+      setCmdLog(prev => [...prev, lines]);
       return;
     }
     const m = raw.match(/^(.+?)\s+to\s+(.+)$/i);
@@ -236,7 +242,7 @@ export default function AdminPanel() {
       } catch { setCmdLog(prev => [...prev, 'Network error']); }
       return;
     }
-    setCmdLog(prev => [...prev, 'Unknown command']);
+    setCmdLog(prev => [...prev, 'Unknown command - type "show commands"']);
   };
 
   const logout = () => { localStorage.removeItem('batprox-token'); localStorage.removeItem('batprox-user'); navigate('/'); };
@@ -445,15 +451,28 @@ export default function AdminPanel() {
             )}
             {tab === 'commands' && (
               <div>
-                <h2 className="text-lg font-bold text-white mb-1">Command panel</h2>
-                <p className="text-gray-500 text-sm mb-4">Run shortcuts like <span className="text-purple-300 font-mono">code to username</span> or <span className="text-purple-300 font-mono">show quick-access codes</span></p>
-                <div className="bg-black/60 border border-white/10 rounded-xl p-4 h-80 overflow-y-auto font-mono text-sm mb-3">
-                  {cmdLog.map((l, i) => <div key={i} className="text-white/70 whitespace-pre-wrap">{l}</div>)}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <h2 className="text-sm font-bold text-white ml-2 tracking-wide">batprox@stealthybat:~$</h2>
+                  <span className="ml-auto text-[11px] text-white/30">type "show commands"</span>
                 </div>
-                <form onSubmit={e => { e.preventDefault(); runCommand(); }} className="flex gap-2">
-                  <input value={cmdInput} onChange={e => setCmdInput(e.target.value)} placeholder='e.g. sigmaboi$$ to jacobieog' className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-purple-500/60" />
-                  <button type="submit" className="px-6 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Enter</button>
-                </form>
+                <div className="bg-black border border-purple-500/30 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(139,92,246,0.25)]">
+                  <div className="bg-white/[0.04] border-b border-white/10 px-4 py-2 flex items-center gap-2">
+                    <span className="text-xs font-mono text-purple-300">command panel</span>
+                    <span className="text-xs text-white/30">— {users.length} users loaded</span>
+                  </div>
+                  <div className="p-4 h-80 overflow-y-auto font-mono text-sm bg-[#050508]">
+                    {cmdLog.map((l, i) => <div key={i} className={l.startsWith('>') ? 'text-purple-300' : l.startsWith('Available') || l.includes(':') ? 'text-green-300' : 'text-white/70'} style={{ whiteSpace: 'pre-wrap' }}>{l}</div>)}
+                  </div>
+                  <form onSubmit={e => { e.preventDefault(); runCommand(); }} className="flex gap-0 border-t border-white/10 bg-black">
+                    <span className="px-3 py-3 text-green-400 font-mono text-sm select-none">❯</span>
+                    <input value={cmdInput} onChange={e => setCmdInput(e.target.value)} placeholder='show commands' className="flex-1 px-2 py-3 bg-transparent text-white placeholder-white/30 text-sm font-mono focus:outline-none" />
+                    <button type="submit" className="px-6 bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold tracking-wide">ENTER</button>
+                  </form>
+                </div>
+                <p className="text-[11px] text-white/25 mt-2 font-mono">Tip: "show quick-access codes" reveals all invite codes</p>
               </div>
             )}
           </div>
