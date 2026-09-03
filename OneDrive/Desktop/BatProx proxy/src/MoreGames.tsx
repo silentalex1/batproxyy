@@ -34,7 +34,7 @@ export default function MoreGames() {
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [userIdentifier] = useState(() => localStorage.getItem('batprox-user') || 'anonymous');
-  const [recentGames, setRecentGames] = useState<Array<{ name: string; plays: number; ts: number }>>(() => getRecentGames());
+  const [recentGames, setRecentGames] = useState(() => getRecentGames());
   const gamesContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const luminReadyRef = useRef(false);
@@ -287,8 +287,10 @@ export default function MoreGames() {
           },
           onGameStart: (game: any) => {
             const name = String((game && (game.title || game.name)) || 'game');
+            const icon = String((game && (game.thumbnail || game.thumb || game.image || game.icon || game.cover)) || '');
+            const url = String((game && (game.url || game.link || game.slug)) || '');
             gameStartRef.current = { name, at: Date.now() };
-            recordRecentGame(name);
+            recordRecentGame(name, { icon, url });
             setRecentGames(getRecentGames());
             setPresenceGame(name);
           },
@@ -604,6 +606,11 @@ export default function MoreGames() {
                     onClick={() => { setSearchQuery(g.name); if (window.Lumin) window.Lumin.search(g.name); }}
                     className="group flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all text-center"
                   >
+                    {g.icon ? (
+                      <img src={g.icon} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10" loading="lazy" />
+                    ) : (
+                      <span className="w-16 h-16 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 text-xl font-bold">{g.name.charAt(0).toUpperCase()}</span>
+                    )}
                     <span className="text-sm text-gray-200 group-hover:text-white font-medium break-words w-full truncate">{g.name}</span>
                     <span className="text-[11px] text-purple-300/80">{g.plays} play{g.plays === 1 ? '' : 's'}</span>
                   </button>

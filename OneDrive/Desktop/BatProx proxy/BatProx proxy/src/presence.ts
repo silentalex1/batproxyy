@@ -47,19 +47,28 @@ export function trackGameSeconds(game: string, seconds: number) {
   }).catch(() => {});
 }
 
-export function recordRecentGame(name: string) {
+export interface RecentGame { name: string; plays: number; ts: number; icon?: string; url?: string; }
+
+export function recordRecentGame(name: string, extra?: { icon?: string; url?: string }) {
   if (!name) return;
   try {
     const key = 'batprox-recent-games';
-    let arr: Array<{ name: string; plays: number; ts: number }> = JSON.parse(localStorage.getItem(key) || '[]');
+    let arr: RecentGame[] = JSON.parse(localStorage.getItem(key) || '[]');
     const found = arr.find(x => x.name === name);
-    if (found) { found.plays += 1; found.ts = Date.now(); }
-    else arr.push({ name, plays: 1, ts: Date.now() });
+    if (found) {
+      found.plays += 1; found.ts = Date.now();
+      if (extra?.icon) found.icon = extra.icon;
+      if (extra?.url) found.url = extra.url;
+    }
+    else arr.push({ name, plays: 1, ts: Date.now(), icon: extra?.icon || '', url: extra?.url || '' });
     arr.sort((a, b) => b.plays - a.plays || b.ts - a.ts);
     localStorage.setItem(key, JSON.stringify(arr.slice(0, 12)));
   } catch {}
 }
 
-export function getRecentGames(): Array<{ name: string; plays: number; ts: number }> {
-  try { return JSON.parse(localStorage.getItem('batprox-recent-games') || '[]'); } catch { return []; }
+export function getRecentGames(): RecentGame[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem('batprox-recent-games') || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
 }

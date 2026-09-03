@@ -289,7 +289,7 @@ export default function SearchEngine() {
                     </div>
                   </div>
                 )}
-                <iframe key={key} ref={iframeRef} src={src || 'about:blank'} className="w-full h-full border-0" title="Proxy" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-pointer-lock allow-presentation allow-downloads allow-storage-access-by-user-activation" referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; camera; clipboard-read; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; microphone; midi; payment; picture-in-picture; screen-wake-lock; web-share" loading="eager" onLoad={handleLoad} onError={handleError} />
+                <iframe key={key} ref={iframeRef} src={src || 'about:blank'} className="w-full h-full border-0" title="Proxy" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-pointer-lock allow-presentation allow-downloads allow-storage-access-by-user-activation" referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; camera; clipboard-read; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; microphone; midi; payment; picture-in-picture; pointer-lock; screen-wake-lock; web-share" loading="eager" onLoad={handleLoad} onError={handleError} />
               </div>
             )}
           </div>

@@ -178,9 +178,6 @@ function Dashboard() {
       case 'Spotify':
         targetUrl = 'https://open.spotify.com';
         break;
-      case 'Pinterest':
-        targetUrl = 'https://pinterest.com';
-        break;
       case 'Music':
         targetUrl = 'https://music.octavestreaming.com/';
         break;
@@ -242,7 +239,6 @@ function Dashboard() {
     { label: 'Discord', image: '/assets/discord.png', tint: 'bg-[#5865F2]' },
     { label: 'Roblox', image: '/assets/robloxcom.png', tint: 'bg-[#1a1a1a]' },
     { label: 'Spotify', image: '/assets/spotify.png', tint: 'bg-[#1DB954]' },
-    { label: 'Pinterest', image: '/assets/pinterest.png', tint: 'bg-[#E60023]' },
     { label: 'Music', image: '/assets/musiclogo2.png', tint: 'bg-[#7c3aed]' },
     { label: 'Movies', image: null, tint: 'bg-[#ef4444]' },
     { label: 'AI', image: null, tint: 'bg-[#8b5cf6]' },
