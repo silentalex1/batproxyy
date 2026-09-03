@@ -29,6 +29,10 @@ const rules = [
   {
     title: '7. Ai improvement.',
     body: 'By using this site platform, many of you know that I make AI\'s, and currently i am making one called MocahAI, for this site platform at least. I know there are other ai\'s out there, but this AI model, will be custom, and brand new suitable for understanding your teacher pov note styles, etc, so by using this site you\'ll be agreeing to allow me to use your chat messages, of the AI chat history, / soon chat room of this website.'
+  },
+  {
+    title: '8. May temporarily remove account if you are being investigated.',
+    body: 'I may end up temporarily removing your account from this website if you tell me that you are being investigated. Investigating as in, a teacher is trying to find out who owns this website and by temporarily removing your account, they won\'t be able to access the website to see that it\'s full of games, etc. (By the way, it\'s not that serious if you\'re a teacher going this far).'
   }
 ];
 
