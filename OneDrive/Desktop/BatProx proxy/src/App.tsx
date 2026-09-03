@@ -67,6 +67,12 @@ function Dashboard() {
     };
     verify();
     initUltraviolet().catch(() => {});
+    const token = localStorage.getItem('batprox-token');
+    if (token) {
+      fetch('/api/user/settings', { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.ok ? r.json() : null).then(d => {
+        if (d && d.settings) localStorage.setItem('batprox-settings', JSON.stringify(d.settings));
+      }).catch(() => {});
+    }
 
     const updateTimer = () => {
       const now = new Date();
