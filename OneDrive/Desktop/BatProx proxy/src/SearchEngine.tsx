@@ -37,6 +37,7 @@ export default function SearchEngine() {
   }, []);
 
   const openTarget = useCallback((target: string, forceSandbox = false) => {
+    if (target.includes('stealthybat.org') || target.includes('stealthlybat.it.com') || target.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
     if (target.includes('triplethd') || target.includes('noordware')) forceSandbox = true;
     setUrl(target);
     setLoading(!skipLoading);
