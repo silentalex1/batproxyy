@@ -20,14 +20,14 @@ export default function UserActivity() {
   const [suggestionText, setSuggestionText] = useState('');
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
-  const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || 'anonymous'; } catch { return 'anonymous'; } });
+  const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
 
   const load = useCallback(async () => {
     try {
       const r = await fetch('/api/presence');
       if (r.ok) {
         const d = await r.json();
-        setUsers((d.users || []).sort((a: PresenceUser, b: PresenceUser) => Number(b.active) - Number(a.active) || a.username.localeCompare(b.username)));
+        setUsers(((d.users || []) as PresenceUser[]).filter(u => u.username && u.username !== 'anonymous').sort((a: PresenceUser, b: PresenceUser) => Number(b.active) - Number(a.active) || a.username.localeCompare(b.username)));
       }
     } catch {}
     try {

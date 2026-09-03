@@ -28,7 +28,7 @@ export default function StaffPanel() {
   const [comments, setComments] = useState<Record<number, FbComment[]>>({});
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [showSettings, setShowSettings] = useState(false);
-  const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || 'anonymous'; } catch { return 'anonymous'; } });
+  const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
 
   useEffect(() => {
     const token = (() => { try { return localStorage.getItem('batprox-token') || ''; } catch { return ''; } })();
@@ -64,7 +64,7 @@ export default function StaffPanel() {
 
   const postComment = async (fid: number) => {
     const text = (drafts[fid] || '').trim();
-    if (!text) return;
+    if (!text || !me) return;
     try {
       const r = await fetch('/api/feedback-comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ feedbackId: fid, user: me, text }) });
       if (r.ok) { setDrafts(p => ({ ...p, [fid]: '' })); load(); }

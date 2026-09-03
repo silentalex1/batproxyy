@@ -3,10 +3,11 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let currentGame = '';
 
 function username(): string {
-  try { return localStorage.getItem('batprox-user') || 'anonymous'; } catch { return 'anonymous'; }
+  try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; }
 }
 
 async function beat() {
+  if (!username()) return;
   try {
     await fetch('/api/presence', {
       method: 'POST',
@@ -32,7 +33,7 @@ export function startPresence() {
 
 export function trackGameSeconds(game: string, seconds: number) {
   const s = Math.round(seconds);
-  if (!game || s < 5) return;
+  if (!game || s < 5 || !username()) return;
   try {
     const key = 'batprox-game-seconds';
     const map = JSON.parse(localStorage.getItem(key) || '{}');
