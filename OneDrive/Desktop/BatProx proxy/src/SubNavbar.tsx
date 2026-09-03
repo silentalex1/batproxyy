@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Settings from './Settings';
+import { TopBar, NavBtn } from './Chrome';
 
-export default function SubNavbar() {
+interface SubNavbarProps {
+  goBackLabel?: string;
+  goBackTo?: string;
+  showApiDoc?: boolean;
+}
+
+export default function SubNavbar({ goBackLabel = '< Go back', goBackTo = '/dashboard', showApiDoc = false }: SubNavbarProps) {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -62,38 +69,28 @@ export default function SubNavbar() {
           {notice}
         </div>
       )}
-      <div className="w-full flex justify-center py-4">
-        <div className="flex gap-3 px-10 py-3.5 rounded-2xl bg-black/60 border border-white/20 backdrop-blur-2xl shadow-2xl w-full max-w-6xl mx-4 justify-between items-center">
-          {checked ? (
-            isAdmin ? (
-              <span className="text-[11px] font-bold tracking-widest px-3 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">ADMIN</span>
+      <div className="sm:pl-16">
+        <TopBar>
+          <div className="flex items-center gap-3">
+            {checked ? (
+              isAdmin ? (
+                <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-emerald-950/80 text-emerald-300">ADMIN</span>
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-sky-400/70" />
+              )
             ) : (
-              <span className="text-[11px] font-bold tracking-widest px-3 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">Visitor</span>
-            )
-          ) : (
-            <span className="w-16 h-6 rounded-full bg-white/5 animate-pulse" />
-          )}
-          <div className="flex gap-3">
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium shadow-lg"
-            >
-              &lt; Go back
-            </button>
-            <button
-              onClick={() => setShowSuggestions(true)}
-              className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium shadow-lg"
-            >
-              Suggestions
-            </button>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all text-sm font-medium shadow-lg"
-            >
-              Settings
-            </button>
+              <span className="w-16 h-7 rounded-full bg-white/5 animate-pulse" />
+            )}
+            <NavBtn onClick={() => navigate(goBackTo)}>{goBackLabel}</NavBtn>
           </div>
-        </div>
+          <div className="flex items-center gap-2">
+            {showApiDoc && (
+              <NavBtn onClick={() => navigate('/api-status/docs')}>API doc</NavBtn>
+            )}
+            <NavBtn onClick={() => setShowSuggestions(true)}>Suggestions</NavBtn>
+            <NavBtn onClick={() => setShowSettings(true)}>Settings</NavBtn>
+          </div>
+        </TopBar>
       </div>
 
       {showSuggestions && (

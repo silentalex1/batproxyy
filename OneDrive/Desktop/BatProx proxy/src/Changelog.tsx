@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import SubNavbar from './SubNavbar';
+import { AmbientBg, SideRail } from './Chrome';
 
 interface Changelog {
   id: number;
@@ -110,21 +111,8 @@ export default function Changelog() {
 
   return (
     <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div
-          className="absolute inset-0 bg-repeat opacity-60"
-          style={{
-            backgroundImage: `radial-gradient(1px 1px at 20px 30px, #fff, rgba(0,0,0,0)),
-                              radial-gradient(1.5px 1.5px at 40px 70px, #fff, rgba(0,0,0,0)),
-                              radial-gradient(1px 1px at 90px 40px, #fff, rgba(0,0,0,0)),
-                              radial-gradient(2px 2px at 160px 120px, #ddd, rgba(0,0,0,0)),
-                              radial-gradient(1.5px 1.5px at 230px 190px, #fff, rgba(0,0,0,0)),
-                              radial-gradient(1px 1px at 300px 80px, #fff, rgba(0,0,0,0))`,
-            backgroundSize: '350px 350px'
-          }}
-        />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-600/20 rounded-full blur-[120px]" />
-      </div>
+      <AmbientBg />
+      <SideRail />
 
       <div className="relative z-10 flex flex-col min-h-screen">
         <SubNavbar />

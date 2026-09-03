@@ -1,0 +1,12 @@
+◇ injected env (4) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+Server running on port 3000
+Health check: http://localhost:3000/health
+Proxy endpoint: http://localhost:3000/proxy?url=<target_url>
+Connected to SQLite database
+OpenRouter API error (attempt 1): {"error":{"message":"Thank you for participating in the Stealth Ox Alpha testing period. This model was ZAI's GLM-5.3 Flash. Use it now: https://openrouter.ai/z-ai/glm-5.3-flash","code":404},"user_id"
+Fallback AI error: {"error":"402 Payment Required","status":402,"deprecation_notice":"NOTE: The Pollinations legacy text API is being deprecated for authenticated users. Please migrate to https://enter.pollinations.ai for better performance and access to all the latest models. Anonymous requests to text.pollinations.ai are NOT affected.","details":{"success":false,"error":{"message":"API key budget too low. This request costs ~0.0001 pollen, but this key has 0.0000.","code":"PAYMENT_REQUIRED","timestamp":"2026-08-30T04:24:13.214Z"},"status":402}}
+Proxy error: connect ECONNREFUSED ::1:443; connect ECONNREFUSED 127.0.0.1:443
+[2026/08/30 - 09:01:22] error: An error occured in the connection to silver.roblox.com (362) with the message connect ETIMEDOUT 128.116.114.3:443
+[2026/08/30 - 09:01:28] error: An error occured in the connection to silver.roblox.com (373) with the message connect ETIMEDOUT 128.116.114.3:443
+[2026/08/30 - 09:01:35] error: An error occured in the connection to silver.roblox.com (375) with the message connect ETIMEDOUT 128.116.114.3:443
+[2026/08/30 - 09:01:41] error: An error occured in the connection to silver.roblox.com (379) with the message connect ETIMEDOUT 128.116.114.3:443

@@ -1,0 +1,62 @@
+
+> batprox-proxy@1.0.0 dev
+> vite
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m815[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5175[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+(node:18296) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/asdww/OneDrive/Desktop/BatProx%20proxy/postcss.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\asdww\OneDrive\Desktop\BatProx proxy\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/BatStatus.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/Changelog.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/Chatting.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/Login.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/MoreGames.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/Settings.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SubNavbar.tsx, /src/index.css[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/theme.ts[22m
+[2m4:16:48 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css, /src/SearchEngine.tsx[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/Chrome.tsx, /src/index.css[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/MoreGames.tsx, /src/index.css[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SubNavbar.tsx, /src/index.css[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2mindex.html[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css, /src/SearchEngine.tsx[22m
+[2m4:30:38 AM[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m4:30:39 AM[22m [36m[1m[vite][22m[39m server restarted.
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/Chrome.tsx, /src/index.css[22m
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/MoreGames.tsx, /src/index.css[22m
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SubNavbar.tsx, /src/index.css[22m
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css, /src/App.tsx, /src/SearchEngine.tsx[22m
+[2m4:45:58 AM[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m4:45:59 AM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/Chrome.tsx[22m Could not Fast Refresh (new export)
+[2m4:45:59 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css, /src/App.tsx, /src/SearchEngine.tsx, /src/BatStatus.tsx, /src/Chatting.tsx, /src/MoreGames.tsx, /src/Changelog.tsx, /src/SubNavbar.tsx[22m
+[2m4:45:59 AM[22m [36m[1m[vite][22m[39m server restarted.
+[2m4:51:10 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css, /src/App.tsx[22m
+[2m4:51:10 AM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/registerServiceWorker.ts[22m
+[2m4:51:10 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m4:51:25 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m4:54:28 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css, /src/App.tsx[22m
+[2m4:54:28 AM[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/registerServiceWorker.ts[22m
+[2m4:54:28 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m
+[2m4:54:44 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css, /src/App.tsx[22m
+[2m4:59:09 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m4:59:09 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/PageChrome.tsx, /src/index.css[22m
+[2m4:59:09 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m
+[2m5:02:42 AM[22m [36m[1m[vite][22m[39m [32mvite.config.ts changed, restarting server...[39m
+[2m5:02:43 AM[22m [36m[1m[vite][22m[39m server restarted.
+[2m5:04:52 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m
+[2m5:06:21 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css, /src/App.tsx, /src/SearchEngine.tsx[22m
+[2m5:42:14 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/SearchEngine.tsx, /src/index.css[22m

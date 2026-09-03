@@ -21,17 +21,25 @@ export default function AutoLogout() {
       navigate('/');
     };
     const onVisibility = () => {
-      if (document.hidden) logoutAndRedirect();
+      if (document.hidden && location.protocol !== 'blob:') logoutAndRedirect();
     };
-    const onFreeze = () => logoutAndRedirect();
+    const onFreeze = () => {
+      if (location.protocol !== 'blob:') logoutAndRedirect();
+    };
+    const onBlur = () => {
+      if (location.protocol === 'blob:') return;
+      setTimeout(() => {
+        if (!document.hasFocus()) logoutAndRedirect();
+      }, 200);
+    };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', logoutAndRedirect);
-    window.addEventListener('blur', logoutAndRedirect);
+    window.addEventListener('blur', onBlur);
     document.addEventListener('freeze', onFreeze);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', logoutAndRedirect);
-      window.removeEventListener('blur', logoutAndRedirect);
+      window.removeEventListener('blur', onBlur);
       document.removeEventListener('freeze', onFreeze);
     };
   }, [navigate]);

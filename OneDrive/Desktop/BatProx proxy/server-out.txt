@@ -1,0 +1,5 @@
+◇ injected env (4) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+Server running on port 3000
+Health check: http://localhost:3000/health
+Proxy endpoint: http://localhost:3000/proxy?url=<target_url>
+Connected to SQLite database
