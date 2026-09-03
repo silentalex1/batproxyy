@@ -75,7 +75,7 @@ export default function AdminPanel() {
     const check = async () => {
       if (!token) { setIsAuthed(false); return; }
       try {
-        const response = await fetch('https://authlogin.stealthlybat.it.com/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } });
+        const response = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } });
         if (!response.ok) { setIsAuthed(false); return; }
         const data = await response.json();
         setIsAuthed(!!data.isAdmin);

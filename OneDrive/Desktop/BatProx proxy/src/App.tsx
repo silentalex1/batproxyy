@@ -36,7 +36,7 @@ function Dashboard() {
   const [showGamesNotice, setShowGamesNotice] = useState(false);
 
   useEffect(() => {
-    fetch('https://authlogin.stealthlybat.it.com/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
+    fetch('/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
     document.title = "Bat Prox";
     setUsername(localStorage.getItem('batprox-user') || 'user');
 
@@ -47,7 +47,7 @@ function Dashboard() {
         return;
       }
       try {
-        const response = await fetch('https://authlogin.stealthlybat.it.com/api/auth/me', {
+        const response = await fetch('/api/auth/me', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
