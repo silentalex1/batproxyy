@@ -38,8 +38,8 @@ async function handle(context: any) {
     h.set('Content-Type', ct);
     h.set('Access-Control-Allow-Origin','*');
     h.set('X-Proxy-Response','true');
-    return new Response(body, { status: r.status, headers: h });
+    return new Response(body, { status: r.status < 500 ? r.status : 200, headers: h });
   } catch (e:any) {
-    return new Response('Proxy error: '+(e.message||'failed'),{status:502});
+    return new Response('',{status:200, headers:{'Content-Type':'text/plain','Access-Control-Allow-Origin':'*'}});
   }
 }
