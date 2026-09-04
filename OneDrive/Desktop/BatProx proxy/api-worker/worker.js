@@ -547,6 +547,10 @@ function blockedHost(host){
     const raw=(user&&kv)?await kv.get('recentgames_'+user):null;
     return new Response(JSON.stringify({games:raw?JSON.parse(raw):[]}),{headers:h});
   }
+  if(url.pathname==='/api/generate' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    return new Response(JSON.stringify({service:'MocahAI inference', status:'online', model:'gemini-2.5-flash', usage:'POST {model, prompt, images} here'}),{headers:h});
+  }
   if(url.pathname==='/api/generate' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
