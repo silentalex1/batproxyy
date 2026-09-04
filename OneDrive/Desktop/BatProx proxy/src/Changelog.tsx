@@ -9,6 +9,7 @@ interface Changelog {
   title: string;
   description: string;
   created_at: string;
+  announce?: boolean;
 }
 
 export default function Changelog() {
@@ -21,6 +22,7 @@ export default function Changelog() {
   const [version, setVersion] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [announce, setAnnounce] = useState(false);
   const [postError, setPostError] = useState('');
 
   const hashVersion = location.hash.replace('#', '');
@@ -81,7 +83,7 @@ export default function Changelog() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('batprox-token') || ''}`
         },
-        body: JSON.stringify({ version, title, description })
+        body: JSON.stringify({ version, title, description, announce })
       });
       const data = await response.json();
       if (response.ok) {
@@ -90,12 +92,14 @@ export default function Changelog() {
           version: version.trim(),
           title: title.trim(),
           description: description.trim(),
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          announce
         }, ...prev]);
         setShowPost(false);
         setVersion('');
         setTitle('');
         setDescription('');
+        setAnnounce(false);
       } else {
         setPostError(data.error || 'Failed to post changelog');
       }
@@ -225,6 +229,22 @@ export default function Changelog() {
               placeholder="e.g. 1.1"
               className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500/60 transition-all mb-4"
             />
+            <label className="flex items-center gap-2.5 mb-4 cursor-pointer select-none">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={announce}
+                onClick={() => setAnnounce(!announce)}
+                className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${announce ? 'bg-purple-600 border-purple-500' : 'bg-white/5 border-white/20'}`}
+              >
+                {announce && (
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+              <span className="text-xs text-white/60">announce this post?</span>
+            </label>
             {postError && <p className="text-red-400 text-xs mb-3">{postError}</p>}
             <div className="flex gap-2.5 justify-end">
               <button

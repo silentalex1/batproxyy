@@ -10,6 +10,8 @@ interface PresenceUser {
   game: string;
   lastSeen: number;
   sessionStart?: number;
+  total?: number;
+  live?: number;
 }
 
 export default function UserActivity() {
@@ -35,12 +37,13 @@ export default function UserActivity() {
         if (u.username && u.username !== 'anonymous') seen[u.username] = u;
       }
       const merged: PresenceUser[] = ((ud.users || []) as Array<{ username: string }>).filter(u => u.username && u.username !== 'anonymous').map(u => (
-        seen[u.username] || { username: u.username, active: false, game: '', lastSeen: 0 }
+        seen[u.username] || { username: u.username, active: false, game: '', lastSeen: 0, total: 0, live: 0 }
       ));
       for (const k of Object.keys(seen)) {
         if (!merged.find(m => m.username === k)) merged.push(seen[k]);
       }
-      setUsers(merged.sort((a, b) => Number(b.active) - Number(a.active) || a.username.localeCompare(b.username)));
+      const score = (u: PresenceUser) => (u.total || 0) + (u.active ? (u.live || 0) : 0);
+      setUsers(merged.sort((a, b) => score(b) - score(a) || Number(b.active) - Number(a.active) || a.username.localeCompare(b.username)));
     } catch {}
     try {
       const r = await fetch('/api/gamestats');
@@ -98,13 +101,20 @@ export default function UserActivity() {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  const fmtSession = (u: PresenceUser) => {
-    if (!u.active) return fmtHours(hoursOf(u.username));
-    const start = u.sessionStart || u.lastSeen || Date.now();
-    const mins = Math.max(0, Math.floor((Date.now() - start) / 60000));
-    if (mins < 1) return '0m';
+  const fmtDur = (secs: number) => {
+    const s = Math.max(0, Math.round(secs));
+    if (s < 60) return s < 1 ? '0m' : `${s}s`;
+    const mins = Math.floor(s / 60);
     if (mins < 60) return `${mins}m`;
-    return `${(mins / 60).toFixed(1)}h`;
+    const hrs = mins / 60;
+    return hrs < 10 ? `${hrs.toFixed(1)}h` : `${Math.floor(hrs)}h`;
+  };
+
+  const fmtSession = (u: PresenceUser) => {
+    const base = u.total || 0;
+    if (u.active) return fmtDur(base + (u.live || 0));
+    if (base > 0) return fmtDur(base);
+    return fmtHours(hoursOf(u.username));
   };
 
   const submitSuggestion = async (e: React.FormEvent) => {

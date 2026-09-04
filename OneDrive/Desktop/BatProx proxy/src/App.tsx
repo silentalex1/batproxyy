@@ -39,11 +39,13 @@ function Dashboard() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isMod, setIsMod] = useState<boolean>(false);
   const [approvedFeedback, setApprovedFeedback] = useState<{ id: number; content: string; status: string; title?: string } | null>(null);
+  const [fixVote, setFixVote] = useState<boolean | null>(null);
   const pendingNotesRef = useRef<number[]>([]);
   useLowPower();
   const [showThanks, setShowThanks] = useState(false);
   const [thanksFading, setThanksFading] = useState(false);
   const [showGamesNotice, setShowGamesNotice] = useState(false);
+  const [updateNotice, setUpdateNotice] = useState(false);
 
   useEffect(() => {
     fetch('/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
@@ -78,6 +80,14 @@ function Dashboard() {
     };
     verify();
     startPresence();
+    fetch('/api/changelogs').then(r => r.ok ? r.json() : null).then(d => {
+      const logs = (d && d.changelogs) || [];
+      const latest = logs.find((c: any) => c.announce);
+      if (!latest) return;
+      let seen = 0;
+      try { seen = Number(localStorage.getItem('batprox-last-announce') || 0); } catch {}
+      if (latest.id > seen) setUpdateNotice(true);
+    }).catch(() => {});
     initUltraviolet().catch(() => {});
     const token = localStorage.getItem('batprox-token');
     if (token) {
@@ -438,10 +448,30 @@ function Dashboard() {
               <h3 className="text-lg font-semibold text-white mb-2">your suggestion{approvedFeedback.title ? ` "${approvedFeedback.title}"` : ''} has been accepted.</h3>
             )}
             {approvedFeedback.status !== 'declined' && (
-              <p className="text-sm text-gray-400 mb-6">however feedback may take a bit to be added so please be patient.</p>
+              <p className="text-sm text-gray-400 mb-4">however feedback may take a bit to be added so please be patient.</p>
             )}
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 mb-4">
+              <p className="text-xs text-white/70 mb-2.5">Did i fix your issue?</p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => setFixVote(true)}
+                  className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-all ${fixVote === true ? 'bg-green-600 border-green-500' : 'bg-white/5 border-white/15 hover:border-green-500/50'}`}
+                >
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                </button>
+                <button
+                  onClick={() => setFixVote(false)}
+                  className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-all ${fixVote === false ? 'bg-red-600 border-red-500' : 'bg-white/5 border-white/15 hover:border-red-500/50'}`}
+                >
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
             <button
               onClick={() => {
+                if (fixVote !== null) {
+                  fetch('/api/feedback-response', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ feedbackId: approvedFeedback.id, user: username || 'anonymous', fixed: fixVote }) }).catch(() => {});
+                }
                 let dismissed: number[] = [];
                 try {
                   dismissed = JSON.parse(localStorage.getItem('batprox-dismissed-feedback') || '[]');
@@ -453,16 +483,26 @@ function Dashboard() {
                 }
                 localStorage.setItem('batprox-dismissed-feedback', JSON.stringify(dismissed));
                 fetch('/api/notifications/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userIdentifier: username || 'anonymous', ids: dismissed }) }).catch(() => {});
+                setFixVote(null);
                 setApprovedFeedback(null);
               }}
               className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-all"
             >
-              Okay
+              submit response
             </button>
           </div>
         </div>
       )}
 
+      {updateNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
+            <p className="text-white text-base font-semibold mb-2">the website has been updated..</p>
+            <p className="text-sm text-white/60 mb-6">check the changelog to see what has been changed!</p>
+            <button onClick={() => { fetch('/api/changelogs').then(r => r.ok ? r.json() : null).then(d => { const l = ((d && d.changelogs) || []).find((c: any) => c.announce); try { localStorage.setItem('batprox-last-announce', String((l && l.id) || Date.now())); } catch {} navigate('/changelog'); }).catch(() => navigate('/changelog')); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay :)</button>
+          </div>
+        </div>
+      )}
       {showGamesNotice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">

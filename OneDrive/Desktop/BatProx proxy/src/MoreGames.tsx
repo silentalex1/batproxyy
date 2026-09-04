@@ -496,15 +496,24 @@ export default function MoreGames() {
         }
       } catch {}
     }
+    const queries = Array.from(new Set([g.title, g.id.replace(/[/_-]+/g, ' ').trim(), g.id.split('/').filter(Boolean).pop() || '', g.id]));
     setSearchQuery(g.title);
     setLoading(true);
     setError('');
     try {
-      const result = await searchLumin(g.id + ' ' + g.title);
-      if (result && result.games && result.games.length > 0) {
-        syncRecentIcons(result.games);
-        setRecentGames(getRecentGames());
-      } else {
+      let found: any = null;
+      for (const q of queries) {
+        if (!q) continue;
+        const result = await searchLumin(q);
+        if (result && result.games && result.games.length > 0) {
+          const exact = result.games.find((x: any) => String(x.title || x.name || '').toLowerCase() === g.title.toLowerCase());
+          syncRecentIcons(result.games);
+          setRecentGames(getRecentGames());
+          found = exact || result.games[0];
+          if (exact) break;
+        }
+      }
+      if (!found) {
         markRecentUnavailable(g.id);
         setRecentGames(getRecentGames());
         setError('"' + g.title + '" is unavailable right now.');
@@ -797,8 +806,8 @@ export default function MoreGames() {
                   <div key={g.id} className="relative group flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all text-center">
                     <button onClick={() => removeRecent(g.id)} title="Remove" className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 border border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/50 text-[11px] leading-none opacity-0 group-hover:opacity-100 transition-all">×</button>
                     <button onClick={() => playRecentGame(g)} className="flex flex-col items-center gap-1.5 w-full">
-                      {g.icon ? (
-                        <img src={g.icon} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10" loading="lazy" />
+                      {g.icon && !g.unavailable ? (
+                        <img src={g.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} className="w-16 h-16 rounded-xl object-cover border border-white/10" loading="lazy" />
                       ) : (
                         <span className="w-16 h-16 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 text-xl font-bold">{(g.title || '?').charAt(0).toUpperCase()}</span>
                       )}

@@ -392,11 +392,11 @@ function blockedHost(host){
   if(url.pathname==='/api/changelogs' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {version,title,description}=await request.json();
+      const {version,title,description,announce}=await request.json();
       const raw=kv?await kv.get('changelogs'):null;
       let arr=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
       const id=arr.length?Math.max(...arr.map(x=>x.id))+1:1;
-      arr.unshift({id, version:String(version).slice(0,30), title:String(title).slice(0,120), description:String(description).slice(0,2000), created_at:new Date().toISOString()});
+      arr.unshift({id, version:String(version).slice(0,30), title:String(title).slice(0,120), description:String(description).slice(0,2000), created_at:new Date().toISOString(), announce:!!announce});
       if(kv) await kv.put('changelogs', JSON.stringify(arr));
       return new Response(JSON.stringify({success:true, id}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
@@ -492,7 +492,10 @@ function blockedHost(host){
       const raw=kv?await kv.get('presence'):null;
       const map=raw?JSON.parse(raw):{};
       const prev=map[cu]||{};
-      map[cu]={ts:Date.now(), visible:visible!==false, game:String(game||'').slice(0,80), sessionStart:Number(sessionStart)||prev.sessionStart||Date.now()};
+      const nowMs=Date.now();
+      const delta=prev.ts?Math.min(20, Math.max(0, (nowMs-prev.ts)/1000)):0;
+      const addSec=(visible!==false&&prev.visible!==false)?delta:0;
+      map[cu]={ts:nowMs, visible:visible!==false, game:String(game||'').slice(0,80), sessionStart:Number(sessionStart)||prev.sessionStart||nowMs, total:Math.round((prev.total||0)+addSec)};
       for(const k of Object.keys(map)){ if(Date.now()-map[k].ts>300000) delete map[k]; }
       if(kv) await kv.put('presence', JSON.stringify(map));
       return new Response(JSON.stringify({success:true}),{headers:h});
@@ -503,7 +506,7 @@ function blockedHost(host){
     const raw=kv?await kv.get('presence'):null;
     const map=raw?JSON.parse(raw):{};
     const now=Date.now();
-    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<30000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts, sessionStart:map[k].sessionStart||map[k].ts}));
+    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>{ const e=map[k]; const isLive=(now-e.ts<30000)&&!!e.visible; const live=isLive?Math.floor((now-(e.sessionStart||e.ts))/1000):0; return {username:k, active:isLive, game:e.game||'', lastSeen:e.ts, sessionStart:e.sessionStart||e.ts, total:Math.round((e.total||0)+(isLive?Math.min(20,(now-e.ts)/1000):0)), live}; });
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
@@ -571,7 +574,7 @@ function blockedHost(host){
       }
       const key=env.GEMINI_API_KEY||'';
       if(!key) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
-      const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(String(model||'gemini-2.5-flash'))+':generateContent?key='+encodeURIComponent(key),{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contents:[{parts}]})});
+      const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(String(model||'gemini-2.5-flash'))+':generateContent?key='+encodeURIComponent(key),{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({system_instruction:{parts:[{text:'You are MocahAI, a custom AI assistant built for the Bat Prox site platform. Always identify yourself as MocahAI when asked who you are. You are friendly, concise, and you understand teacher perspectives and note styles.'}]}, contents:[{parts}]})});
       const gd=await gr.json().catch(()=>null);
       const text=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
       if(!text) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
@@ -592,6 +595,28 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true, display:d}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/chat/profile' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {username,display,bio,pfp}=await request.json();
+      const cu=String(username||'').trim().slice(0,20);
+      if(!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const map=await chatGet('chat_profiles',{});
+      map[cu]={display:String(display||cu).slice(0,24), bio:String(bio||'').slice(0,160), pfp:String(pfp||'').slice(0,200000)};
+      await chatPut('chat_profiles',map);
+      const names=await chatGet('chat_names',{});
+      if(!names[cu]&&map[cu].display) names[cu]=map[cu].display;
+      await chatPut('chat_names',names);
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/profiles' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const map=await chatGet('chat_profiles',{});
+    const out={};
+    for(const k of Object.keys(map)){ out[k]={display:map[k].display||k, bio:map[k].bio||'', pfp:map[k].pfp||''}; }
+    return new Response(JSON.stringify({profiles:out}),{headers:h});
+  }
   if(url.pathname==='/api/chat/name' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
@@ -605,10 +630,29 @@ function blockedHost(host){
     const all=await chatGet('chat_messages',[]);
     return new Response(JSON.stringify({messages:all.filter(m=>m.room===room).slice(-60)}),{headers:h});
   }
+  if(url.pathname==='/api/chat/messages/delete' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {id,user}=await request.json();
+      const mid=Number(id);
+      const cu=String(user||'').trim();
+      if(!mid||!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const all=await chatGet('chat_messages',[]);
+      const m=all.find(x=>x.id===mid);
+      if(!m) return new Response(JSON.stringify({error:'Gone'}),{status:404, headers:h});
+      const rawU=kv?await kv.get('users'):null;
+      const arr=rawU?JSON.parse(rawU||'[]'):[];
+      const me=arr.find(x=>x.username===cu);
+      const staff=me&&(me.rank==='moderator'||me.admin||cu==='realalex'||cu==='admin');
+      if(m.user!==cu&&!staff) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      await chatPut('chat_messages',all.filter(x=>x.id!==mid));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
   if(url.pathname==='/api/chat/messages' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {room,user,text}=await request.json();
+      const {room,user,text,replyTo}=await request.json();
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
       const t=String(text||'').trim().slice(0,500);
       if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
@@ -624,7 +668,8 @@ function blockedHost(host){
       const names=await chatGet('chat_names',{});
       const all=await chatGet('chat_messages',[]);
       const id=all.length?Math.max(...all.map(m=>m.id||0))+1:1;
-      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now()});
+      const rt=replyTo&&typeof replyTo==='object'?{user:String(replyTo.user||'').slice(0,20), text:String(replyTo.text||'').slice(0,200)}:null;
+      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt});
       await chatPut('chat_messages',all.slice(-600));
       return new Response(JSON.stringify({success:true, id}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
@@ -802,6 +847,67 @@ function blockedHost(host){
       await chatPut('dm_invites',arr.slice(-200));
       return new Response(JSON.stringify({success:true, id:nid}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/typing' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {room,user}=await request.json();
+      const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
+      if(!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const map=await chatGet('chat_typing',{});
+      if(!map[rm]) map[rm]={};
+      map[rm][cu]=Date.now();
+      await chatPut('chat_typing',map);
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/typing' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const rm=String(url.searchParams.get('room')||'community').slice(0,80);
+    const map=await chatGet('chat_typing',{});
+    const now=Date.now();
+    const users=Object.keys(map[rm]||{}).filter(u=>now-map[rm][u]<6000);
+    return new Response(JSON.stringify({typing:users}),{headers:h});
+  }
+  if(url.pathname==='/api/notes' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=url.searchParams.get('user')||'';
+    const raw=(user&&kv)?await kv.get('notes_'+user):null;
+    return new Response(JSON.stringify({notes:raw?JSON.parse(raw):[]}),{headers:h});
+  }
+  if(url.pathname==='/api/notes' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,notes}=await request.json();
+      const cu=String(user||'').trim().slice(0,20);
+      if(!cu||!Array.isArray(notes)) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const clean=notes.map(n=>({id:Number(n.id)||Date.now(), text:String(n.text||'').slice(0,1000), ts:Number(n.ts)||Date.now()})).slice(0,50);
+      if(kv) await kv.put('notes_'+cu, JSON.stringify(clean));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/feedback-response' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {feedbackId,user,fixed}=await request.json();
+      const fid=Number(feedbackId);
+      const cu=String(user||'').trim().slice(0,20);
+      if(!fid||!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('feedback_responses'):null;
+      const map=raw?JSON.parse(raw):{};
+      if(!map[fid]) map[fid]={up:0, down:0, users:{}};
+      if(map[fid].users[cu]===undefined) {
+        if(fixed) map[fid].up+=1; else map[fid].down+=1;
+        map[fid].users[cu]=!!fixed;
+      }
+      if(kv) await kv.put('feedback_responses', JSON.stringify(map));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/feedback-responses' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('feedback_responses'):null;
+    return new Response(JSON.stringify({responses:raw?JSON.parse(raw):{}}),{headers:h});
   }
   if(url.pathname==='/api/chat/dms' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');

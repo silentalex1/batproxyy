@@ -53,13 +53,17 @@ export default function AdminPanel() {
 
   const getToken = () => localStorage.getItem('batprox-token') || '';
 
-  const loadFeedbacks = async () => {
+  const [responses, setResponses] = useState<Record<string, { up: number; down: number }>>({});
+
+  const loadFeedbacks = async (silent?: boolean) => {
     try {
       const response = await fetch('/api/admin/feedbacks', { headers: { 'Authorization': `Bearer ${getToken()}` } });
       const data = await response.json();
       if (response.ok) setFeedbacks(data.feedbacks || []);
-      else setError(data.error || 'Failed to load feedbacks');
-    } catch { setError('Network error while loading feedbacks'); }
+      else if (!silent) setError(data.error || 'Failed to load feedbacks');
+      const rr = await fetch('/api/feedback-responses');
+      if (rr.ok) { const dd = await rr.json(); setResponses(dd.responses || {}); }
+    } catch { if (!silent) setError('Network error while loading feedbacks'); }
   };
 
   const loadUsers = async () => {
@@ -116,6 +120,12 @@ export default function AdminPanel() {
   }, [isAuthed, tab]);
 
   useEffect(() => {
+    if (!isAuthed || tab !== 'feedbacks') return;
+    const id = setInterval(() => loadFeedbacks(true), 5000);
+    return () => clearInterval(id);
+  }, [isAuthed, tab]);
+
+  useEffect(() => {
     let channel: BroadcastChannel | null = null;
     try { channel = new BroadcastChannel('batprox-status'); channel.onmessage = () => loadStatusOverrides(); } catch {}
     const onStorage = (e: StorageEvent) => { if (e.key === 'bp-status-bump') loadStatusOverrides(); };
@@ -127,7 +137,7 @@ export default function AdminPanel() {
     setError('');
     try {
       const response = await fetch('/api/admin/decline-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ suggestionId }) });
-      if (response.ok) { setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback declined'); setTimeout(() => setMessage(''), 2000); }
+      if (response.ok) { setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback declined'); setTimeout(() => setMessage(''), 2000); loadFeedbacks(true); }
       else { const errData = await response.json(); setError(errData.error || 'Failed to decline suggestion'); }
     } catch { setError('Network error while declining suggestion'); }
   };
@@ -136,7 +146,7 @@ export default function AdminPanel() {
     setError('');
     try {
       const response = await fetch('/api/admin/approve-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ suggestionId }) });
-      if (response.ok) { setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback approved'); setTimeout(() => setMessage(''), 2000); }
+      if (response.ok) { setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback approved'); setTimeout(() => setMessage(''), 2000); loadFeedbacks(true); }
       else { const errData = await response.json(); setError(errData.error || 'Failed to approve suggestion'); }
     } catch { setError('Network error while approving suggestion'); }
   };
@@ -228,8 +238,17 @@ export default function AdminPanel() {
       return;
     }
     if (lower === 'show commands' || lower === 'show all' || lower === 'help' || lower === 'commands') {
-      const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
+      const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show users - list all usernames', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
       setCmdLog(prev => [...prev, lines]);
+      return;
+    }
+    if (lower === 'show users') {
+      try {
+        const response = await fetch('/api/users');
+        const d = await response.json();
+        const list = (d.users || []).map((u: any) => u.username).filter(Boolean);
+        setCmdLog(prev => [...prev, ...(list.length ? list : ['No users']), `total users: ${list.length}`]);
+      } catch { setCmdLog(prev => [...prev, 'Network error']); }
       return;
     }
     const m = raw.match(/^(.+?)\s+to\s+(.+)$/i);
@@ -355,29 +374,44 @@ export default function AdminPanel() {
             {tab === 'feedbacks' && (
               <div>
                 <h2 className="text-lg font-bold text-white mb-5">Users Feedback Suggestions</h2>
-                <div className="space-y-3">
-                  {pendingFeedbacks.length === 0 ? (
-                    <div className="bg-black/40 border border-white/10 rounded-xl p-10 text-center">
-                      <p className="text-gray-400 text-sm">No pending feedback suggestions.</p>
-                      <p className="text-gray-600 text-xs mt-1">New suggestions will appear here for approval.</p>
-                    </div>
-                  ) : (
-                    pendingFeedbacks.map((feedback) => (
-                      <div key={feedback.id} className="bg-black/40 border border-white/10 rounded-xl p-5 backdrop-blur-md hover:border-white/20 transition-colors">
-                        <div className="flex justify-between items-start gap-4">
-                          <div className="min-w-0">
-                            <p className="text-xs text-gray-500 mb-1.5">feedback from <span className="text-purple-300 font-medium">{feedback.user_identifier || 'unknown'}</span><span className="text-gray-600"> · {new Date(feedback.submitted_at).toLocaleString()}</span><span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full border align-middle ${feedback.genre === 'Website bug' ? 'text-red-300 border-red-500/25 bg-red-500/10' : 'text-blue-300 border-blue-500/25 bg-blue-500/10'}`}>{feedback.genre || 'Feedback suggestions'}</span></p>
-                            {feedback.title && <p className="text-sm text-white font-semibold mb-1 break-words">{feedback.title}</p>}
-                            <p className="text-gray-200 text-sm break-words whitespace-pre-wrap">{feedback.content}</p>
-                          </div>
-                          <div className="flex gap-2 shrink-0">
-                            <button onClick={() => handleDecline(feedback.id)} className="text-xs px-4 py-2 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>
-                            <button onClick={() => handleApprove(feedback.id)} className="text-xs px-4 py-2 rounded-lg bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 transition-all font-medium">Approve</button>
+                <div className="grid lg:grid-cols-[1fr_240px] gap-4 items-start">
+                  <div className="space-y-2.5">
+                    {pendingFeedbacks.length === 0 ? (
+                      <div className="bg-black/40 border border-white/10 rounded-xl p-10 text-center">
+                        <p className="text-gray-400 text-sm">No pending feedback suggestions.</p>
+                        <p className="text-gray-600 text-xs mt-1">New suggestions will appear here for approval.</p>
+                      </div>
+                    ) : (
+                      pendingFeedbacks.map((feedback) => (
+                        <div key={feedback.id} className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md hover:border-white/20 transition-colors">
+                          <div className="flex justify-between items-start gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[11px] text-gray-500 mb-1">feedback from <span className="text-purple-300 font-medium">{feedback.user_identifier || 'unknown'}</span><span className="text-gray-600"> · {new Date(feedback.submitted_at).toLocaleString()}</span><span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full border align-middle ${feedback.genre === 'Website bug' ? 'text-red-300 border-red-500/25 bg-red-500/10' : 'text-blue-300 border-blue-500/25 bg-blue-500/10'}`}>{feedback.genre || 'Feedback suggestions'}</span></p>
+                              {feedback.title && <p className="text-[13px] text-white font-semibold mb-0.5 break-words">{feedback.title}</p>}
+                              <p className="text-gray-200 text-[13px] break-words whitespace-pre-wrap">{feedback.content}</p>
+                            </div>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button onClick={() => handleDecline(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>
+                              <button onClick={() => handleApprove(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 transition-all font-medium">Approve</button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
-                  )}
+                      ))
+                    )}
+                  </div>
+                  <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md lg:sticky lg:top-0">
+                    <p className="text-xs font-bold text-white mb-1">users appreciations</p>
+                    <p className="text-[10px] text-white/30 mb-3">did i fix your issue votes</p>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {Object.keys(responses).length === 0 && <p className="text-[11px] text-white/30">No votes yet.</p>}
+                      {Object.keys(responses).map(k => (
+                        <div key={k} className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]">
+                          <p className="text-[11px] text-white/70 font-semibold">#{k}</p>
+                          <p className="text-[11px] text-white/50">▲ {(responses[k] as any).up || 0} yes · ▼ {(responses[k] as any).down || 0} no</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

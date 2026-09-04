@@ -15,6 +15,8 @@ export default function PageChrome() {
     () => getSavedTheme() === 'Cherry Blossom' && !NO_BLOSSOM_ROUTES.includes(window.location.pathname)
   );
   const [dmIncoming, setDmIncoming] = useState<{ id: number; from: string } | null>(null);
+  const [unread, setUnread] = useState(0);
+  const [pingMsg, setPingMsg] = useState<{ id: number; room: string } | null>(null);
 
   useEffect(() => {
     applyBackground();
@@ -52,6 +54,80 @@ export default function PageChrome() {
     const id = setInterval(check, 15000);
     return () => clearInterval(id);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname === '/' || location.pathname === '/TOS') return;
+    let on = false;
+    try { on = JSON.parse(localStorage.getItem('batprox-settings') || '{}').notifyMsgs === true; } catch {}
+    if (!on) return;
+    const me = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
+    if (!me) return;
+    let seen: Record<string, number> = {};
+    try { seen = JSON.parse(localStorage.getItem('batprox-chat-seen') || '{}'); } catch {}
+    const saveSeen = () => { try { localStorage.setItem('batprox-chat-seen', JSON.stringify(seen)); } catch {} };
+    const baseTitle = 'Bat Prox';
+    const poll = async () => {
+      if (location.pathname === '/chatting') {
+        setUnread(0);
+        setPingMsg(null);
+        if (document.title.startsWith('(')) document.title = baseTitle;
+        return;
+      }
+      const rooms = new Set<string>(['community']);
+      try {
+        const r = await fetch('/api/chat/dms?user=' + encodeURIComponent(me));
+        if (r.ok) { const d = await r.json(); for (const x of (d.rooms || [])) rooms.add(x.id); }
+      } catch {}
+      try {
+        const r = await fetch('/api/chat/rooms?user=' + encodeURIComponent(me));
+        if (r.ok) { const d = await r.json(); for (const x of (d.rooms || [])) rooms.add(x.id); }
+      } catch {}
+      let fresh = 0;
+      let latest: { id: number; room: string } | null = null;
+      for (const rid of rooms) {
+        try {
+          const r = await fetch('/api/chat/messages?room=' + encodeURIComponent(rid));
+          if (!r.ok) continue;
+          const d = await r.json();
+          const msgs = (d.messages || []).filter((m: any) => m.user !== me);
+          if (!msgs.length) continue;
+          const last = msgs[msgs.length - 1];
+          const prevSeen = seen[rid] || 0;
+          const isMention = rid === 'community' ? true : msgs.some((m: any) => m.id > prevSeen && (m.text.includes('@' + me) || rid !== 'community'));
+          const news = msgs.filter((m: any) => m.id > prevSeen);
+          if (news.length > 0 && (rid !== 'community' ? true : isMention)) {
+            fresh += news.length;
+            latest = { id: last.id, room: rid };
+          }
+          seen[rid] = last.id;
+        } catch {}
+      }
+      saveSeen();
+      if (fresh > 0) {
+        setUnread(u => u + fresh);
+        setPingMsg(latest);
+      }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname === '/chatting') return;
+    if (location.pathname === '/homework' && unread > 0) {
+      document.title = `(${unread}) New Tab`;
+    } else if (document.title.startsWith('(')) {
+      document.title = 'Bat Prox';
+    }
+  }, [unread, location.pathname]);
+
+  const goChat = () => {
+    const q = pingMsg ? `?highlight=${pingMsg.id}&room=${encodeURIComponent(pingMsg.room)}` : '';
+    setUnread(0);
+    setPingMsg(null);
+    navigate('/chatting' + q);
+  };
 
   const respondDm = async (accept: boolean) => {
     if (!dmIncoming) return;
@@ -110,10 +186,17 @@ export default function PageChrome() {
     };
   }, [navigate]);
 
-  if (!showBlossom && !dmIncoming) return null;
+  const gaming = location.pathname === '/homework';
+  const showPing = unread > 0 && location.pathname !== '/chatting' && !gaming;
+  if (!showBlossom && !dmIncoming && !showPing) return null;
   return (
     <>
       {showBlossom && <Blossom />}
+      {showPing && (
+        <button onClick={goChat} title="New message" className="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-400 text-black font-extrabold text-sm shadow-[0_0_24px_rgba(249,115,22,0.6)] transition-all animate-bounce">
+          [!]
+        </button>
+      )}
       {dmIncoming && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-7 w-full max-w-xs text-center shadow-2xl">

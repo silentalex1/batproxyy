@@ -135,9 +135,10 @@ export function recordRecentGame(name: string, extra?: { icon?: string; url?: st
 export function commitRecent(name: string, extra?: { icon?: string; url?: string; id?: string }) {
   const id = (extra?.id && String(extra.id)) || gameIdOf(name);
   if (!id) return;
+  const lastSeg = (s: string) => s.split('/').filter(Boolean).pop() || s;
   try {
     const arr = readRecents();
-    const found = arr.find(x => x.id === id);
+    const found = arr.find(x => x.id === id || lastSeg(x.id) === lastSeg(id));
     if (found) {
       found.plays += 1; found.ts = Date.now();
       if (!found.title || found.title === found.id) found.title = prettyTitle(id);
@@ -154,9 +155,10 @@ export function commitRecent(name: string, extra?: { icon?: string; url?: string
 export function bumpRecentSecs(name: string, secs: number) {
   const id = gameIdOf(name);
   if (!id || !secs) return;
+  const lastSeg = (s: string) => s.split('/').filter(Boolean).pop() || s;
   try {
     const arr = readRecents();
-    const found = arr.find(x => x.id === id);
+    const found = arr.find(x => x.id === id || lastSeg(x.id) === lastSeg(id));
     if (found) { found.secs = (found.secs || 0) + Math.round(secs); saveRecents(arr); }
   } catch {}
 }

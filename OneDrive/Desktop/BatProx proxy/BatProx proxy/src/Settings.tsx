@@ -23,6 +23,9 @@ interface SettingsData {
   panicUrl: string;
   closeProtection: boolean;
   skipLoading: boolean;
+  pfp: string;
+  bio: string;
+  notifyMsgs: boolean;
 }
 
 const defaultSettings: SettingsData = {
@@ -37,11 +40,14 @@ const defaultSettings: SettingsData = {
   panicKey: '',
   panicUrl: 'https://www.google.com/',
   closeProtection: false,
-  skipLoading: false
+  skipLoading: false,
+  pfp: '',
+  bio: '',
+  notifyMsgs: false
 };
 
 
-type SectionId = 'ai' | 'browser' | 'themes' | 'background' | 'cloak';
+type SectionId = 'ai' | 'profile' | 'browser' | 'themes' | 'background' | 'cloak';
 
 const SECTIONS: { id: SectionId; label: string; hint: string; icon: React.ReactNode }[] = [
   {
@@ -51,6 +57,16 @@ const SECTIONS: { id: SectionId; label: string; hint: string; icon: React.ReactN
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+      </svg>
+    )
+  },
+  {
+    id: 'profile',
+    label: 'Profile',
+    hint: 'PFP, bio, alerts',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
       </svg>
     )
   },
@@ -179,6 +195,10 @@ const bgPreview = (id: BackgroundId, upload?: string): React.CSSProperties => {
   return { background: designs[id] || '#0b0d12', ...extra };
 };
 
+export function readSettingsData(): Partial<SettingsData> {
+  try { return JSON.parse(localStorage.getItem('batprox-settings') || '{}'); } catch { return {}; }
+}
+
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [settings, setSettings] = useState<SettingsData>(defaultSettings);
   const [activeSection, setActiveSection] = useState<SectionId>('ai');
@@ -186,6 +206,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [capturing, setCapturing] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pfpRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -207,6 +228,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     load();
   }, [isOpen]);
 
+  const profileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const updateSettings = (next: SettingsData) => {
     setSettings(next);
     localStorage.setItem('batprox-settings', JSON.stringify(next));
@@ -215,6 +238,15 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     applyTabCloak();
     const token = localStorage.getItem('batprox-token');
     if (token) { fetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(next) }).catch(() => {}); }
+    try {
+      const me = localStorage.getItem('batprox-user') || '';
+      if (me) {
+        if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
+        profileTimerRef.current = setTimeout(() => {
+          fetch('/api/chat/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: me, display: localStorage.getItem('batprox-display') || me, bio: next.bio || '', pfp: next.pfp || '' }) }).catch(() => {});
+        }, 2000);
+      }
+    } catch {}
     setSaved(true);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
@@ -245,6 +277,17 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     const reader = new FileReader();
     reader.onload = () => {
       updateSettings({ ...settings, background: 'upload', backgroundUpload: String(reader.result || '') });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const onPfp = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 900000) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateSettings({ ...settings, pfp: String(reader.result || '') });
     };
     reader.readAsDataURL(file);
   };
@@ -337,6 +380,48 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                   <Toggle
                     checked={settings.disableTypingAnimation}
                     onChange={() => updateSettings({ ...settings, disableTypingAnimation: !settings.disableTypingAnimation })}
+                  />
+                </SettingsRow>
+              </div>
+            )}
+
+            {activeSection === 'profile' && (
+              <div className="space-y-3 max-w-2xl">
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-5 py-4">
+                  <p className="text-sm font-medium text-white/90 mb-1">Profile picture</p>
+                  <p className="text-xs text-white/40 mb-3">Saved automatically to your account.</p>
+                  <div className="flex items-center gap-4">
+                    {settings.pfp ? (
+                      <img src={settings.pfp} alt="" className="w-16 h-16 rounded-full object-cover border border-white/15" />
+                    ) : (
+                      <span className="w-16 h-16 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 text-xl font-bold">
+                        {(() => { try { return (localStorage.getItem('batprox-user') || '?').charAt(0).toUpperCase(); } catch { return '?'; } })()}
+                      </span>
+                    )}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => pfpRef.current?.click()} className="px-4 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 border border-purple-500/30 text-xs font-semibold">Change pfp</button>
+                      {settings.pfp && <button type="button" onClick={() => updateSettings({ ...settings, pfp: '' })} className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 text-xs">Remove</button>}
+                    </div>
+                    <input ref={pfpRef} type="file" accept="image/*" className="hidden" onChange={onPfp} />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-5 py-4">
+                  <p className="text-sm font-medium text-white/90 mb-1">Bio</p>
+                  <p className="text-xs text-white/40 mb-3">Shown on your profile card. Saved automatically.</p>
+                  <textarea
+                    value={settings.bio}
+                    onChange={(e) => updateSettings({ ...settings, bio: e.target.value.slice(0, 160) })}
+                    placeholder="Write a short bio..."
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/60 text-sm min-h-[90px] resize-none"
+                  />
+                </div>
+                <SettingsRow
+                  title="Notification per-message"
+                  description="Enabling this feature will notify you for any new messages / dms if you're not in chatroom."
+                >
+                  <Toggle
+                    checked={settings.notifyMsgs}
+                    onChange={() => updateSettings({ ...settings, notifyMsgs: !settings.notifyMsgs })}
                   />
                 </SettingsRow>
               </div>
