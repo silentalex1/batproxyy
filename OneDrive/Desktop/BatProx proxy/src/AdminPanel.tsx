@@ -26,7 +26,8 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks'>('feedbacks');
+  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs'>('feedbacks');
+  const [problems, setProblems] = useState<{ votes: Array<{ user: string; working: boolean; ts: number }>; reports: Array<{ user: string; error: string; ts: number }>; resets: Array<{ user: string; ts: number }> }>({ votes: [], reports: [], resets: [] });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
@@ -122,6 +123,21 @@ export default function AdminPanel() {
   useEffect(() => {
     if (!isAuthed || tab !== 'feedbacks') return;
     const id = setInterval(() => loadFeedbacks(true), 5000);
+    return () => clearInterval(id);
+  }, [isAuthed, tab]);
+
+  const loadProblems = async () => {
+    try {
+      const response = await fetch('/api/admin/login-problems', { headers: { 'Authorization': `Bearer ${getToken()}` } });
+      const data = await response.json();
+      if (response.ok) setProblems({ votes: data.votes || [], reports: data.reports || [], resets: data.resets || [] });
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!isAuthed || tab !== 'loginprobs') return;
+    loadProblems();
+    const id = setInterval(loadProblems, 8000);
     return () => clearInterval(id);
   }, [isAuthed, tab]);
 
@@ -361,6 +377,11 @@ export default function AdminPanel() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               User ranks
             </button>
+            <button onClick={() => setTab('loginprobs')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'loginprobs' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+              Login problems
+              {(problems.reports.length + problems.resets.length) > 0 && <span className="ml-auto text-[10px] bg-orange-600/40 text-orange-200 px-1.5 py-0.5 rounded-full">{problems.reports.length + problems.resets.length}</span>}
+            </button>
           </nav>
           <div className="mt-auto space-y-1">
             <button onClick={() => navigate('/dashboard')} className="w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors">Back to Dashboard</button>
@@ -477,6 +498,53 @@ export default function AdminPanel() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+            {tab === 'loginprobs' && (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">Login problems</h2>
+                <p className="text-gray-500 text-sm mb-5">Votes, error reports and password reset requests.</p>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="bg-black/40 border border-white/10 rounded-xl p-5 backdrop-blur-md">
+                    <p className="text-white font-semibold text-sm mb-3">is the login working votes</p>
+                    {problems.votes.length === 0 ? <p className="text-gray-500 text-xs">No votes yet.</p> : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {problems.votes.slice().reverse().map((v, i) => (
+                          <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]">
+                            <span className="text-xs text-white font-medium">{v.user}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${v.working ? 'bg-green-500/15 text-green-300' : 'bg-red-500/15 text-red-300'}`}>{v.working ? 'yes' : 'no'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-black/40 border border-white/10 rounded-xl p-5 backdrop-blur-md">
+                    <p className="text-white font-semibold text-sm mb-3">login error reports</p>
+                    {problems.reports.length === 0 ? <p className="text-gray-500 text-xs">No reports yet.</p> : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {problems.reports.slice().reverse().map((r, i) => (
+                          <div key={i} className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]">
+                            <p className="text-xs text-white"><span className="font-semibold">{r.user}</span>, has reported the login error of:</p>
+                            <p className="text-xs text-orange-200 mt-1 whitespace-pre-wrap break-words">{r.error}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-black/40 border border-white/10 rounded-xl p-5 backdrop-blur-md">
+                    <p className="text-white font-semibold text-sm mb-3">password reset requests</p>
+                    {problems.resets.length === 0 ? <p className="text-gray-500 text-xs">No requests yet.</p> : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {problems.resets.slice().reverse().map((r, i) => (
+                          <div key={i} className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]">
+                            <p className="text-xs text-white"><span className="font-semibold">{r.user}</span> wants an password reset request.</p>
+                            <p className="text-[10px] text-gray-500 mt-0.5">{new Date(r.ts).toLocaleString()}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

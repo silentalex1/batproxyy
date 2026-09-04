@@ -55,6 +55,7 @@ export default function Chatting() {
   const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState<Array<{ id: number; text: string; ts: number }>>([]);
   const [noteText, setNoteText] = useState('');
+  const [ranks, setRanks] = useState<Record<string, string>>({});
   const [shiftDown, setShiftDown] = useState(false);
   const [hoverMsg, setHoverMsg] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
@@ -112,7 +113,27 @@ export default function Chatting() {
       const r = await fetch('/api/chat/name');
       if (r.ok) { const d = await r.json(); setNames(d.names || {}); }
     } catch {}
+    try {
+      const r = await fetch('/api/users');
+      if (r.ok) {
+        const d = await r.json();
+        const m: Record<string, string> = {};
+        for (const u of (d.users || [])) {
+          if (u.username === 'realalex' || u.username === 'admin') m[u.username] = 'admin';
+          else if (u.rank === 'moderator') m[u.username] = 'moderator';
+        }
+        setRanks(m);
+      }
+    } catch {}
   }, []);
+
+  const rankOf = (u: string) => ranks[u] || '';
+  const rankPill = (u: string) => {
+    const r = rankOf(u);
+    if (r === 'admin') return <span className="ml-1.5 text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 align-middle">ADMIN</span>;
+    if (r === 'moderator') return <span className="ml-1.5 text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 align-middle">MODERATOR</span>;
+    return null;
+  };
 
   const loadMessages = useCallback(async (roomId: string) => {
     try {
@@ -488,6 +509,7 @@ export default function Chatting() {
                       {!grouped && (
                         <p className="text-xs mb-0.5">
                           <button onClick={(e) => { e.stopPropagation(); setCard({ username: m.user }); }} className="font-bold text-white hover:underline">{m.display || m.user}</button>
+                          {rankPill(m.user)}
                           <span className="text-white/30 ml-2">{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </p>
                       )}
@@ -554,7 +576,7 @@ export default function Chatting() {
             ) : (
               <span className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold mx-auto mb-4 ${isOnline(card.username) ? 'ring-2 ring-green-400 ring-offset-2 ring-offset-black' : ''}`} style={{ background: avatarColor(card.username) }}>{(names[card.username] || card.username).charAt(0).toUpperCase()}</span>
             )}
-            <p className="text-base font-bold text-white">{profiles[card.username]?.display || names[card.username] || card.username}</p>
+            <p className="text-base font-bold text-white">{profiles[card.username]?.display || names[card.username] || card.username}{rankPill(card.username)}</p>
             <p className="text-xs text-white/40 mt-0.5 mb-2">@{card.username}</p>
             {profiles[card.username]?.bio && <p className="text-xs text-white/60 leading-relaxed mb-4 whitespace-pre-wrap">{profiles[card.username].bio}</p>}
             {!profiles[card.username]?.bio && <div className="mb-4" />}

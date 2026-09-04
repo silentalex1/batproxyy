@@ -10,6 +10,12 @@ export default function LoginStatus() {
   const [othersOnline, setOthersOnline] = useState(0);
   const [checking, setChecking] = useState(false);
   const [verdict, setVerdict] = useState('');
+  const [voted, setVoted] = useState<string>(() => { try { return localStorage.getItem('batprox-login-vote') || ''; } catch { return ''; } });
+  const [showReport, setShowReport] = useState(false);
+  const [reportText, setReportText] = useState('');
+  const [reportSent, setReportSent] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || 'guest'; } catch { return 'guest'; } });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const probe = useCallback(async (): Promise<{ up: boolean; others: number }> => {
@@ -50,6 +56,32 @@ export default function LoginStatus() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [refresh]);
 
+  const castVote = async (working: boolean) => {
+    const v = working ? 'yes' : 'no';
+    setVoted(v);
+    try { localStorage.setItem('batprox-login-vote', v); } catch {}
+    try {
+      await fetch('/api/login-vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: me, working }) });
+    } catch {}
+  };
+
+  const submitReport = async () => {
+    const t = reportText.trim();
+    if (!t) return;
+    try {
+      await fetch('/api/login-report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: me, error: t }) });
+      setReportSent(true);
+      setReportText('');
+    } catch {}
+  };
+
+  const requestReset = async () => {
+    try {
+      await fetch('/api/pw-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: me }) });
+    } catch {}
+    setResetSent(true);
+  };
+
   const checkJustMe = async () => {
     setChecking(true);
     setVerdict('');
@@ -58,7 +90,7 @@ export default function LoginStatus() {
     setUp(res.up);
     setHistory(prev => [...prev.slice(-19), res.up]);
     if (!res.up) {
-      setVerdict('Login looks down for everyone right now, not just you. Wait a bit and try again.');
+      setVerdict('Login is not working for you, please report the login error for me.');
     } else if (res.others > 0) {
       setVerdict('This is a you issue. Just wait.');
     } else {
@@ -115,6 +147,29 @@ export default function LoginStatus() {
         <div className="bg-black/55 border border-white/10 rounded-3xl p-6 backdrop-blur-2xl">
           <h2 className="text-sm font-bold text-white mb-4">What to do if you've been waiting forever and login STILL not working for you</h2>
           <p className="text-xs text-white/60 leading-relaxed">If you've been waiting for at least an hour, then let me know as if you've been waiting for an hour then that means it's a backend service error. Even though it's working for few other people.</p>
+        </div>
+      </div>
+      <div className="relative z-10 w-full max-w-3xl bg-black/55 border border-white/10 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-2xl mt-5">
+        <h2 className="text-sm font-bold text-white mb-2">is the login working for you?</h2>
+        {!voted ? (
+          <div className="flex gap-2.5">
+            <button onClick={() => castVote(true)} className="flex-1 py-2.5 rounded-xl bg-green-600/20 hover:bg-green-600/40 text-green-200 border border-green-500/30 text-sm font-semibold transition-all">yes</button>
+            <button onClick={() => { castVote(false); setShowReport(true); }} className="flex-1 py-2.5 rounded-xl bg-red-600/20 hover:bg-red-600/40 text-red-200 border border-red-500/30 text-sm font-semibold transition-all">no</button>
+          </div>
+        ) : (
+          <p className="text-xs text-white/50">Thanks — your vote ({voted}) was recorded.</p>
+        )}
+        {showReport && (
+          <div className="mt-4">
+            <label className="block text-xs text-white/50 mb-1.5">Enter the login report error so i can fix it please:</label>
+            <textarea value={reportText} onChange={e => setReportText(e.target.value)} placeholder="describe what happens when you try to login..." className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/60 text-sm min-h-[90px] resize-none mb-3" />
+            <button onClick={submitReport} className="w-full py-2.5 rounded-xl bg-orange-500/90 hover:bg-orange-400 text-black text-sm font-bold transition-all">Submit Error</button>
+            {reportSent && <p className="text-xs text-green-300 mt-2">Report sent. The admin will review it.</p>}
+          </div>
+        )}
+        <div className="mt-5 pt-5 border-t border-white/[0.06]">
+          <button onClick={requestReset} disabled={resetSent} className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 text-sm transition-all disabled:opacity-60">Request an password reset</button>
+          {resetSent && <p className="text-xs text-green-300 bg-green-500/10 border border-green-500/25 rounded-xl px-4 py-3 mt-3 text-center animate-fade-in">your request has been submitted! Please wait for an review.</p>}
         </div>
       </div>
     </div>

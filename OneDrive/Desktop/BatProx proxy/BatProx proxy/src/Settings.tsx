@@ -255,11 +255,22 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const closeAndSave = () => {
+    try {
+      const raw = localStorage.getItem('batprox-settings');
+      if (raw) {
+        const token = localStorage.getItem('batprox-token');
+        if (token) { fetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: raw }).catch(() => {}); }
+      }
+    } catch {}
+    onClose();
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        closeAndSave();
       }
     };
     window.addEventListener('keydown', handleKey, true);
@@ -307,7 +318,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
               <h2 className="text-sm font-semibold text-white">Settings</h2>
             </div>
             <button
-              onClick={onClose}
+              onClick={closeAndSave}
               className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-all"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

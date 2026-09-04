@@ -18,7 +18,8 @@ export async function onRequest(context:any){
       }catch{}
     }
   }
-  const backends=['https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
+  const direct=['/api/users','/api/presence','/api/gamestats','/api/recentgames','/api/chat','/api/notes','/api/feedback-response','/api/notifications'];
+  const backends=direct.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))?['https://api.stealthybat.org','https://authlogin.stealthlybat.it.com']:['https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
   const reqBody=context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer();
   const isLogin=url.pathname==='/api/auth/login';
   for(const backend of backends){

@@ -129,6 +129,18 @@ export default function PageChrome() {
     navigate('/chatting' + q);
   };
 
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      try {
+        if (!e.data || e.data.type !== 'bp-parent' || !e.data.redirect) return;
+        if (e.origin !== window.location.origin) return;
+        window.location.href = String(e.data.redirect);
+      } catch {}
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
   const respondDm = async (accept: boolean) => {
     if (!dmIncoming) return;
     const me = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
@@ -143,7 +155,9 @@ export default function PageChrome() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (e.shiftKey && e.key.toLowerCase() === 'k' && target?.tagName !== 'INPUT' && target?.tagName !== 'TEXTAREA') {
+      const tag = target?.tagName || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (target && target.isContentEditable)) return;
+      if (e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         navigate('/search-engine');
         return;

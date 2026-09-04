@@ -50,7 +50,24 @@ function blockedHost(host){
  export default {
   async fetch(request, env){
    const url=new URL(request.url);
-   const kv=env.batprox_data;
+   const rawKv=env.batprox_data;
+   const kv=rawKv?{
+     get: async (k)=>{
+       try{
+         if(env.batprox){
+           try{ const r=await env.batprox.prepare('SELECT v FROM kvstore WHERE k=?').bind(k).first(); if(r&&r.v!==undefined&&r.v!==null) return r.v; }catch{}
+         }
+       }catch{}
+       try{ return await rawKv.get(k); }catch{ return null; }
+     },
+     put: async (k,v)=>{
+       const s=typeof v==='string'?v:JSON.stringify(v);
+       if(env.batprox){
+         try{ await env.batprox.prepare('INSERT INTO kvstore (k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').bind(k,s).run(); return; }catch{}
+       }
+       await rawKv.put(k,s);
+     }
+   }:rawKv;
    const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
    if(request.method==='OPTIONS'){
     return new Response(null,{status:204, headers:cors(new Headers())});
@@ -664,7 +681,7 @@ function blockedHost(host){
       const rawU=kv?await kv.get('users'):null;
       const arr=rawU?JSON.parse(rawU||'[]'):[];
       const me=arr.find(x=>x.username===cu);
-      const staff=me&&(me.rank==='moderator'||me.admin||cu==='realalex'||cu==='admin');
+      const staff=(me&&(me.rank==='moderator'||me.admin))||cu==='realalex'||cu==='admin';
       if(m.user!==cu&&!staff) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
       await chatPut('chat_messages',all.filter(x=>x.id!==mid));
       return new Response(JSON.stringify({success:true}),{headers:h});
@@ -693,7 +710,7 @@ function blockedHost(host){
       all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt});
       await chatPut('chat_messages',all.slice(-600));
       return new Response(JSON.stringify({success:true, id}),{headers:h});
-    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+    }catch(e){ return new Response(JSON.stringify({error:'DBG:'+((e&&e.message)||e)}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/messages/clear' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
@@ -703,7 +720,8 @@ function blockedHost(host){
       const rawU=kv?await kv.get('users'):null;
       const arr=rawU?JSON.parse(rawU||'[]'):[];
       const me=arr.find(x=>x.username===cu);
-      if(!me||(me.rank!=='moderator'&&!me.admin&&cu!=='realalex'&&cu!=='admin')) return new Response(JSON.stringify({error:'Staff only'}),{status:403, headers:h});
+      const staff=(me&&(me.rank==='moderator'||me.admin))||cu==='realalex'||cu==='admin';
+      if(!staff) return new Response(JSON.stringify({error:'Staff only'}),{status:403, headers:h});
       const all=await chatGet('chat_messages',[]);
       await chatPut('chat_messages',all.filter(m=>m.room!==String(room||'community')));
       return new Response(JSON.stringify({success:true}),{headers:h});
@@ -754,7 +772,7 @@ function blockedHost(host){
       const rawU=kv?await kv.get('users'):null;
       const arr=rawU?JSON.parse(rawU||'[]'):[];
       const me=arr.find(x=>x.username===user);
-      const staff=me&&(me.rank==='moderator'||me.admin||user==='realalex'||user==='admin');
+      const staff=(me&&(me.rank==='moderator'||me.admin))||user==='realalex'||user==='admin';
       if(r.owner!==user&&!staff) return new Response(JSON.stringify({error:'Owner only'}),{status:403, headers:h});
       delete rooms[String(roomId)];
       await chatPut('chat_rooms',rooms);
@@ -771,7 +789,7 @@ function blockedHost(host){
       const rawU=kv?await kv.get('users'):null;
       const arr=rawU?JSON.parse(rawU||'[]'):[];
       const me=arr.find(x=>x.username===user);
-      const staff=me&&(me.rank==='moderator'||me.admin||user==='realalex'||user==='admin');
+      const staff=(me&&(me.rank==='moderator'||me.admin))||user==='realalex'||user==='admin';
       if(remove){
         if(r.owner!==user&&!staff&&remove!==user) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
         r.members=(r.members||[]).filter(m=>m!==remove);
@@ -946,6 +964,53 @@ function blockedHost(host){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('feedback_responses'):null;
     return new Response(JSON.stringify({responses:raw?JSON.parse(raw):{}}),{headers:h});
+  }
+  if(url.pathname==='/api/login-vote' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,working}=await request.json();
+      const cu=String(user||'').trim().slice(0,20);
+      if(!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('login_votes'):null;
+      let arr=raw?JSON.parse(raw):[];
+      arr=arr.filter(x=>x.user!==cu);
+      arr.push({user:cu, working:!!working, ts:Date.now()});
+      if(kv) await kv.put('login_votes', JSON.stringify(arr.slice(-200)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/login-report' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,error}=await request.json();
+      const cu=String(user||'').trim().slice(0,20);
+      const t=String(error||'').trim().slice(0,1000);
+      if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('login_reports'):null;
+      let arr=raw?JSON.parse(raw):[];
+      arr.push({user:cu, error:t, ts:Date.now()});
+      if(kv) await kv.put('login_reports', JSON.stringify(arr.slice(-200)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/pw-reset' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user}=await request.json();
+      const cu=String(user||'').trim().slice(0,20);
+      if(!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('pw_resets'):null;
+      let arr=raw?JSON.parse(raw):[];
+      if(!arr.some(x=>x.user===cu)) arr.push({user:cu, ts:Date.now()});
+      if(kv) await kv.put('pw_resets', JSON.stringify(arr.slice(-200)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/login-problems' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const gv=async (k)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):[]; }catch{ return []; } };
+    const [votes,reports,resets]=await Promise.all([gv('login_votes'),gv('login_reports'),gv('pw_resets')]);
+    return new Response(JSON.stringify({votes, reports, resets}),{headers:h});
   }
   if(url.pathname==='/api/chat/dms' && request.method==='GET'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
