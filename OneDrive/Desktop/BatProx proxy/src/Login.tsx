@@ -241,13 +241,15 @@ export default function Login() {
       });
       let data: any = {};
       try { data = await response.json(); } catch { data = {}; }
-      if (!response.ok) {
-        setServerError(data.error || `Login failed (${response.status})`);
+      const payload = data && typeof data.data !== 'undefined' && data.data !== null ? data.data : data;
+      const failed = !response.ok || data.ok === false || payload.success === false;
+      if (failed) {
+        setServerError((payload && payload.error) || (data && data.error) || 'Login failed');
         setLoading(false);
         return;
       }
-      const gotToken = data && typeof data.token === 'string' ? data.token : '';
-      const gotUser = data && data.user && typeof data.user.username === 'string' ? data.user.username : '';
+      const gotToken = payload && typeof payload.token === 'string' ? payload.token : '';
+      const gotUser = payload && payload.user && typeof payload.user.username === 'string' ? payload.user.username : '';
       if (!gotToken || !gotUser) {
         setServerError('Login backend returned an incomplete response. Please try again.');
         setLoading(false);

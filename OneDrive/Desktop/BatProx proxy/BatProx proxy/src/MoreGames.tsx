@@ -35,6 +35,7 @@ export default function MoreGames() {
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [userIdentifier] = useState(() => localStorage.getItem('batprox-user') || 'anonymous');
   const [recentGames, setRecentGames] = useState(() => getRecentGames());
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const gamesContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const luminReadyRef = useRef(false);
@@ -44,7 +45,16 @@ export default function MoreGames() {
   useEffect(() => {
     loadMyGames();
     startPresence();
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
+
+  const toggleFullscreen = () => {
+    const container = document.getElementById(CONTAINER_ID);
+    if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; }
+    if (container && container.requestFullscreen) { container.requestFullscreen().catch(() => {}); }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -592,7 +602,14 @@ export default function MoreGames() {
             id={CONTAINER_ID}
             ref={gamesContainerRef}
             className="relative z-0 w-full flex-1 min-h-[420px] bg-black/30 border border-white/10 rounded-2xl p-6 backdrop-blur-md"
-          />
+          >
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-3 right-3 z-20 px-4 py-2 rounded-xl bg-black/60 hover:bg-purple-600/60 border border-white/15 text-white text-xs font-semibold backdrop-blur-md transition-all"
+            >
+              {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            </button>
+          </div>
           <div className="w-full max-w-3xl bg-black/40 border border-white/10 rounded-2xl p-6 backdrop-blur-md shadow-2xl mt-6">
             <p className="text-sm font-semibold text-white/90 mb-1">your recent game played:</p>
             <p className="text-xs text-white/35 mb-4">most played first — never randomized.</p>

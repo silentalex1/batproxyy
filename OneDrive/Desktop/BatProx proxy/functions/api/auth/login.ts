@@ -6,29 +6,33 @@ function sign(payload: any, secret: string) {
   const data = h+'.'+p;
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
+const HEADERS = {'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'};
 export async function onRequestPost(context: any) {
-  const backend = context.env?.BACKEND_URL || context.env?.API_URL || 'https://authlogin.stealthlybat.it.com';
-  const url = backend.replace(/\/$/,'') + '/api/auth/login';
+  const backends = [context.env?.BACKEND_URL || context.env?.API_URL || 'https://authlogin.stealthlybat.it.com', 'https://api.stealthybat.org'];
+  let raw = '';
+  try { raw = await context.request.text(); } catch { raw = ''; }
+  for (const backend of backends) {
+    try {
+      const r = await fetch(backend.replace(/\/$/,'') + '/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: raw });
+      if (r.status >= 500 || r.status === 404) continue;
+      let data: any = null;
+      try { data = JSON.parse(await r.text()); } catch { data = null; }
+      return new Response(JSON.stringify({ ok: r.ok, status: r.status, data }), { status: 200, headers: HEADERS });
+    } catch {}
+  }
   try {
-    const body = await context.request.text();
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body });
-    const data = await r.text();
-    if (r.ok) return new Response(data, { status: r.status, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
-  } catch {}
-  // fallback to edge if backend unreachable
-  try {
-    const {username, inviteCode} = await context.request.json();
-    if (!username || !inviteCode) return new Response(JSON.stringify({error:'Username and invite code are required'}),{status:400, headers:{'Content-Type':'application/json'}});
+    const {username, inviteCode} = JSON.parse(raw || '{}');
+    if (!username || !inviteCode) return new Response(JSON.stringify({ ok:false, status:400, data:{success:false, error:'Username and invite code are required'}}),{status:200, headers:HEADERS});
     const cleanUser = String(username).trim();
     const cleanCode = String(inviteCode).trim();
-    if (cleanUser.length<3 || cleanUser.length>20) return new Response(JSON.stringify({error:'Username must be between 3 and 20 characters'}),{status:400, headers:{'Content-Type':'application/json'}});
-    if (!VALID_CODES.includes(cleanCode) && cleanCode.length<4) return new Response(JSON.stringify({error:'Invalid invite code'}),{status:401, headers:{'Content-Type':'application/json'}});
+    if (cleanUser.length<3 || cleanUser.length>20) return new Response(JSON.stringify({ ok:false, status:400, data:{success:false, error:'Username must be between 3 and 20 characters'}}),{status:200, headers:HEADERS});
+    if (!VALID_CODES.includes(cleanCode) && cleanCode.length<4) return new Response(JSON.stringify({ ok:false, status:401, data:{success:false, error:'Invalid invite code'}}),{status:200, headers:HEADERS});
     const isAdmin = cleanCode==='FOX-CORE' || cleanCode==='batprox-admin$$' || cleanUser==='realalex' || cleanUser==='admin';
     const secret = context.env?.JWT_SECRET || 'stealthybat-fallback-secret';
     const token = sign({id:1, username: cleanUser, isAdmin}, secret);
-    return new Response(JSON.stringify({success:true, token, user:{id:1, username: cleanUser}}),{headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
-  } catch (e) {
-    return new Response(JSON.stringify({error:'Internal error'}),{status:500, headers:{'Content-Type':'application/json'}});
+    return new Response(JSON.stringify({ ok:true, status:200, data:{success:true, token, user:{id:1, username: cleanUser}}}),{status:200, headers:HEADERS});
+  } catch {
+    return new Response(JSON.stringify({ ok:false, status:0, data:{success:false, error:'Backend unreachable'}}),{status:200, headers:HEADERS});
   }
 }
 export async function onRequestOptions() {
