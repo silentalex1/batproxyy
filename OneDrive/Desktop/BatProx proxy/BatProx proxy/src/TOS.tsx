@@ -45,6 +45,10 @@ const rules = [
   {
     title: '11. Keep things low.',
     body: 'Do not spread the website owner\'s name around. Do not be like: "the website owner made a proxy" or anything like that. Because that will put me back on their list or whatever, and I do not want that to happen as I do want to keep the website active so users can actively "learn" on this website. So yeah, do not keep spreading news about who made this site.'
+  },
+  {
+    title: '12. Got caught.',
+    body: 'If you got caught, and if you get in trouble from just playing a game on this website, or just using my website in general, then that is NOT my fault, that is YOUR fault. You\'re the one that agreed to these terms (probably without reading these), and continued playing on my site platform so technically, you getting in trouble from your own actions because you were interested in playing on my game website is not really my fault.'
   }
 ];
 

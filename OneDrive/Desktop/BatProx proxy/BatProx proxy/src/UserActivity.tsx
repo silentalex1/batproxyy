@@ -22,6 +22,8 @@ export default function UserActivity() {
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
   const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
+  const [dmAsk, setDmAsk] = useState<string | null>(null);
+  const [dmSent, setDmSent] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -49,10 +51,19 @@ export default function UserActivity() {
     } catch {}
   }, []);
 
+  const askDm = async (username: string) => {
+    if (!me || username === me) return;
+    setDmAsk(null);
+    try {
+      const r = await fetch('/api/chat/dm-invites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: me, to: username }) });
+      if (r.ok) setDmSent(true);
+    } catch {}
+  };
+
   useEffect(() => {
     startPresence();
     load();
-    const id = setInterval(load, 15000);
+    const id = setInterval(load, 10000);
     const onVis = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
@@ -129,7 +140,7 @@ export default function UserActivity() {
             ) : (
               <div className="space-y-2.5">
                 {users.map(u => (
-                  <div key={u.username} className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] hover:border-white/20 transition-all">
+                  <button key={u.username} onClick={() => { if (u.username !== me) { setDmAsk(u.username); setDmSent(false); } }} className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] hover:border-white/20 transition-all text-left">
                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${u.active ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.8)]' : 'bg-white/20'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-white font-semibold truncate">{u.username}{u.username === me ? ' (you)' : ''}</p>
@@ -140,12 +151,30 @@ export default function UserActivity() {
                       <p className="text-[10px] text-white/30 truncate max-w-[120px]">{topGameOf(u.username)}</p>
                     </div>
                     <span className={`text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full ${u.active ? 'bg-green-500/15 text-green-300 border border-green-500/25' : 'bg-white/5 text-white/35 border border-white/10'}`}>{u.active ? 'ACTIVE' : 'IDLE'}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
           </div>
           <p className="text-white/25 text-[11px] mt-4">Leaving the tab counts as inactive. Game hours update while you play.</p>
+      {dmAsk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-7 w-full max-w-xs text-center shadow-2xl">
+            {dmSent ? (
+              <p className="text-sm text-white">{dmAsk} will be notified. If they accept, your DM starts in chat.</p>
+            ) : (
+              <>
+                <p className="text-sm text-white mb-5">would you like to start dms with {dmAsk}?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setDmAsk(null)} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-sm">no</button>
+                  <button onClick={() => askDm(dmAsk)} className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">yes</button>
+                </div>
+              </>
+            )}
+            {dmSent && <button onClick={() => setDmAsk(null)} className="mt-4 px-6 py-2 rounded-xl bg-white/10 text-white text-sm">Okay</button>}
+          </div>
+        </div>
+      )}
         </div>
       </main>
       {showSuggest && (

@@ -503,7 +503,7 @@ function blockedHost(host){
     const raw=kv?await kv.get('presence'):null;
     const map=raw?JSON.parse(raw):{};
     const now=Date.now();
-    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<45000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts, sessionStart:map[k].sessionStart||map[k].ts}));
+    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<30000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts, sessionStart:map[k].sessionStart||map[k].ts}));
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
@@ -577,6 +577,248 @@ function blockedHost(host){
       if(!text) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
       return new Response(JSON.stringify({response:text.slice(0,8000)}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});}
+  }
+  const chatGet=async (k, fb)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):fb; }catch{ return fb; } };
+  const chatPut=async (k, v)=>{ if(kv) await kv.put(k, JSON.stringify(v)); };
+  if(url.pathname==='/api/chat/name' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {username,display}=await request.json();
+      const cu=String(username||'').trim().slice(0,20), d=String(display||'').trim().slice(0,24);
+      if(!cu||!d) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const map=await chatGet('chat_names',{});
+      map[cu]=d;
+      await chatPut('chat_names',map);
+      return new Response(JSON.stringify({success:true, display:d}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/name' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=url.searchParams.get('user')||'';
+    const map=await chatGet('chat_names',{});
+    if(user) return new Response(JSON.stringify({display:map[user]||user}),{headers:h});
+    return new Response(JSON.stringify({names:map}),{headers:h});
+  }
+  if(url.pathname==='/api/chat/messages' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const room=String(url.searchParams.get('room')||'community').slice(0,80);
+    const all=await chatGet('chat_messages',[]);
+    return new Response(JSON.stringify({messages:all.filter(m=>m.room===room).slice(-60)}),{headers:h});
+  }
+  if(url.pathname==='/api/chat/messages' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {room,user,text}=await request.json();
+      const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
+      const t=String(text||'').trim().slice(0,500);
+      if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      if(rm!=='community'){
+        const rooms=await chatGet('chat_rooms',{});
+        if(rm.startsWith('dm:')){
+          const parts=rm.split(':');
+          if(!parts.includes(cu)) return new Response(JSON.stringify({error:'Not in DM'}),{status:403, headers:h});
+        } else if(rooms[rm]) {
+          if(!(rooms[rm].members||[]).includes(cu)) return new Response(JSON.stringify({error:'Not a member'}),{status:403, headers:h});
+        } else return new Response(JSON.stringify({error:'No room'}),{status:404, headers:h});
+      }
+      const names=await chatGet('chat_names',{});
+      const all=await chatGet('chat_messages',[]);
+      const id=all.length?Math.max(...all.map(m=>m.id||0))+1:1;
+      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now()});
+      await chatPut('chat_messages',all.slice(-600));
+      return new Response(JSON.stringify({success:true, id}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/messages/clear' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {room,user}=await request.json();
+      const cu=String(user||'').trim();
+      const rawU=kv?await kv.get('users'):null;
+      const arr=rawU?JSON.parse(rawU||'[]'):[];
+      const me=arr.find(x=>x.username===cu);
+      if(!me||(me.rank!=='moderator'&&!me.admin&&cu!=='realalex'&&cu!=='admin')) return new Response(JSON.stringify({error:'Staff only'}),{status:403, headers:h});
+      const all=await chatGet('chat_messages',[]);
+      await chatPut('chat_messages',all.filter(m=>m.room!==String(room||'community')));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/rooms' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=url.searchParams.get('user')||'';
+    const rooms=await chatGet('chat_rooms',{});
+    const mine=Object.values(rooms).filter(r=>(r.members||[]).includes(user)).map(r=>({id:r.id, owner:r.owner, members:r.members, created:r.created}));
+    return new Response(JSON.stringify({rooms:mine}),{headers:h});
+  }
+  if(url.pathname==='/api/chat/rooms' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {owner,members}=await request.json();
+      const cu=String(owner||'').trim().slice(0,20);
+      if(!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const set=[...new Set([cu,...(Array.isArray(members)?members:[]).map(m=>String(m).trim().slice(0,20)).filter(Boolean)])].slice(0,15);
+      const rooms=await chatGet('chat_rooms',{});
+      const id='gc-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      rooms[id]={id, owner:cu, members:set, created:Date.now()};
+      await chatPut('chat_rooms',rooms);
+      return new Response(JSON.stringify({success:true, id}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/rooms/leave' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {roomId,user}=await request.json();
+      const rooms=await chatGet('chat_rooms',{});
+      const r=rooms[String(roomId)];
+      if(!r) return new Response(JSON.stringify({error:'No room'}),{status:404, headers:h});
+      r.members=(r.members||[]).filter(m=>m!==user);
+      if(r.members.length===0){ delete rooms[String(roomId)]; }
+      else if(r.owner===user){ r.owner=r.members[0]; }
+      await chatPut('chat_rooms',rooms);
+      return new Response(JSON.stringify({success:true, owner:r.owner||null}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/rooms/delete' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {roomId,user}=await request.json();
+      const rooms=await chatGet('chat_rooms',{});
+      const r=rooms[String(roomId)];
+      if(!r) return new Response(JSON.stringify({error:'No room'}),{status:404, headers:h});
+      const rawU=kv?await kv.get('users'):null;
+      const arr=rawU?JSON.parse(rawU||'[]'):[];
+      const me=arr.find(x=>x.username===user);
+      const staff=me&&(me.rank==='moderator'||me.admin||user==='realalex'||user==='admin');
+      if(r.owner!==user&&!staff) return new Response(JSON.stringify({error:'Owner only'}),{status:403, headers:h});
+      delete rooms[String(roomId)];
+      await chatPut('chat_rooms',rooms);
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/rooms/members' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {roomId,user,members,remove}=await request.json();
+      const rooms=await chatGet('chat_rooms',{});
+      const r=rooms[String(roomId)];
+      if(!r) return new Response(JSON.stringify({error:'No room'}),{status:404, headers:h});
+      const rawU=kv?await kv.get('users'):null;
+      const arr=rawU?JSON.parse(rawU||'[]'):[];
+      const me=arr.find(x=>x.username===user);
+      const staff=me&&(me.rank==='moderator'||me.admin||user==='realalex'||user==='admin');
+      if(remove){
+        if(r.owner!==user&&!staff&&remove!==user) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+        r.members=(r.members||[]).filter(m=>m!==remove);
+        if(r.members.length===0) delete rooms[String(roomId)];
+        else if(r.owner===remove) r.owner=r.members[0];
+      } else {
+        if(r.owner!==user&&!staff) return new Response(JSON.stringify({error:'Owner only'}),{status:403, headers:h});
+        const set=[...new Set([...(r.members||[]),...(Array.isArray(members)?members:[]).map(m=>String(m).trim().slice(0,20)).filter(Boolean)])].slice(0,15);
+        r.members=set;
+      }
+      await chatPut('chat_rooms',rooms);
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  const gcCode=()=> 'gc-'+Array.from({length:6},()=>'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*31)]).join('');
+  if(url.pathname==='/api/chat/invites' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {roomId,user,maxUses,hours}=await request.json();
+      const rooms=await chatGet('chat_rooms',{});
+      const r=rooms[String(roomId)];
+      if(!r||!(r.members||[]).includes(user)) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      const inv=await chatGet('chat_invites',{});
+      const code=gcCode();
+      inv[code]={code, roomId:String(roomId), uses:0, maxUses:Math.max(1,Math.min(50,parseInt(maxUses,10)||10)), expiresAt:Date.now()+Math.max(1,Math.min(168,parseInt(hours,10)||24))*3600000, revoked:false};
+      await chatPut('chat_invites',inv);
+      return new Response(JSON.stringify({success:true, code, expiresAt:inv[code].expiresAt, maxUses:inv[code].maxUses}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/join' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {code,user}=await request.json();
+      const c=String(code||'').trim();
+      const cu=String(user||'').trim();
+      const inv=await chatGet('chat_invites',{});
+      const v=inv[c];
+      if(!v||v.revoked||v.expiresAt<Date.now()||v.uses>=v.maxUses) return new Response(JSON.stringify({error:'Invite expired or invalid.'}),{status:400, headers:h});
+      const rooms=await chatGet('chat_rooms',{});
+      const r=rooms[v.roomId];
+      if(!r) return new Response(JSON.stringify({error:'Invite expired or invalid.'}),{status:400, headers:h});
+      if((r.members||[]).length>=15) return new Response(JSON.stringify({error:'Group is full.'}),{status:400, headers:h});
+      const blU=await chatGet('blacklist_users_fallback',null);
+      const rawB=kv?await kv.get('blacklist_users'):null;
+      const bl=rawB?JSON.parse(rawB):[];
+      if(bl.includes(cu)) return new Response(JSON.stringify({error:'Invite expired or invalid.'}),{status:403, headers:h});
+      if(!(r.members||[]).includes(cu)) r.members.push(cu);
+      v.uses+=1;
+      await chatPut('chat_rooms',rooms);
+      await chatPut('chat_invites',inv);
+      return new Response(JSON.stringify({success:true, roomId:v.roomId}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/invites/revoke' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {roomId,user}=await request.json();
+      const rooms=await chatGet('chat_rooms',{});
+      const r=rooms[String(roomId)];
+      if(!r||r.owner!==user) return new Response(JSON.stringify({error:'Owner only'}),{status:403, headers:h});
+      const inv=await chatGet('chat_invites',{});
+      for(const k of Object.keys(inv)){ if(inv[k].roomId===String(roomId)) inv[k].revoked=true; }
+      await chatPut('chat_invites',inv);
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/dm-invites' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {from,to,accept,id}=await request.json();
+      let arr=await chatGet('dm_invites',[]);
+      if(accept!==undefined&&id!==undefined){
+        const inv=arr.find(x=>x.id===Number(id));
+        if(!inv||inv.to!==to) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+        inv.status=accept?'accepted':'declined';
+        await chatPut('dm_invites',arr);
+        if(accept){
+          const room='dm:'+[inv.from,inv.to].sort().join(':');
+          const names=await chatGet('chat_names',{});
+          const all=await chatGet('chat_messages',[]);
+          const nid=all.length?Math.max(...all.map(m=>m.id||0))+1:1;
+          all.push({id:nid, room, user:inv.from, display:names[inv.from]||inv.from, text:inv.from+' has accepted '+inv.to+' dm invite! Yall may now start talking to eachother.', ts:Date.now(), sys:true});
+          await chatPut('chat_messages',all.slice(-600));
+          return new Response(JSON.stringify({success:true, room}),{headers:h});
+        }
+        return new Response(JSON.stringify({success:true}),{headers:h});
+      }
+      const f=String(from||'').trim(), t=String(to||'').trim();
+      if(!f||!t||f===t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const dup=arr.find(x=>x.from===f&&x.to===t&&x.status==='pending');
+      if(dup) return new Response(JSON.stringify({success:true, id:dup.id}),{headers:h});
+      const nid=arr.length?Math.max(...arr.map(x=>x.id||0))+1:1;
+      arr.push({id:nid, from:f, to:t, status:'pending', ts:Date.now()});
+      await chatPut('dm_invites',arr.slice(-200));
+      return new Response(JSON.stringify({success:true, id:nid}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/chat/dms' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=url.searchParams.get('user')||'';
+    const all=await chatGet('chat_messages',[]);
+    const inv=await chatGet('dm_invites',[]);
+    const set=new Set();
+    for(const m of all){ if(m.room&&m.room.startsWith('dm:')&&m.room.split(':').includes(user)) set.add(m.room); }
+    for(const x of inv){ if(x.status==='accepted'&&(x.from===user||x.to===user)) set.add('dm:'+[x.from,x.to].sort().join(':')); }
+    const rooms=[...set].map(id=>{ const p=id.split(':'); const other=p[1]===user?p[2]:p[1]; return {id, other}; });
+    return new Response(JSON.stringify({rooms}),{headers:h});
+  }
+  if(url.pathname==='/api/chat/dm-invites' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=url.searchParams.get('user')||'';
+    const arr=await chatGet('dm_invites',[]);
+    return new Response(JSON.stringify({invites:arr.filter(x=>x.to===user&&x.status==='pending').slice(-10)}),{headers:h});
   }
   if(url.pathname==='/api/admin/set-rank' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json');

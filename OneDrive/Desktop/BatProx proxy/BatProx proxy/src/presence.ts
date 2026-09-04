@@ -59,7 +59,7 @@ export function startPresence() {
   started = true;
   beat();
   if (timer) clearInterval(timer);
-  timer = setInterval(beat, 15000);
+  timer = setInterval(beat, 10000);
   document.addEventListener('visibilitychange', beat);
   window.addEventListener('beforeunload', () => {
     try {
