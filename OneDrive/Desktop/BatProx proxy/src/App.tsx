@@ -16,10 +16,11 @@ import PageChrome from './PageChrome';
 import TOS from './TOS';
 import { Navigate } from 'react-router-dom';
 import { AmbientBg, SideRail, DashNav, RotatingTagline } from './Chrome';
-import { buildSearchUrl, MOVIES_URL } from './engines';
+import { buildSearchUrl } from './engines';
 import { initUltraviolet } from './uv';
 import UserActivity from './UserActivity';
 import StaffPanel from './StaffPanel';
+import Movies from './Movies';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -182,8 +183,8 @@ function Dashboard() {
         targetUrl = 'https://music.octavestreaming.com/';
         break;
       case 'Movies':
-        targetUrl = MOVIES_URL;
-        break;
+        navigate('/movies');
+        return;
       case 'AI':
         navigate('/ai-work');
         return;
@@ -450,6 +451,7 @@ function Dashboard() {
                   if (!dismissed.includes(id)) dismissed.push(id);
                 }
                 localStorage.setItem('batprox-dismissed-feedback', JSON.stringify(dismissed));
+                fetch('/api/notifications/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userIdentifier: username || 'anonymous', ids: dismissed }) }).catch(() => {});
                 setApprovedFeedback(null);
               }}
               className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-all"
@@ -497,6 +499,7 @@ export default function App() {
         <Route path="/chatting" element={<Chatting />} />
         <Route path="/useractivity" element={<UserActivity />} />
         <Route path="/moderate-staff" element={<StaffPanel />} />
+        <Route path="/movies" element={<Movies />} />
       </Routes>
     </Router>
   );

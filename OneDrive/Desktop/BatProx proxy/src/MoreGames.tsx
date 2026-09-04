@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import Settings from './Settings';
 import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome';
-import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames } from './presence';
+import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames, syncRecentIcons } from './presence';
 import { useLowPower } from './power';
 
 declare global {
@@ -342,8 +342,8 @@ export default function MoreGames() {
       console.log('Searching for:', sanitizedQuery);
       const result = await window.Lumin.search(sanitizedQuery);
       console.log('Search results:', result);
-      
       if (result && result.games) {
+        syncRecentIcons(result.games); setRecentGames(getRecentGames());
         console.log(`Found ${result.games.length} games`);
         if (result.games.length === 0) {
           setError('No games found for "' + sanitizedQuery + '"');
@@ -377,8 +377,8 @@ export default function MoreGames() {
       console.log('Filtering by genre:', sanitizedGenre);
       const result = await window.Lumin.search(sanitizedGenre);
       console.log('Genre filter results:', result);
-      
       if (result && result.games) {
+        syncRecentIcons(result.games); setRecentGames(getRecentGames());
         console.log(`Found ${result.games.length} games for genre: ${sanitizedGenre}`);
         if (result.games.length === 0) {
           setError('No games found for "' + sanitizedGenre + '"');

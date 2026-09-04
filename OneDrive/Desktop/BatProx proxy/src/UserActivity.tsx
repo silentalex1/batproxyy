@@ -9,6 +9,7 @@ interface PresenceUser {
   active: boolean;
   game: string;
   lastSeen: number;
+  sessionStart?: number;
 }
 
 export default function UserActivity() {
@@ -72,6 +73,18 @@ export default function UserActivity() {
 
   const fmtHours = (h: number) => h < 0.1 ? `${Math.round(h * 60)}m` : `${h.toFixed(1)}h`;
 
+  const [, setTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setTick(t => t + 1), 30000); return () => clearInterval(id); }, []);
+
+  const fmtSession = (u: PresenceUser) => {
+    if (!u.active) return fmtHours(hoursOf(u.username));
+    const start = u.sessionStart || u.lastSeen || Date.now();
+    const mins = Math.max(0, Math.floor((Date.now() - start) / 60000));
+    if (mins < 1) return '0m';
+    if (mins < 60) return `${mins}m`;
+    return `${(mins / 60).toFixed(1)}h`;
+  };
+
   const submitSuggestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!suggestionText.trim()) return;
@@ -112,7 +125,7 @@ export default function UserActivity() {
                       <p className="text-[11px] text-white/40 truncate">{u.active ? (u.game ? `Playing ${u.game}` : 'Active on site') : 'Inactive'}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs text-purple-300 font-semibold">{fmtHours(hoursOf(u.username))}</p>
+                      <p className="text-xs text-purple-300 font-semibold">{fmtSession(u)}</p>
                       <p className="text-[10px] text-white/30 truncate max-w-[120px]">{topGameOf(u.username)}</p>
                     </div>
                     <span className={`text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full ${u.active ? 'bg-green-500/15 text-green-300 border border-green-500/25' : 'bg-white/5 text-white/35 border border-white/10'}`}>{u.active ? 'ACTIVE' : 'IDLE'}</span>

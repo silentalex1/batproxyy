@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Settings from './Settings';
 import { initUltraviolet, getUvUrl, getSandboxUrl, decodeProxiedLocation } from './uv';
 import { AmbientBg, BatteryIndicator, SideRail, NavBtn } from './Chrome';
-import { buildSearchUrl, MOVIES_URL } from './engines';
+import { buildSearchUrl } from './engines';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -122,7 +122,7 @@ export default function SearchEngine() {
   const INTERNAL: Record<string, string> = {
     home: '/dashboard', dashboard: '/dashboard', games: '/homework#help', homework: '/homework#help',
     ai: '/ai-work', changelog: '/changelog', changelogs: '/changelog', status: '/bat-status', 'api status': '/bat-status',
-    movies: '/search-engine?url=' + encodeURIComponent(MOVIES_URL)
+    movies: '/movies'
   };
 
   const resolveInternal = (q: string): string | null => {

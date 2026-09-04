@@ -1,6 +1,7 @@
-export type BackgroundId = 'anime' | 'girl' | 'crows' | 'japanese' | 'boondocks' | 'synthwave' | 'bokeh' | 'rain' | 'hive' | 'stars' | 'grid' | 'upload';
+export type BackgroundId = 'theme' | 'anime' | 'girl' | 'crows' | 'japanese' | 'boondocks' | 'synthwave' | 'bokeh' | 'rain' | 'hive' | 'stars' | 'grid' | 'upload';
 
 export const BACKGROUNDS: { id: BackgroundId; name: string; kind: 'image' | 'design' | 'upload' }[] = [
+  { id: 'theme', name: 'Theme scenery', kind: 'design' },
   { id: 'anime', name: 'anime background', kind: 'image' },
   { id: 'girl', name: 'for the girls', kind: 'image' },
   { id: 'crows', name: 'crows', kind: 'image' },
@@ -46,6 +47,12 @@ export function applyBackground() {
   }
   layer.className = 'bp-bg-layer bp-bg-scrim';
   layer.style.filter = '';
+  if (id === 'theme') {
+    layer.className = 'bp-bg-layer bp-theme-fx';
+    layer.style.background = '';
+    layer.style.backgroundSize = '';
+    return;
+  }
   if (id === 'anime') {
     layer.style.background = 'linear-gradient(rgba(5,5,12,0.58), rgba(5,5,12,0.64)), url(/backgrounds/animebackground.jpg) center / cover no-repeat fixed';
   } else if (id === 'girl') {

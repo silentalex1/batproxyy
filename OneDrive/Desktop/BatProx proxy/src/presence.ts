@@ -6,14 +6,44 @@ function username(): string {
   try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; }
 }
 
+function sessionStart(): number {
+  try {
+    let s = Number(sessionStorage.getItem('batprox-session-start') || 0);
+    if (!s) { s = Date.now(); sessionStorage.setItem('batprox-session-start', String(s)); }
+    return s;
+  } catch { return Date.now(); }
+}
+
 async function beat() {
   if (!username()) return;
   try {
     await fetch('/api/presence', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username(), visible: document.visibilityState === 'visible', game: currentGame })
+      body: JSON.stringify({ username: username(), visible: document.visibilityState === 'visible', game: currentGame, sessionStart: sessionStart() })
     });
+  } catch {}
+}
+
+export function syncRecentIcons(games: any[]) {
+  if (!Array.isArray(games) || games.length === 0) return;
+  try {
+    const key = 'batprox-recent-games';
+    let arr: RecentGame[] = JSON.parse(localStorage.getItem(key) || '[]');
+    let changed = false;
+    for (const g of games) {
+      const name = String((g && (g.title || g.name)) || '');
+      if (!name) continue;
+      const icon = String((g && (g.thumbnail || g.thumb || g.image || g.icon || g.cover)) || '');
+      const url = String((g && (g.url || g.link || g.slug)) || '');
+      const found = arr.find(x => x.name.toLowerCase() === name.toLowerCase());
+      if (found && ((icon && found.icon !== icon) || (url && found.url !== url))) {
+        if (icon) found.icon = icon;
+        if (url) found.url = url;
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem(key, JSON.stringify(arr.slice(0, 12)));
   } catch {}
 }
 

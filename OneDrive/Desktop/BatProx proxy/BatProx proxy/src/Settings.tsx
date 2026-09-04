@@ -31,7 +31,7 @@ const defaultSettings: SettingsData = {
   autoLoginPage: true,
   aboutBlankTab: false,
   theme: 'Bat Purple',
-  background: 'synthwave',
+  background: 'theme',
   backgroundUpload: '',
   tabCloak: 'newtab',
   panicKey: '',
@@ -162,6 +162,7 @@ const bgPreview = (id: BackgroundId, upload?: string): React.CSSProperties => {
   if (id === 'crows') return { background: 'url(/backgrounds/crows.gif) center / cover' };
   if (id === 'japanese') return { background: 'url(/backgrounds/japanese%20words.png) center / cover' };
   if (id === 'boondocks') return { background: 'url(/backgrounds/boondocks-4hbyyrax1z1nnufn.png) center / cover' };
+  if (id === 'theme') return { background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))' };
   if (id === 'upload' && upload) {
     return { backgroundImage: `url(${upload})`, backgroundSize: 'cover', backgroundPosition: 'center' };
   }
@@ -481,7 +482,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     return (
                       <button
                         key={t.name}
-                        onClick={() => updateSettings({ ...settings, theme: t.name })}
+                        onClick={() => updateSettings({ ...settings, theme: t.name, background: 'theme' })}
                         className={`rounded-2xl border p-3.5 text-left transition-all duration-300 ${
                           active
                             ? 'border-purple-500/60 bg-purple-600/10 shadow-lg shadow-purple-900/30'

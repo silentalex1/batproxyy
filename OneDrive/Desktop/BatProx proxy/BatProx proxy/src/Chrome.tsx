@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MOVIES_URL } from './engines';
+
 
 export function AmbientBg() {
   return (
@@ -272,7 +272,7 @@ export function SideRail({ onSettings }: { onSettings?: () => void }) {
     if (id === 'home') navigate('/dashboard');
     if (id === 'search') navigate('/search-engine');
     if (id === 'games') navigate('/homework#help');
-    if (id === 'movies') navigate(`/search-engine?url=${encodeURIComponent(MOVIES_URL)}`);
+    if (id === 'movies') navigate('/movies');
     if (id === 'chat') navigate('/chatting');
     if (id === 'settings') onSettings?.();
   };

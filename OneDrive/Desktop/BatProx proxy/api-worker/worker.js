@@ -89,7 +89,11 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       let fUrl=targetUrl;
       try{ fUrl=decodeURIComponent(targetUrl).replace(/&quot;/g,'').replace(/&amp;/g,'&').trim(); if(fUrl!==targetUrl) try{ new URL(fUrl); }catch{ fUrl=targetUrl; } }catch{}
       if(fUrl.includes('stealthybat.org')||fUrl.includes('stealthlybat.it.com')||fUrl.includes('banned.stealthybat.org')) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
-      const r=await fetch(fUrl,{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36','Accept':request.headers.get('accept')||'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9','Referer':parsed.origin+'/'}, redirect:'follow'});
+      const fwdCt=request.headers.get('content-type');
+      const fwdBody=(request.method==='GET'||request.method==='HEAD')?undefined:await request.arrayBuffer().catch(()=>undefined);
+      const fwdH={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36','Accept':request.headers.get('accept')||'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9','Referer':parsed.origin+'/'};
+      if(fwdCt) fwdH['Content-Type']=fwdCt;
+      const r=await fetch(fUrl,{method:request.method, headers:fwdH, body:fwdBody, redirect:'follow'});
       const ct=r.headers.get('content-type')||'text/html';
       let body=await r.arrayBuffer();
       const base = r.url ? new URL(r.url).href : parsed.href;
@@ -352,8 +356,23 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     const userId=decodeURIComponent(url.pathname.split('/').pop()||'');
     const raw=kv?await kv.get('feedbacks'):null;
     const all=raw?JSON.parse(raw):[];
-    const filtered=all.filter(x=>x.user_identifier===userId && (x.status==='approved'||x.status==='declined')).slice(-5);
+    let seen=[];
+    try{ const sraw=kv?await kv.get('seen_notes_'+userId):null; seen=sraw?JSON.parse(sraw):[]; }catch{}
+    const filtered=all.filter(x=>x.user_identifier===userId && (x.status==='approved'||x.status==='declined') && !seen.includes(x.id)).slice(-5);
     return new Response(JSON.stringify({notifications:filtered}),{headers:h});
+  }
+  if(url.pathname==='/api/notifications/seen' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {userIdentifier,ids}=await request.json();
+      const u=String(userIdentifier||'').trim();
+      if(!u||!Array.isArray(ids)) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const sraw=kv?await kv.get('seen_notes_'+u):null;
+      let seen=sraw?JSON.parse(sraw):[];
+      for(const id of ids){ if(!seen.includes(Number(id))) seen.push(Number(id)); }
+      if(kv) await kv.put('seen_notes_'+u, JSON.stringify(seen.slice(-50)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if((url.pathname==='/api/admin/approve-feedback' || url.pathname==='/api/admin/decline-feedback') && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json');
@@ -408,12 +427,13 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
   if(url.pathname==='/api/presence' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {username,visible,game}=await request.json();
+      const {username,visible,game,sessionStart}=await request.json();
       const cu=String(username||'').trim().slice(0,20);
       if(!cu) return new Response(JSON.stringify({error:'Username required'}),{status:400, headers:h});
       const raw=kv?await kv.get('presence'):null;
       const map=raw?JSON.parse(raw):{};
-      map[cu]={ts:Date.now(), visible:visible!==false, game:String(game||'').slice(0,80)};
+      const prev=map[cu]||{};
+      map[cu]={ts:Date.now(), visible:visible!==false, game:String(game||'').slice(0,80), sessionStart:Number(sessionStart)||prev.sessionStart||Date.now()};
       for(const k of Object.keys(map)){ if(Date.now()-map[k].ts>300000) delete map[k]; }
       if(kv) await kv.put('presence', JSON.stringify(map));
       return new Response(JSON.stringify({success:true}),{headers:h});
@@ -424,7 +444,7 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     const raw=kv?await kv.get('presence'):null;
     const map=raw?JSON.parse(raw):{};
     const now=Date.now();
-    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<75000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts}));
+    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<75000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts, sessionStart:map[k].sessionStart||map[k].ts}));
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
