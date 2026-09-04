@@ -69,7 +69,7 @@ export default function Login() {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const r = await fetchWithTimeout(`${base}${path}`, init);
-          if (r.status < 500) return r;
+          if (r.status < 500 && r.status !== 404) return r;
           lastErr = `Server error (${r.status}). Please try again.`;
         } catch {
           lastErr = 'Network error. Please make sure the backend server is running.';
