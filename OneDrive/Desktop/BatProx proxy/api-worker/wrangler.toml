@@ -8,6 +8,11 @@ binding = "batprox_data"
 id = "17c9bb507da244849001427b49031223"
 preview_id = "17c9bb507da244849001427b49031223"
 
+[[d1_databases]]
+binding = "batprox"
+database_name = "batprox"
+database_id = "b79d71ec-0f9f-47b4-bfd4-dd1127ab3708"
+
 [vars]
 SITE_URL = "https://stealthybat.org"
 
