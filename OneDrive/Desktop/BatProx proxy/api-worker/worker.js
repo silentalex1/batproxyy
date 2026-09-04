@@ -7,6 +7,46 @@ function sign(payload, secret){
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
 function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org'); h.set('Access-Control-Allow-Credentials','true'); h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS'); h.set('Access-Control-Allow-Headers','*'); return h; }
+function b64urlBytes(buf){ const b=new Uint8Array(buf); let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+async function hmacKey(secret){ return crypto.subtle.importKey('raw', new TextEncoder().encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign','verify']); }
+async function hmacSign(payload, secret){
+  const h=b64url(JSON.stringify({alg:'HS256',typ:'JWT'}));
+  const p=b64url(JSON.stringify(payload));
+  const data=h+'.'+p;
+  const sig=await crypto.subtle.sign('HMAC', await hmacKey(secret), new TextEncoder().encode(data));
+  return data+'.'+b64urlBytes(sig);
+}
+async function hmacVerify(token, secret){
+  try{
+    const parts=token.split('.');
+    if(parts.length!==3) return null;
+    const ok=await crypto.subtle.verify('HMAC', await hmacKey(secret), Uint8Array.from(atob(parts[2].replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0)), new TextEncoder().encode(parts[0]+'.'+parts[1]));
+    if(!ok) return null;
+    return JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+  }catch{ return null; }
+}
+const RL_MAP=new Map();
+function rl(key, limit, winMs){
+  const now=Date.now();
+  let arr=RL_MAP.get(key)||[];
+  arr=arr.filter(t=>now-t<winMs);
+  if(arr.length>=limit) return false;
+  arr.push(now);
+  if(RL_MAP.size>2000) RL_MAP.clear();
+  RL_MAP.set(key, arr);
+  return true;
+}
+function blockedHost(host){
+  const h=String(host||'').toLowerCase().replace(/\.$/,'');
+  if(!h) return true;
+  if(h==='localhost'||h==='::1'||h==='[::1]'||h==='0.0.0.0') return true;
+  if(h.includes('stealthybat.org')||h.includes('stealthlybat.it.com')) return true;
+  if(/^127\./.test(h)||/^10\./.test(h)||/^192\.168\./.test(h)||/^169\.254\./.test(h)) return true;
+  const m=h.match(/^172\.(1[6-9]|2[0-9]|3[01])\./);
+  if(m) return true;
+  if(/^[0-9a-f:]+$/.test(h)&&(h.startsWith('fe80')||h.startsWith('fc')||h.startsWith('fd'))) return true;
+  return false;
+}
  export default {
   async fetch(request, env){
    const url=new URL(request.url);
@@ -23,6 +63,7 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
   }
   if(url.pathname==='/api/auth/login' && request.method==='POST'){
     const jh=()=>{ const hb=cors(new Headers()); hb.set('Content-Type','application/json'); return hb; };
+    if(!rl('login:'+getIP(), 8, 900000)) return new Response(JSON.stringify({success:false, error:'Too many attempts. Try again later.'}),{status:200, headers:jh()});
     try{
       const body=await request.json();
       const username=body.username, inviteCode=body.inviteCode;
@@ -59,7 +100,9 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
         return new Response(JSON.stringify({success:false, error:'You are banned from using this site.', banned:true}),{status:200, headers:h});
       }
       const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
-      const token=sign({id:1,username:cu,isAdmin},secret);
+      let isAdminUser=isAdmin;
+      try{ const rawA=kv?await kv.get('users'):null; const arrA=rawA?JSON.parse(rawA||'[]'):[]; const fa=arrA.find(x=>x.username===cu); if(fa&&fa.admin===true) isAdminUser=true; }catch{}
+      const token=await hmacSign({id:1,username:cu,isAdmin:isAdminUser,exp:Math.floor(Date.now()/1000)+86400},secret);
       const h=cors(new Headers()); h.set('Content-Type','application/json');
       return new Response(JSON.stringify({success:true, token, user:{id:1, username:cu}}),{headers:h});
     }catch(e){ return new Response(JSON.stringify({success:false, error:'Login failed: '+(e.message||'unknown')}),{status:200, headers:jh()});}
@@ -69,7 +112,17 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     const token=auth.split(' ')[1]||'';
     if(!token) return new Response(JSON.stringify({error:'Access token required'}),{status:401});
     try{
-      const payload=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+      const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
+      let payload=await hmacVerify(token, secret);
+      if(!payload){
+        try{
+          const legacy=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+          const expect=sign({id:legacy.id||1, username:legacy.username, isAdmin:!!legacy.isAdmin}, secret);
+          if(expect===token) payload=legacy;
+        }catch{}
+      }
+      if(!payload) return new Response(JSON.stringify({error:'Invalid token'}),{status:403});
+      if(payload.exp && payload.exp < Math.floor(Date.now()/1000)) return new Response(JSON.stringify({error:'Token expired'}),{status:403});
       let rank='user';
       try{ const rawU=kv?await kv.get('users'):null; const arr=rawU?JSON.parse(rawU||'[]'):[]; const f=arr.find(x=>x.username===payload.username); if(f&&f.rank) rank=f.rank; }catch{}
       const h=cors(new Headers()); h.set('Content-Type','application/json');
@@ -89,13 +142,20 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       let fUrl=targetUrl;
       try{ fUrl=decodeURIComponent(targetUrl).replace(/&quot;/g,'').replace(/&amp;/g,'&').trim(); if(fUrl!==targetUrl) try{ new URL(fUrl); }catch{ fUrl=targetUrl; } }catch{}
       if(fUrl.includes('stealthybat.org')||fUrl.includes('stealthlybat.it.com')||fUrl.includes('banned.stealthybat.org')) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
+      if(!rl('proxy:'+getIP(), 180, 60000)) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
+      try{ if(blockedHost(new URL(fUrl).hostname)) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}}); }catch{ return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}}); }
       const fwdCt=request.headers.get('content-type');
       const fwdBody=(request.method==='GET'||request.method==='HEAD')?undefined:await request.arrayBuffer().catch(()=>undefined);
       const fwdH={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36','Accept':request.headers.get('accept')||'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Accept-Language':'en-US,en;q=0.9','Referer':parsed.origin+'/'};
       if(fwdCt) fwdH['Content-Type']=fwdCt;
-      const r=await fetch(fUrl,{method:request.method, headers:fwdH, body:fwdBody, redirect:'follow'});
+      const pctl=new AbortController();
+      const ptimer=setTimeout(()=>pctl.abort(), 10000);
+      let r;
+      try{ r=await fetch(fUrl,{method:request.method, headers:fwdH, body:fwdBody, redirect:'follow', signal:pctl.signal}); }
+      finally{ clearTimeout(ptimer); }
       const ct=r.headers.get('content-type')||'text/html';
       let body=await r.arrayBuffer();
+      if(body.byteLength>10*1024*1024) return new Response('',{status:200, headers:{'Content-Type':ct,'Access-Control-Allow-Origin':'*','X-Proxy-Response':'true'}});
       const base = r.url ? new URL(r.url).href : parsed.href;
       const isText=/html|css|javascript|json|xml|svg|text\//i.test(ct);
       let text=isText?new TextDecoder().decode(body):null;
@@ -476,7 +536,7 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
       const {username,games}=await request.json();
       const cu=String(username||'').trim().slice(0,20);
       if(!cu||!Array.isArray(games)) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
-      const clean=games.filter(g=>g&&g.name).map(g=>({name:String(g.name).slice(0,80), plays:Math.max(0,parseInt(g.plays,10)||0), ts:Number(g.ts)||Date.now(), icon:String(g.icon||'').slice(0,500), url:String(g.url||'').slice(0,200)})).slice(0,12);
+      const clean=games.filter(g=>g&&g.name).map(g=>({name:String(g.name).slice(0,80), plays:Math.max(0,parseInt(g.plays,10)||0), ts:Number(g.ts)||Date.now(), icon:String(g.icon||'').slice(0,500), url:String(g.url||'').slice(0,500), id:String(g.id||'').slice(0,80)})).slice(0,12);
       if(kv) await kv.put('recentgames_'+cu, JSON.stringify(clean));
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
@@ -486,6 +546,34 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     const user=url.searchParams.get('user')||'';
     const raw=(user&&kv)?await kv.get('recentgames_'+user):null;
     return new Response(JSON.stringify({games:raw?JSON.parse(raw):[]}),{headers:h});
+  }
+  if(url.pathname==='/api/generate' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {model,prompt,images}=await request.json();
+      const q=String(prompt||'').slice(0,4000);
+      const imgs=Array.isArray(images)?images.slice(0,2):[];
+      const parts=[{text:q||'hi'}];
+      for(const im of imgs){
+        let data='', mime='image/png';
+        if(typeof im==='string'){
+          const m=im.match(/^data:([^;]+);base64,(.+)$/);
+          if(m){ mime=m[1]; data=m[2]; } else data=im;
+        } else if(im&&typeof im==='object'){
+          data=String(im.data||im.inlineData?.data||'');
+          mime=String(im.mime||im.mimeType||im.inlineData?.mimeType||'image/png');
+        }
+        if(!data||data.length>2800000) continue;
+        parts.push({inline_data:{mime_type:mime, data}});
+      }
+      const key=env.GEMINI_API_KEY||'';
+      if(!key) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
+      const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(String(model||'gemini-2.5-flash'))+':generateContent?key='+encodeURIComponent(key),{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contents:[{parts}]})});
+      const gd=await gr.json().catch(()=>null);
+      const text=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
+      if(!text) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
+      return new Response(JSON.stringify({response:text.slice(0,8000)}),{headers:h});
+    }catch{ return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});}
   }
   if(url.pathname==='/api/admin/set-rank' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json');

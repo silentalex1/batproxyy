@@ -11,6 +11,16 @@ export async function onRequestPost(context: any) {
   const backends = [context.env?.BACKEND_URL || context.env?.API_URL || 'https://authlogin.stealthlybat.it.com', 'https://api.stealthybat.org'];
   let raw = '';
   try { raw = await context.request.text(); } catch { raw = ''; }
+  if (context.env?.TURNSTILE_SECRET) {
+    try {
+      const bodyCheck = JSON.parse(raw || '{}');
+      if (bodyCheck.turnstileToken) {
+        const v = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `secret=${encodeURIComponent(context.env.TURNSTILE_SECRET)}&response=${encodeURIComponent(bodyCheck.turnstileToken)}` });
+        const vd: any = await v.json();
+        if (!vd.success) return new Response(JSON.stringify({ ok:false, status:403, data:{success:false, error:'Human verification failed'}}),{status:200, headers:HEADERS});
+      }
+    } catch {}
+  }
   for (const backend of backends) {
     try {
       const r = await fetch(backend.replace(/\/$/,'') + '/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: raw });

@@ -27,6 +27,7 @@ export default function Login() {
   const [tosPrompt, setTosPrompt] = useState(false);
 
   const SECRET_KEY = 'QGBoaWJB';
+  const TURNSTILE_SITEKEY = '';
 
   const decodeKey = () =>
     Array.from(atob(SECRET_KEY))
@@ -193,6 +194,12 @@ export default function Login() {
     applyTabCloak();
     launchBlobCloak();
     fetch('/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
+    if (TURNSTILE_SITEKEY && !(window as any).turnstile) {
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      s.async = true;
+      document.body.appendChild(s);
+    }
   }, []);
 
   const validateUsername = (value: string): string | undefined => {
@@ -234,10 +241,12 @@ export default function Login() {
 
     setLoading(true);
     try {
+      let turnstileToken = '';
+      try { turnstileToken = ((window as any).turnstile && TURNSTILE_SITEKEY) ? (document.querySelector('input[name="cf-turnstile-response"]') as HTMLInputElement)?.value || '' : ''; } catch {}
       const response = await tryBases('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), inviteCode: inviteCode.trim() })
+        body: JSON.stringify({ username: username.trim(), inviteCode: inviteCode.trim(), turnstileToken })
       });
       let data: any = {};
       try { data = await response.json(); } catch { data = {}; }
@@ -414,6 +423,11 @@ export default function Login() {
             </div>
           )}
 
+          {TURNSTILE_SITEKEY !== '' && (
+            <div className="flex justify-center">
+              <div className="cf-turnstile" data-sitekey={TURNSTILE_SITEKEY} data-theme="dark" />
+            </div>
+          )}
           <button
             type="submit"
             disabled={loading}

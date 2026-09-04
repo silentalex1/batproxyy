@@ -37,10 +37,12 @@ export function syncRecentIcons(games: any[]) {
       const media = extractGameMedia(g);
       const icon = media.icon;
       const url = media.url;
-      const found = arr.find(x => x.name.toLowerCase() === name.toLowerCase());
-      if (found && ((icon && found.icon !== icon) || (url && found.url !== url))) {
+      const id = media.id;
+      const found = arr.find(x => x.name.toLowerCase() === name.toLowerCase() || (id && x.id === id));
+      if (found && ((icon && found.icon !== icon) || (url && found.url !== url) || (id && found.id !== id))) {
         if (icon) found.icon = icon;
         if (url) found.url = url;
+        if (id) found.id = id;
         changed = true;
       }
     }
@@ -78,7 +80,7 @@ export function trackGameSeconds(game: string, seconds: number) {
   }).catch(() => {});
 }
 
-export interface RecentGame { name: string; plays: number; ts: number; icon?: string; url?: string; }
+export interface RecentGame { name: string; plays: number; ts: number; icon?: string; url?: string; id?: string; }
 
 function saveRecents(arr: RecentGame[]) {
   arr.sort((a, b) => b.plays - a.plays || b.ts - a.ts);
@@ -90,18 +92,20 @@ function saveRecents(arr: RecentGame[]) {
   }
 }
 
-export function recordRecentGame(name: string, extra?: { icon?: string; url?: string }) {
+export function recordRecentGame(name: string, extra?: { icon?: string; url?: string; id?: string }) {
   if (!name) return;
   try {
     const key = 'batprox-recent-games';
     let arr: RecentGame[] = JSON.parse(localStorage.getItem(key) || '[]');
-    const found = arr.find(x => x.name === name);
+    const id = extra?.id || '';
+    const found = arr.find(x => x.name === name || (id && x.id === id));
     if (found) {
       found.plays += 1; found.ts = Date.now();
       if (extra?.icon) found.icon = extra.icon;
       if (extra?.url) found.url = extra.url;
+      if (id) found.id = id;
     }
-    else arr.push({ name, plays: 1, ts: Date.now(), icon: extra?.icon || '', url: extra?.url || '' });
+    else arr.push({ name, plays: 1, ts: Date.now(), icon: extra?.icon || '', url: extra?.url || '', id });
     saveRecents(arr);
   } catch {}
 }
@@ -121,6 +125,7 @@ export async function loadServerRecents(): Promise<RecentGame[]> {
         f.plays = Math.max(f.plays, s.plays || 0);
         if (!f.icon && s.icon) f.icon = s.icon;
         if (!f.url && s.url) f.url = s.url;
+        if (!f.id && s.id) f.id = s.id;
         f.ts = Math.max(f.ts, s.ts || 0);
       } else local.push(s);
     }
@@ -131,10 +136,14 @@ export async function loadServerRecents(): Promise<RecentGame[]> {
   } catch { return getRecentGames(); }
 }
 
-export function extractGameMedia(game: any): { icon: string; url: string } {
+export function extractGameMedia(game: any): { icon: string; url: string; id: string } {
   let icon = '';
   let url = '';
+  let id = '';
   try {
+    id = String(game?.id || game?.slug || game?.key || game?.gameId || '').trim();
+    icon = String(game?.icon || game?.image || game?.thumbnail || game?.cover || game?.thumb || '').trim();
+    url = String(game?.url || game?.playUrl || game?.href || game?.src || game?.embed || '').trim();
     const imgs: string[] = [];
     const links: string[] = [];
     const walk = (v: any, depth: number) => {
@@ -153,10 +162,14 @@ export function extractGameMedia(game: any): { icon: string; url: string } {
       for (const k of keys) { const f = arr.find(u => u.toLowerCase().includes(k)); if (f) return f; }
       return arr[0] || '';
     };
-    icon = pick(imgs, ['thumb', 'thumbnail', 'icon', 'cover', 'art', 'image', 'logo']);
-    url = pick(links, ['play', 'game', 'embed', 'launch']);
+    if (!icon) icon = pick(imgs, ['thumb', 'thumbnail', 'icon', 'cover', 'art', 'image', 'logo']);
+    if (!url) url = pick(links, ['play', 'game', 'embed', 'launch']);
+    if (!id) {
+      const n = String(game?.title || game?.name || '');
+      if (n.includes('/')) id = n;
+    }
   } catch {}
-  return { icon, url };
+  return { icon, url, id };
 }
 
 export function getRecentGames(): RecentGame[] {

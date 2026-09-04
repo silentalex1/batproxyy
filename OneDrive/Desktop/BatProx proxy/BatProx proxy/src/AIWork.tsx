@@ -196,12 +196,31 @@ export default function AIWork() {
     if (e) e.preventDefault();
     if (message.trim() || images.length > 0) {
       const userMessage = message.trim();
+      const imgPayloads = images.map(img => {
+        const parts = String(img.data || '').split(',');
+        return parts.length > 1 ? { data: parts[1], mime: 'image/png' } : { data: String(img.data || ''), mime: 'image/png' };
+      });
       const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
       setMessages(newMessages);
       setMessage('');
       setImages([]);
       setAttachedFiles([]);
-      const reply = 'MocahAI is still being trained, and worked on. Please be patient.';
+      let reply = 'MocahAI is still being trained, and worked on. Please be patient.';
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 45000);
+        const r = await fetch('https://airesponse.stealthybat.org/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'gemini-2.5-flash', prompt: userMessage || 'Describe what you see in this image in detail.', images: imgPayloads, stream: false }),
+          signal: ctrl.signal
+        });
+        clearTimeout(t);
+        if (r.ok) {
+          const d = await r.json();
+          if (d && typeof d.response === 'string' && d.response.trim()) reply = d.response;
+        }
+      } catch {}
       setMessages(prev => [...prev, { role: 'assistant' as const, content: reply }]);
       saveChatToHistory([...newMessages, { role: 'assistant' as const, content: reply }]);
       return;

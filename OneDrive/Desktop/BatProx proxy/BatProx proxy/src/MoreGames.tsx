@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import Settings from './Settings';
 import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome';
-import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames, syncRecentIcons, loadServerRecents, extractGameMedia } from './presence';
+import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames, syncRecentIcons, loadServerRecents, extractGameMedia, RecentGame } from './presence';
 import { useLowPower } from './power';
 
 declare global {
@@ -297,8 +297,8 @@ export default function MoreGames() {
             setLoading(false);
           },
           onGameStart: (game: any) => {
-            const name = String((game && (game.title || game.name)) || 'game');
             const media = extractGameMedia(game);
+            const name = String((game && (game.title || game.name || media.id)) || 'game');
             gameStartRef.current = { name, at: Date.now() };
             recordRecentGame(name, media);
             setRecentGames(getRecentGames());
@@ -332,6 +332,50 @@ export default function MoreGames() {
     }
   };
 
+  const searchTerms = (raw: string) => {
+    const q = String(raw || '').trim();
+    if (!q) return [];
+    const last = q.includes('/') ? q.split('/').filter(Boolean).pop() || q : q;
+    const spaced = q.replace(/[/_-]+/g, ' ').trim();
+    return Array.from(new Set([q, last, spaced, last.replace(/[-_]+/g, ' ')].filter(Boolean)));
+  };
+
+  const searchLumin = async (raw: string) => {
+    if (!window.Lumin) return null;
+    let last: any = null;
+    for (const term of searchTerms(raw)) {
+      const result = await window.Lumin.search(term);
+      last = result;
+      if (result && Array.isArray(result.games) && result.games.length > 0) return result;
+    }
+    return last;
+  };
+
+  const playRecentGame = async (g: RecentGame) => {
+    if (!window.Lumin) {
+      setError('Games are still loading. Please wait...');
+      return;
+    }
+    const query = (g.id || g.name || '').trim();
+    const label = g.name.includes('/') ? (g.name.split('/').pop() || g.name) : g.name;
+    setSearchQuery(label);
+    setLoading(true);
+    setError('');
+    try {
+      const result = await searchLumin(query);
+      if (result && result.games && result.games.length > 0) {
+        syncRecentIcons(result.games);
+        setRecentGames(getRecentGames());
+      } else {
+        setError('Could not reopen "' + g.name + '". Try searching for "' + label + '".');
+      }
+    } catch {
+      setError('Could not reopen that game. Try searching for it.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!window.Lumin) {
@@ -345,25 +389,17 @@ export default function MoreGames() {
     }
 
     const sanitizedQuery = DOMPurify.sanitize(searchQuery.trim());
-    
     setLoading(true);
     setError('');
     try {
-      console.log('Searching for:', sanitizedQuery);
-      const result = await window.Lumin.search(sanitizedQuery);
-      console.log('Search results:', result);
-      if (result && result.games) {
-        syncRecentIcons(result.games); setRecentGames(getRecentGames());
-        console.log(`Found ${result.games.length} games`);
-        if (result.games.length === 0) {
-          setError('No games found for "' + sanitizedQuery + '"');
-        }
+      const result = await searchLumin(sanitizedQuery);
+      if (result && result.games && result.games.length > 0) {
+        syncRecentIcons(result.games);
+        setRecentGames(getRecentGames());
       } else {
-        console.log('No games found or unexpected result format');
         setError('No games found for "' + sanitizedQuery + '"');
       }
     } catch (err) {
-      console.error('Search error:', err);
       setError('Search failed. Please try again.');
     } finally {
       setLoading(false);
@@ -620,7 +656,7 @@ export default function MoreGames() {
                 {recentGames.map((g) => (
                   <button
                     key={g.name}
-                    onClick={() => { setSearchQuery(g.name); if (window.Lumin) window.Lumin.search(g.name); }}
+                    onClick={() => { playRecentGame(g); }}
                     className="group flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all text-center"
                   >
                     {g.icon ? (
