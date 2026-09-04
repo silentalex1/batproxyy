@@ -334,6 +334,7 @@ select option {
 html[data-lowpower='1'] *, html[data-lowpower='1'] *::before, html[data-lowpower='1'] *::after { animation-duration: 0.01s !important; animation-iteration-count: 1 !important; transition-duration: 0.01s !important; }
 html[data-lowpower='1'] canvas { opacity: 0.35 !important; }
 html[data-lowpower='1'] .bp-petal { display: none !important; }
+#games.bp-fill-mode { position: fixed !important; inset: 0 !important; z-index: 9999 !important; min-height: 100vh !important; border-radius: 0 !important; background: #000 !important; }
 
 #bp-bg-layer.bp-theme-fx { background-size: auto; }
 html[data-theme='Cyberpunk Neon'] #bp-bg-layer.bp-theme-fx { background: radial-gradient(600px 300px at 15% 20%, rgba(255,42,109,0.16), transparent), radial-gradient(700px 340px at 85% 75%, rgba(5,217,232,0.14), transparent), linear-gradient(rgba(5,217,232,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(5,217,232,0.06) 1px, transparent 1px), #0a0a12; background-size: auto, auto, 34px 34px, 34px 34px, auto; }

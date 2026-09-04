@@ -1,7 +1,7 @@
 export async function onRequest(context:any){
   if(context.request.method==='OPTIONS') return new Response(null,{status:204, headers:{'Access-Control-Allow-Origin':'https://stealthybat.org','Access-Control-Allow-Credentials':'true','Access-Control-Allow-Methods':'GET, POST, PUT, DELETE, OPTIONS','Access-Control-Allow-Headers':'*'}});
   const url=new URL(context.request.url);
-  const known=['/api/auth','/api/admin','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai'];
+  const known=['/api/auth','/api/admin','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/recentgames','/api/gamestats','/api/presence'];
   if(!known.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))){
     const ref=context.request.headers.get('referer')||'';
     const m=ref.match(/proxy\?url=([^&]+)/);

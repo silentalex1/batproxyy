@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import Settings from './Settings';
 import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome';
-import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames, syncRecentIcons, loadServerRecents, extractGameMedia, RecentGame } from './presence';
+import { startPresence, setPresenceGame, trackGameSeconds, commitRecent, bumpRecentSecs, markRecentUnavailable, removeRecent, clearRecents, getRecentGames, syncRecentIcons, loadServerRecents, extractGameMedia } from './presence';
+import type { RecentGame } from './presence';
 import { useLowPower } from './power';
 
 declare global {
@@ -35,26 +36,142 @@ export default function MoreGames() {
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [userIdentifier] = useState(() => localStorage.getItem('batprox-user') || 'anonymous');
   const [recentGames, setRecentGames] = useState(() => getRecentGames());
+  const [recentSort, setRecentSort] = useState<'last' | 'most'>(() => { try { return (localStorage.getItem('batprox-recent-sort') as 'last' | 'most') || 'last'; } catch { return 'last'; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const gamesContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const luminReadyRef = useRef(false);
-  const gameStartRef = useRef<{ name: string; at: number } | null>(null);
+  const gameStartRef = useRef<{ name: string; at: number; media: { icon: string; url: string; id: string } } | null>(null);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useLowPower();
 
   useEffect(() => {
     loadMyGames();
     startPresence();
     loadServerRecents().then(g => setRecentGames(g));
-    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    const onFs = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+      if (!document.fullscreenElement) {
+        const c = document.getElementById(CONTAINER_ID);
+        if (c) c.classList.remove('bp-fill-mode');
+      }
+    };
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
 
-  const toggleFullscreen = () => {
-    const container = document.getElementById(CONTAINER_ID);
+  const setSort = (s: 'last' | 'most') => {
+    setRecentSort(s);
+    try { localStorage.setItem('batprox-recent-sort', s); } catch {}
+  };
+
+  const sortedRecents = [...recentGames].sort((a, b) => recentSort === 'last' ? b.ts - a.ts : b.plays - a.plays || b.ts - a.ts);
+
+  const fmtAgo = (ts: number) => {
+    if (!ts) return '—';
+    const mins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const grabCardImage = (): string => {
+    try {
+      const container = document.getElementById(CONTAINER_ID);
+      if (!container) return '';
+      const roots: Array<Document | ShadowRoot> = [document];
+      if (container.shadowRoot) roots.push(container.shadowRoot);
+      for (const r of roots) {
+        const imgs = r.querySelectorAll('#' + CONTAINER_ID + ' img, #' + CSS.escape(CONTAINER_ID) + ' img');
+        for (const el of Array.from(imgs)) {
+          const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '';
+          if (src && src.startsWith('http') && !src.includes('data:')) return src;
+        }
+      }
+      const all = container.shadowRoot ? container.shadowRoot.querySelectorAll('img') : [];
+      for (const el of Array.from(all)) {
+        const src = (el as HTMLImageElement).currentSrc || (el as HTMLImageElement).src || '';
+        if (src && src.startsWith('http')) return src;
+      }
+    } catch {}
+    return '';
+  };
+
+  const gameSurface = (): HTMLElement | null => {
+    try {
+      const container = document.getElementById(CONTAINER_ID);
+      if (!container) return null;
+      const root = container.shadowRoot;
+      if (root) {
+        const inner = root.querySelector('[class*="player"], [class*="stage"], [class*="game"], [id*="player"], [id*="stage"], [id*="game"]');
+        if (inner instanceof HTMLElement) return inner;
+      }
+      return container;
+    } catch { return document.getElementById(CONTAINER_ID); }
+  };
+
+  const toggleGameFullscreen = () => {
     if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; }
-    if (container && container.requestFullscreen) { container.requestFullscreen().catch(() => {}); }
+    const target = gameSurface();
+    if (!target) return;
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (target.requestFullscreen) { target.requestFullscreen().catch(() => fillMode(target)); return; }
+    if (isIOS) { fillMode(target); return; }
+    const c = document.getElementById(CONTAINER_ID);
+    if (c && c.requestFullscreen) c.requestFullscreen().catch(() => {});
+  };
+
+  const fillMode = (el: HTMLElement) => {
+    el.classList.add('bp-fill-mode');
+    setIsFullscreen(true);
+  };
+
+  const exitFillMode = () => {
+    const c = document.getElementById(CONTAINER_ID);
+    if (c) c.classList.remove('bp-fill-mode');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    setIsFullscreen(false);
+    removeFsButton();
+  };
+
+  const removeFsButton = () => {
+    try {
+      const container = document.getElementById(CONTAINER_ID);
+      const roots: Array<Document | ShadowRoot> = [document];
+      if (container && container.shadowRoot) roots.push(container.shadowRoot);
+      for (const r of roots) {
+        r.querySelectorAll('[data-bp-fs]').forEach(n => n.remove());
+      }
+    } catch {}
+  };
+
+  const mountFsButton = () => {
+    try {
+      const L = window.Lumin as any;
+      if (L && ['fullscreen', 'setFullscreen', 'toggleFullscreen', 'enterFullscreen', 'requestFullscreen'].some(k => typeof L[k] === 'function')) return;
+      const container = document.getElementById(CONTAINER_ID);
+      if (!container || !container.shadowRoot) return;
+      const root = container.shadowRoot;
+      if (root.querySelector('[data-bp-fs]')) return;
+      const all = Array.from(root.querySelectorAll('button, [role="button"], div, span'));
+      const exitBtn = all.find(n => /exit game/i.test(n.textContent || '')) as HTMLElement | undefined;
+      const btn = document.createElement('button');
+      btn.setAttribute('data-bp-fs', '1');
+      btn.textContent = isFullscreen ? 'Exit fullscreen' : 'Fullscreen';
+      btn.setAttribute('style', 'height:32px;padding:0 12px;margin:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.55);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;');
+      btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggleGameFullscreen(); });
+      if (exitBtn && exitBtn.parentElement) {
+        exitBtn.parentElement.insertBefore(btn, exitBtn.nextSibling);
+      } else {
+        const bar = (root.querySelector('[class*="toolbar"], [class*="header"], [class*="bar"]') as HTMLElement) || null;
+        if (bar) bar.appendChild(btn);
+        else return;
+      }
+      const sync = () => { btn.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'; };
+      document.addEventListener('fullscreenchange', sync, { once: false });
+    } catch {}
   };
 
   useEffect(() => {
@@ -299,18 +416,32 @@ export default function MoreGames() {
           onGameStart: (game: any) => {
             const media = extractGameMedia(game);
             const name = String((game && (game.title || game.name || media.id)) || 'game');
-            gameStartRef.current = { name, at: Date.now() };
-            recordRecentGame(name, media);
-            setRecentGames(getRecentGames());
+            if (!media.icon) media.icon = grabCardImage();
+            gameStartRef.current = { name, at: Date.now(), media };
             setPresenceGame(name);
+            if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+            commitTimerRef.current = setTimeout(() => {
+              const cur = gameStartRef.current;
+              if (!cur) return;
+              commitRecent(cur.name, cur.media);
+              setRecentGames(getRecentGames());
+            }, 12000);
+            setTimeout(mountFsButton, 600);
+            setTimeout(mountFsButton, 1800);
+            setTimeout(mountFsButton, 3500);
           },
           onGameEnd: () => {
             const s = gameStartRef.current;
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
             if (s) {
-              trackGameSeconds(s.name, (Date.now() - s.at) / 1000);
+              const secs = (Date.now() - s.at) / 1000;
+              trackGameSeconds(s.name, secs);
+              bumpRecentSecs(s.name, secs);
+              setRecentGames(getRecentGames());
               gameStartRef.current = null;
             }
             setPresenceGame('');
+            exitFillMode();
           },
           onGameError: (err: any) => {
             console.error('Game error:', err);
@@ -356,18 +487,27 @@ export default function MoreGames() {
       setError('Games are still loading. Please wait...');
       return;
     }
-    const query = (g.id || g.name || '').trim();
-    const label = g.name.includes('/') ? (g.name.split('/').pop() || g.name) : g.name;
-    setSearchQuery(label);
+    const L = window.Lumin as any;
+    for (const k of ['playGame', 'openGame', 'launch', 'launchGame', 'startGame', 'play']) {
+      try {
+        if (typeof L[k] === 'function') {
+          await L[k](g.id || g.title);
+          return;
+        }
+      } catch {}
+    }
+    setSearchQuery(g.title);
     setLoading(true);
     setError('');
     try {
-      const result = await searchLumin(query);
+      const result = await searchLumin(g.id + ' ' + g.title);
       if (result && result.games && result.games.length > 0) {
         syncRecentIcons(result.games);
         setRecentGames(getRecentGames());
       } else {
-        setError('Could not reopen "' + g.name + '". Try searching for "' + label + '".');
+        markRecentUnavailable(g.id);
+        setRecentGames(getRecentGames());
+        setError('"' + g.title + '" is unavailable right now.');
       }
     } catch {
       setError('Could not reopen that game. Try searching for it.');
@@ -638,35 +778,35 @@ export default function MoreGames() {
             id={CONTAINER_ID}
             ref={gamesContainerRef}
             className="relative z-0 w-full flex-1 min-h-[420px] bg-black/30 border border-white/10 rounded-2xl p-6 backdrop-blur-md"
-          >
-            <button
-              onClick={toggleFullscreen}
-              className="absolute top-3 right-3 z-20 px-4 py-2 rounded-xl bg-black/60 hover:bg-purple-600/60 border border-white/15 text-white text-xs font-semibold backdrop-blur-md transition-all"
-            >
-              {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            </button>
-          </div>
+          />
           <div className="w-full max-w-3xl bg-black/40 border border-white/10 rounded-2xl p-6 backdrop-blur-md shadow-2xl mt-6">
-            <p className="text-sm font-semibold text-white/90 mb-1">your recent game played:</p>
-            <p className="text-xs text-white/35 mb-4">most played first — never randomized.</p>
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <p className="text-sm font-semibold text-white/90">your recent game played:</p>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => setSort('last')} className={`text-[11px] px-3 py-1.5 rounded-lg border transition-all ${recentSort === 'last' ? 'bg-purple-600/30 text-white border-purple-500/40' : 'bg-white/5 text-white/50 border-white/10'}`}>Last played</button>
+                <button onClick={() => setSort('most')} className={`text-[11px] px-3 py-1.5 rounded-lg border transition-all ${recentSort === 'most' ? 'bg-purple-600/30 text-white border-purple-500/40' : 'bg-white/5 text-white/50 border-white/10'}`}>Most played</button>
+                {recentGames.length > 0 && <button onClick={() => { clearRecents(); setRecentGames([]); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-white/5 text-white/50 border border-white/10 hover:bg-red-600/20 hover:text-red-300 transition-all">Clear recents</button>}
+              </div>
+            </div>
+            <p className="text-xs text-white/35 mb-4">click a tile to replay it instantly.</p>
             {recentGames.length === 0 ? (
-              <p className="text-gray-500 text-sm text-center py-4">Play a game and it will show up here.</p>
+              <p className="text-gray-500 text-sm text-center py-4">Play a game for a bit and it will show up here.</p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {recentGames.map((g) => (
-                  <button
-                    key={g.name}
-                    onClick={() => { playRecentGame(g); }}
-                    className="group flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all text-center"
-                  >
-                    {g.icon ? (
-                      <img src={g.icon} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10" loading="lazy" />
-                    ) : (
-                      <span className="w-16 h-16 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 text-xl font-bold">{g.name.charAt(0).toUpperCase()}</span>
-                    )}
-                    <span className="text-sm text-gray-200 group-hover:text-white font-medium break-words w-full truncate">{g.name}</span>
-                    <span className="text-[11px] text-purple-300/80">{g.plays} play{g.plays === 1 ? '' : 's'}</span>
-                  </button>
+                {sortedRecents.map((g) => (
+                  <div key={g.id} className="relative group flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all text-center">
+                    <button onClick={() => removeRecent(g.id)} title="Remove" className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 border border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/50 text-[11px] leading-none opacity-0 group-hover:opacity-100 transition-all">×</button>
+                    <button onClick={() => playRecentGame(g)} className="flex flex-col items-center gap-1.5 w-full">
+                      {g.icon ? (
+                        <img src={g.icon} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10" loading="lazy" />
+                      ) : (
+                        <span className="w-16 h-16 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 text-xl font-bold">{(g.title || '?').charAt(0).toUpperCase()}</span>
+                      )}
+                      <span className="text-sm text-gray-200 group-hover:text-white font-medium break-words w-full truncate">{g.title}</span>
+                      <span className="text-[11px] text-purple-300/80">{g.plays} play{g.plays === 1 ? '' : 's'} · {Math.round((g.secs || 0) / 60)}m</span>
+                      <span className="text-[10px] text-white/35">{g.unavailable ? 'unavailable' : fmtAgo(g.ts)}</span>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

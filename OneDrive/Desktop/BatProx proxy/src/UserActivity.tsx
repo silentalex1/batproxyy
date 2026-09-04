@@ -52,7 +52,7 @@ export default function UserActivity() {
   useEffect(() => {
     startPresence();
     load();
-    const id = setInterval(load, 20000);
+    const id = setInterval(load, 15000);
     const onVis = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
@@ -75,6 +75,17 @@ export default function UserActivity() {
 
   const [, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick(t => t + 1), 30000); return () => clearInterval(id); }, []);
+
+  const fmtAgo = (ts: number) => {
+    if (!ts) return '—';
+    const mins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const d = new Date(ts);
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
 
   const fmtSession = (u: PresenceUser) => {
     if (!u.active) return fmtHours(hoursOf(u.username));
@@ -122,7 +133,7 @@ export default function UserActivity() {
                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${u.active ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.8)]' : 'bg-white/20'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-white font-semibold truncate">{u.username}{u.username === me ? ' (you)' : ''}</p>
-                      <p className="text-[11px] text-white/40 truncate">{u.active ? (u.game ? `Playing ${u.game}` : 'Active on site') : 'Inactive'}</p>
+                      <p className="text-[11px] text-white/40 truncate">{u.active ? (u.game ? `Playing ${u.game}` : 'Active on site') : (u.lastSeen ? `last on ${fmtAgo(u.lastSeen)}` : 'Inactive')}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-xs text-purple-300 font-semibold">{fmtSession(u)}</p>

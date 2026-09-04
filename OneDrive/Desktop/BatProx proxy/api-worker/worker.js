@@ -63,7 +63,6 @@ function blockedHost(host){
   }
   if(url.pathname==='/api/auth/login' && request.method==='POST'){
     const jh=()=>{ const hb=cors(new Headers()); hb.set('Content-Type','application/json'); return hb; };
-    if(!rl('login:'+getIP(), 8, 900000)) return new Response(JSON.stringify({success:false, error:'Too many attempts. Try again later.'}),{status:200, headers:jh()});
     try{
       const body=await request.json();
       const username=body.username, inviteCode=body.inviteCode;
@@ -142,7 +141,7 @@ function blockedHost(host){
       let fUrl=targetUrl;
       try{ fUrl=decodeURIComponent(targetUrl).replace(/&quot;/g,'').replace(/&amp;/g,'&').trim(); if(fUrl!==targetUrl) try{ new URL(fUrl); }catch{ fUrl=targetUrl; } }catch{}
       if(fUrl.includes('stealthybat.org')||fUrl.includes('stealthlybat.it.com')||fUrl.includes('banned.stealthybat.org')) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
-      if(!rl('proxy:'+getIP(), 180, 60000)) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
+      if(!rl('proxy:'+getIP(), 600, 60000)) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
       try{ if(blockedHost(new URL(fUrl).hostname)) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}}); }catch{ return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}}); }
       const fwdCt=request.headers.get('content-type');
       const fwdBody=(request.method==='GET'||request.method==='HEAD')?undefined:await request.arrayBuffer().catch(()=>undefined);
@@ -504,7 +503,7 @@ function blockedHost(host){
     const raw=kv?await kv.get('presence'):null;
     const map=raw?JSON.parse(raw):{};
     const now=Date.now();
-    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<75000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts, sessionStart:map[k].sessionStart||map[k].ts}));
+    const users=Object.keys(map).filter(k=>now-map[k].ts<300000).map(k=>({username:k, active:(now-map[k].ts<45000)&&!!map[k].visible, game:map[k].game||'', lastSeen:map[k].ts, sessionStart:map[k].sessionStart||map[k].ts}));
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
@@ -536,7 +535,7 @@ function blockedHost(host){
       const {username,games}=await request.json();
       const cu=String(username||'').trim().slice(0,20);
       if(!cu||!Array.isArray(games)) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
-      const clean=games.filter(g=>g&&g.name).map(g=>({name:String(g.name).slice(0,80), plays:Math.max(0,parseInt(g.plays,10)||0), ts:Number(g.ts)||Date.now(), icon:String(g.icon||'').slice(0,500), url:String(g.url||'').slice(0,500), id:String(g.id||'').slice(0,80)})).slice(0,12);
+      const clean=games.filter(g=>g&&(g.id||g.name)).map(g=>({id:String(g.id||'').slice(0,80), title:String(g.title||g.name||'').slice(0,80), plays:Math.max(0,parseInt(g.plays,10)||0), ts:Number(g.ts)||Date.now(), icon:String(g.icon||'').slice(0,500), url:String(g.url||'').slice(0,200), secs:Math.max(0,parseInt(g.secs,10)||0)})).filter(g=>g.id).slice(0,12);
       if(kv) await kv.put('recentgames_'+cu, JSON.stringify(clean));
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}

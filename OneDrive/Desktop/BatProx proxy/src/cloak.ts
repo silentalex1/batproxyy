@@ -25,10 +25,24 @@ export function launchAboutBlankCloak(targetUrl?: string) {
   window.location.replace('https://www.google.com');
 }
 
+export function instantBlobExec(js: string, label?: string) {
+  const payload = '<!DOCTYPE html><html><head><title>' + (label || 'New Tab') + '</title></head><body><script>try{' + js + '}catch(e){console.log("Running in isolated blob execution context.");}<\/script></body></html>';
+  const blob = new Blob([payload], { type: 'text/html' });
+  const blobUrl = URL.createObjectURL(blob);
+  location.replace(blobUrl);
+}
+
 export function openAboutBlankPage(targetUrl: string) {
   const origin = location.origin;
   const win = window.open('about:blank', '_blank');
-  if (!win) { window.location.href = targetUrl; return; }
+  if (!win || win.closed) {
+    try {
+      const html = '<!DOCTYPE html><html><head><title>New Tab</title><link rel="icon" href="' + origin + '/newtab.svg"><style>html,body{margin:0;padding:0;overflow:hidden;height:100%;background:#000}iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:none;}</style></head><body><iframe src="' + targetUrl + '" allow="fullscreen; autoplay; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"></iframe></body></html>';
+      const blob = new Blob([html], { type: 'text/html' });
+      location.replace(URL.createObjectURL(blob));
+    } catch { window.location.href = targetUrl; }
+    return;
+  }
   try {
     const doc = win.document;
     doc.open();
