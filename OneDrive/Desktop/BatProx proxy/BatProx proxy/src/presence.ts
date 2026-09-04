@@ -34,8 +34,9 @@ export function syncRecentIcons(games: any[]) {
     for (const g of games) {
       const name = String((g && (g.title || g.name)) || '');
       if (!name) continue;
-      const icon = String((g && (g.thumbnail || g.thumb || g.image || g.icon || g.cover)) || '');
-      const url = String((g && (g.url || g.link || g.slug)) || '');
+      const media = extractGameMedia(g);
+      const icon = media.icon;
+      const url = media.url;
       const found = arr.find(x => x.name.toLowerCase() === name.toLowerCase());
       if (found && ((icon && found.icon !== icon) || (url && found.url !== url))) {
         if (icon) found.icon = icon;
@@ -79,6 +80,16 @@ export function trackGameSeconds(game: string, seconds: number) {
 
 export interface RecentGame { name: string; plays: number; ts: number; icon?: string; url?: string; }
 
+function saveRecents(arr: RecentGame[]) {
+  arr.sort((a, b) => b.plays - a.plays || b.ts - a.ts);
+  const top = arr.slice(0, 12);
+  try { localStorage.setItem('batprox-recent-games', JSON.stringify(top)); } catch {}
+  const u = username();
+  if (u) {
+    fetch('/api/recentgames', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, games: top }) }).catch(() => {});
+  }
+}
+
 export function recordRecentGame(name: string, extra?: { icon?: string; url?: string }) {
   if (!name) return;
   try {
@@ -91,9 +102,61 @@ export function recordRecentGame(name: string, extra?: { icon?: string; url?: st
       if (extra?.url) found.url = extra.url;
     }
     else arr.push({ name, plays: 1, ts: Date.now(), icon: extra?.icon || '', url: extra?.url || '' });
-    arr.sort((a, b) => b.plays - a.plays || b.ts - a.ts);
-    localStorage.setItem(key, JSON.stringify(arr.slice(0, 12)));
+    saveRecents(arr);
   } catch {}
+}
+
+export async function loadServerRecents(): Promise<RecentGame[]> {
+  const u = username();
+  if (!u) return getRecentGames();
+  try {
+    const r = await fetch('/api/recentgames?user=' + encodeURIComponent(u));
+    if (!r.ok) return getRecentGames();
+    const d = await r.json();
+    const server: RecentGame[] = Array.isArray(d.games) ? d.games : [];
+    let local: RecentGame[] = getRecentGames();
+    for (const s of server) {
+      const f = local.find(x => x.name === s.name);
+      if (f) {
+        f.plays = Math.max(f.plays, s.plays || 0);
+        if (!f.icon && s.icon) f.icon = s.icon;
+        if (!f.url && s.url) f.url = s.url;
+        f.ts = Math.max(f.ts, s.ts || 0);
+      } else local.push(s);
+    }
+    local.sort((a, b) => b.plays - a.plays || b.ts - a.ts);
+    const top = local.slice(0, 12);
+    try { localStorage.setItem('batprox-recent-games', JSON.stringify(top)); } catch {}
+    return top;
+  } catch { return getRecentGames(); }
+}
+
+export function extractGameMedia(game: any): { icon: string; url: string } {
+  let icon = '';
+  let url = '';
+  try {
+    const imgs: string[] = [];
+    const links: string[] = [];
+    const walk = (v: any, depth: number) => {
+      if (depth > 2 || v === null || v === undefined) return;
+      if (typeof v === 'string') {
+        const t = v.trim();
+        if (/^https?:\/\/[^ ]+\.(png|jpe?g|webp|gif|svg|ico)(\?[^ ]*)?$/i.test(t)) imgs.push(t);
+        else if (/^https?:\/\/[^ ]+$/i.test(t) && t.length < 300) links.push(t);
+        return;
+      }
+      if (Array.isArray(v)) { for (const x of v.slice(0, 8)) walk(x, depth + 1); return; }
+      if (typeof v === 'object') { for (const k of Object.keys(v).slice(0, 20)) walk(v[k], depth + 1); }
+    };
+    walk(game, 0);
+    const pick = (arr: string[], keys: string[]) => {
+      for (const k of keys) { const f = arr.find(u => u.toLowerCase().includes(k)); if (f) return f; }
+      return arr[0] || '';
+    };
+    icon = pick(imgs, ['thumb', 'thumbnail', 'icon', 'cover', 'art', 'image', 'logo']);
+    url = pick(links, ['play', 'game', 'embed', 'launch']);
+  } catch {}
+  return { icon, url };
 }
 
 export function getRecentGames(): RecentGame[] {

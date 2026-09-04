@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import BatMascot from './BatMascot';
-import { launchBlobCloak } from './cloak';
+import { launchBlobCloak, openAboutBlankPage } from './cloak';
 import { applyTabCloak } from './tabcloak';
 
 interface FieldErrors {
@@ -341,6 +341,13 @@ export default function Login() {
           <p className="text-gray-400 text-sm tracking-wide">Login to your account.</p>
         </div>
 
+        <button
+          type="button"
+          onClick={() => openAboutBlankPage(window.location.origin + '/login-status')}
+          className="w-full mb-4 px-5 py-3 rounded-2xl bg-black border border-orange-500/50 hover:border-orange-400 text-sm text-white/85 hover:text-white transition-all shadow-[0_0_18px_rgba(249,115,22,0.25)]"
+        >
+          Click <span className="text-orange-400 font-bold underline">here</span> to find out why you may not be able to login!!
+        </button>
         <form
           onSubmit={handleLogin}
           noValidate

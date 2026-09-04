@@ -21,6 +21,7 @@ import { initUltraviolet } from './uv';
 import UserActivity from './UserActivity';
 import StaffPanel from './StaffPanel';
 import Movies from './Movies';
+import LoginStatus from './LoginStatus';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -500,6 +501,7 @@ export default function App() {
         <Route path="/useractivity" element={<UserActivity />} />
         <Route path="/moderate-staff" element={<StaffPanel />} />
         <Route path="/movies" element={<Movies />} />
+        <Route path="/login-status" element={<LoginStatus />} />
       </Routes>
     </Router>
   );

@@ -25,6 +25,23 @@ export function launchAboutBlankCloak(targetUrl?: string) {
   window.location.replace('https://www.google.com');
 }
 
+export function openAboutBlankPage(targetUrl: string) {
+  const origin = location.origin;
+  const win = window.open('about:blank', '_blank');
+  if (!win) { window.location.href = targetUrl; return; }
+  try {
+    const doc = win.document;
+    doc.open();
+    doc.write('<!DOCTYPE html><html><head><title>New Tab</title><link rel="icon" href="' + origin + '/newtab.svg"><style>html,body{margin:0;padding:0;overflow:hidden;height:100%;background:#000}iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:none;}</style></head><body></body></html>');
+    doc.close();
+    const frame = doc.createElement('iframe');
+    frame.src = targetUrl;
+    frame.setAttribute('allow', 'fullscreen; autoplay; clipboard-read; clipboard-write; encrypted-media; picture-in-picture');
+    doc.body.appendChild(frame);
+    try { win.history.pushState(null, '', 'about:blank'); win.history.pushState(null, '', 'about:blank'); } catch {}
+  } catch { win.location.href = targetUrl; }
+}
+
 let dashboardSwitchFired = false;
 
 export function switchDashboardToAboutBlank() {

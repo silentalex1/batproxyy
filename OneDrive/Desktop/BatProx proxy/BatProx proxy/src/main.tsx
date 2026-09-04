@@ -16,12 +16,12 @@ if (window.self === window.top && (window.location.pathname === '/' || window.lo
 
 window.addEventListener('unhandledrejection', (e) => {
   const msg = e.reason && (e.reason.message || String(e.reason)) || ''
-  if (/domain fetch failed|luminsdk|lumin\.worker|BareMux|bare-mux|MessagePort|SharedWorker|invalid MessagePort/i.test(msg)) {
+  if (/domain fetch failed|luminsdk|lumin\.worker|BareMux|bare-mux|MessagePort|SharedWorker|invalid MessagePort|getItem|setItem|isYouTubeAudioEnabled|youtube-playables|ytgame|Linewize|Content Blocked|UserResource|unauth_user/i.test(msg)) {
     e.preventDefault()
   }
 })
 window.addEventListener('error', (e) => {
-  if (e.message && /domain fetch failed|luminsdk|lumin\.worker|BareMux|bare-mux|MessagePort|SharedWorker|unload is not allowed|Permissions policy/i.test(e.message)) {
+  if (e.message && /domain fetch failed|luminsdk|lumin\.worker|BareMux|bare-mux|MessagePort|SharedWorker|unload is not allowed|Permissions policy|getItem|setItem|isYouTubeAudioEnabled|already been declared|Linewize/i.test(e.message)) {
     e.preventDefault()
   }
 }, true)
@@ -29,7 +29,7 @@ window.addEventListener('error', (e) => {
 const filterLuminNoise = (original: (...args: any[]) => void) => {
   return (...args: any[]) => {
     const first = args.length > 0 ? (args[0] instanceof Error ? args[0].message : String(args[0])) : ''
-    if (/domain fetch failed|luminsdk|lumin\.worker|LuminSDK|Game library|bare-mux|MessagePort|SharedWorker|invalid MessagePort|unload is not allowed|Permissions policy|passkey|StartAuthentication|GSI_LOGGER|FedCM|fedcm/i.test(first)) return
+    if (/domain fetch failed|luminsdk|lumin\.worker|LuminSDK|Game library|bare-mux|MessagePort|SharedWorker|invalid MessagePort|unload is not allowed|Permissions policy|passkey|StartAuthentication|GSI_LOGGER|FedCM|fedcm|getItem|setItem|isYouTubeAudioEnabled|already been declared|youtube-playables|ytgame|UserResource|unauth_user|cdn-blocked|Linewize|Content Blocked|pointer-lock|allowfullscreen/i.test(first)) return
     original(...args)
   }
 }

@@ -94,13 +94,17 @@ export function initUltraviolet(): Promise<void> {
           }, { once: true });
         });
       }
-      const wispUrl = 'wss://wisp.mercurywork.shop/wisp/';
+      const wispUrls = ['wss://wisp.mercurywork.shop/wisp/', 'wss://anura.terbium.work/wisp/', 'wss://wisp.run.place/wisp/'];
       const connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
-      try {
-        await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
-      } catch {
-        await connection.setTransport('/epoxy/index.mjs', [{ wisp: 'wss://anura.terbium.work/wisp/' }]);
+      let connected = false;
+      for (const wispUrl of wispUrls) {
+        try {
+          await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
+          connected = true;
+          break;
+        } catch {}
       }
+      if (!connected) throw new Error('Transport unavailable');
     })().catch((err) => {
       uvReady = null;
       throw err;

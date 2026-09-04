@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import Settings from './Settings';
 import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome';
-import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames, syncRecentIcons } from './presence';
+import { startPresence, setPresenceGame, trackGameSeconds, recordRecentGame, getRecentGames, syncRecentIcons, loadServerRecents, extractGameMedia } from './presence';
 import { useLowPower } from './power';
 
 declare global {
@@ -45,6 +45,7 @@ export default function MoreGames() {
   useEffect(() => {
     loadMyGames();
     startPresence();
+    loadServerRecents().then(g => setRecentGames(g));
     const onFs = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
@@ -297,10 +298,9 @@ export default function MoreGames() {
           },
           onGameStart: (game: any) => {
             const name = String((game && (game.title || game.name)) || 'game');
-            const icon = String((game && (game.thumbnail || game.thumb || game.image || game.icon || game.cover)) || '');
-            const url = String((game && (game.url || game.link || game.slug)) || '');
+            const media = extractGameMedia(game);
             gameStartRef.current = { name, at: Date.now() };
-            recordRecentGame(name, { icon, url });
+            recordRecentGame(name, media);
             setRecentGames(getRecentGames());
             setPresenceGame(name);
           },

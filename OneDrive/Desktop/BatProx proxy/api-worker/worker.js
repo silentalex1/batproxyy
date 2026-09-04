@@ -470,6 +470,23 @@ function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org')
     if(user) return new Response(JSON.stringify({stats:map[user]||{}}),{headers:h});
     return new Response(JSON.stringify({stats:map}),{headers:h});
   }
+  if(url.pathname==='/api/recentgames' && request.method==='POST'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {username,games}=await request.json();
+      const cu=String(username||'').trim().slice(0,20);
+      if(!cu||!Array.isArray(games)) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const clean=games.filter(g=>g&&g.name).map(g=>({name:String(g.name).slice(0,80), plays:Math.max(0,parseInt(g.plays,10)||0), ts:Number(g.ts)||Date.now(), icon:String(g.icon||'').slice(0,500), url:String(g.url||'').slice(0,200)})).slice(0,12);
+      if(kv) await kv.put('recentgames_'+cu, JSON.stringify(clean));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/recentgames' && request.method==='GET'){
+    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=url.searchParams.get('user')||'';
+    const raw=(user&&kv)?await kv.get('recentgames_'+user):null;
+    return new Response(JSON.stringify({games:raw?JSON.parse(raw):[]}),{headers:h});
+  }
   if(url.pathname==='/api/admin/set-rank' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json');
     try{
