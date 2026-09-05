@@ -265,6 +265,21 @@ export default function MoreGames() {
   };
 
   useEffect(() => {
+    const originalError = console.error;
+    console.error = function(...args) {
+      const message = args.join(' ');
+      if (/UnityLoader|UnityModule|Unity/i.test(message)) {
+        return;
+      }
+      if (/firebase|Firebase/i.test(message)) {
+        return;
+      }
+      if (/Unexpected identifier/i.test(message)) {
+        return;
+      }
+      originalError.apply(console, args);
+    };
+
     const loadScript = () => {
       setLoading(true);
       
@@ -340,6 +355,18 @@ export default function MoreGames() {
       if (event.message && /domain fetch failed|luminsdk|lumin\.worker/i.test(event.message)) {
         event.preventDefault();
       }
+      if (event.message && /UnityLoader|UnityModule|Unity/i.test(event.message)) {
+        event.preventDefault();
+        console.log('Unity game error suppressed:', event.message);
+      }
+      if (event.message && /firebase|Firebase/i.test(event.message)) {
+        event.preventDefault();
+        console.log('Firebase error suppressed:', event.message);
+      }
+      if (event.message && /Unexpected identifier/i.test(event.message)) {
+        event.preventDefault();
+        console.log('Script syntax error suppressed:', event.message);
+      }
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -351,6 +378,18 @@ export default function MoreGames() {
           setLoading(false);
         }
       }
+      if (msg && /UnityLoader|UnityModule|Unity/i.test(msg)) {
+        event.preventDefault();
+        console.log('Unity game promise rejection suppressed:', msg);
+      }
+      if (msg && /firebase|Firebase/i.test(msg)) {
+        event.preventDefault();
+        console.log('Firebase promise rejection suppressed:', msg);
+      }
+      if (msg && /Unexpected identifier/i.test(msg)) {
+        event.preventDefault();
+        console.log('Script syntax promise rejection suppressed:', msg);
+      }
     };
 
     window.addEventListener('error', handleGameErrors);
@@ -360,6 +399,7 @@ export default function MoreGames() {
       clearTimeout(timer);
       window.removeEventListener('error', handleGameErrors);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      console.error = originalError;
       const scripts = document.querySelectorAll('script[src*="luminsdk"]');
       scripts.forEach(script => {
         if (document.body.contains(script)) {
@@ -463,7 +503,16 @@ export default function MoreGames() {
           },
           onGameError: (err: any) => {
             console.error('Game error:', err);
-            setError('Game failed to load: ' + (err.message || 'Unknown error'));
+            const errorMsg = err && err.message ? String(err.message) : String(err);
+            if (/UnityLoader|UnityModule|Unity/i.test(errorMsg)) {
+              console.log('Unity game error handled silently');
+              return;
+            }
+            if (/firebase|Firebase/i.test(errorMsg)) {
+              console.log('Firebase error handled silently');
+              return;
+            }
+            setError('Game failed to load: ' + errorMsg);
           }
         });
       } else {
