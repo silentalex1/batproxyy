@@ -60,7 +60,7 @@ export default function Chatting() {
   const [hoverMsg, setHoverMsg] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const typingAt = useRef(0);
   useLowPower();
 
@@ -530,8 +530,8 @@ export default function Chatting() {
                   <button type="button" onClick={() => setReplyTo(null)} className="text-white/40 hover:text-white">×</button>
                 </div>
               )}
-              <div className="flex items-center gap-2 bg-white/[0.05] border border-white/10 rounded-full pl-5 pr-1.5 py-1.5 focus-within:border-purple-500/50 transition-all">
-                <input ref={inputRef} value={text} onChange={e => { setText(e.target.value); beatTyping(); }} placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)}`} className="flex-1 bg-transparent text-white placeholder-white/30 focus:outline-none text-sm min-w-0" maxLength={500} />
+              <div className="flex items-end gap-2 bg-white/[0.05] border border-white/10 rounded-3xl pl-5 pr-1.5 py-1.5 focus-within:border-purple-500/50 transition-all">
+                <textarea ref={inputRef} value={text} rows={1} onChange={e => { setText(e.target.value); beatTyping(); }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`} className="flex-1 bg-transparent text-white placeholder-white/30 focus:outline-none text-sm min-w-0 resize-none py-2" maxLength={500} />
                 <button type="submit" className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 transition-all" style={{ background: 'var(--bp-accent)' }}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" /></svg>
                 </button>
@@ -658,10 +658,10 @@ export default function Chatting() {
       )}
       {showNotes && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-7 w-full max-w-md shadow-2xl">
+          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-7 w-full max-w-lg shadow-2xl">
             <p className="text-sm font-bold text-white mb-1">Personal notes</p>
-            <p className="text-[11px] text-white/35 mb-4">Only you can see these. Saved to your account.</p>
-            <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+            <p className="text-[11px] text-white/35 mb-4">Only you can see these. Saved to your account. Shift+Enter for a new line.</p>
+            <div className="space-y-2 max-h-72 overflow-y-auto mb-4">
               {notes.length === 0 && <p className="text-xs text-white/30 text-center py-4">No notes yet.</p>}
               {notes.map(n => (
                 <div key={n.id} className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
@@ -670,9 +670,9 @@ export default function Chatting() {
                 </div>
               ))}
             </div>
-            <div className="flex gap-2">
-              <input value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim().slice(0, 1000), ts: Date.now() }]); setNoteText(''); } } }} placeholder="Write a note..." className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm" />
-              <button onClick={() => { if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim().slice(0, 1000), ts: Date.now() }]); setNoteText(''); } }} className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Add</button>
+            <div className="flex gap-2 items-end">
+              <textarea value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim().slice(0, 1000), ts: Date.now() }]); setNoteText(''); } } }} placeholder="Write a note... (Shift+Enter for new line)" rows={3} className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm resize-none" />
+              <button onClick={() => { if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim().slice(0, 1000), ts: Date.now() }]); setNoteText(''); } }} className="px-5 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold shrink-0">Add</button>
             </div>
             <button onClick={() => setShowNotes(false)} className="w-full py-2 mt-3 text-xs text-white/40">Close</button>
           </div>

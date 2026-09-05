@@ -594,10 +594,11 @@ function blockedHost(host){
   if(url.pathname==='/api/generate' && request.method==='POST'){
     const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {model,prompt,images}=await request.json();
+      const {model,prompt,images,debug}=await request.json();
       const q=String(prompt||'').slice(0,4000);
       const imgs=Array.isArray(images)?images.slice(0,2):[];
       const parts=[{text:q||'hi'}];
+      const dbg=[];
       for(const im of imgs){
         let data='', mime='image/png';
         if(typeof im==='string'){
@@ -612,10 +613,24 @@ function blockedHost(host){
       }
       const key=env.GEMINI_API_KEY||'';
       if(!key) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
-      const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(String(model||'gemini-2.5-flash'))+':generateContent?key='+encodeURIComponent(key),{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({system_instruction:{parts:[{text:'You are MocahAI, a custom AI assistant built for the Bat Prox site platform. Always identify yourself as MocahAI when asked who you are. You are friendly, concise, and you understand teacher perspectives and note styles.'}]}, contents:[{parts}]})});
-      const gd=await gr.json().catch(()=>null);
-      const text=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
-      if(!text) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
+      const models=[String(model||'gemini-2.5-flash'), String(model||'gemini-2.5-flash'), String(model||'gemini-2.5-flash')];
+      let text='';
+      for(const m of models){
+        for(let a=0; a<2 && !text; a++){
+          try{
+            const ctl=new AbortController();
+            const tmr=setTimeout(()=>ctl.abort(), 25000);
+            dbg.push(m);
+            const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent?key='+encodeURIComponent(key),{method:'POST', headers:{'Content-Type':'application/json','Referer':'https://stealthybat.org/','Origin':'https://stealthybat.org','X-Title':'Bat Prox MocahAI'}, body:JSON.stringify({system_instruction:{parts:[{text:'You are MocahAI, a custom AI assistant built for the Bat Prox site platform. Always identify yourself as MocahAI when asked who you are. You are friendly, concise, and you understand teacher perspectives and note styles.'}]}, contents:[{parts}]}), signal:ctl.signal});
+            clearTimeout(tmr);
+            if(!gr.ok){ try{ dbg.push(m+':'+gr.status+':'+(await gr.text()).slice(0,120)); }catch{ dbg.push(m+':'+gr.status); } continue; }
+            const gd=await gr.json().catch(()=>null);
+            text=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
+          }catch(e){ dbg.push(m+':ex:'+((e&&e.message)||e)); }
+        }
+        if(text) break;
+      }
+      if(!text) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.', dbg:debug?dbg:undefined}),{headers:h});
       return new Response(JSON.stringify({response:text.slice(0,8000)}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});}
   }
