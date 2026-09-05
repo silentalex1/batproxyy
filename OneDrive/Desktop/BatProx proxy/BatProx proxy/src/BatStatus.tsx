@@ -119,7 +119,7 @@ export default function BatStatus() {
     };
 
     runCheck();
-    const interval = setInterval(runCheck, 30000);
+    const interval = setInterval(runCheck, 10000);
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel('batprox-status');

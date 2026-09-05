@@ -147,6 +147,24 @@ export default function MoreGames() {
     } catch {}
   };
 
+  const fixGameIframes = () => {
+    try {
+      const container = document.getElementById(CONTAINER_ID);
+      if (!container || !container.shadowRoot) return;
+      const frames = container.shadowRoot.querySelectorAll('iframe');
+      frames.forEach(f => {
+        try {
+          const el = f as HTMLIFrameElement;
+          const allow = el.getAttribute('allow') || '';
+          if (!allow.includes('fullscreen')) el.setAttribute('allow', (allow ? allow + '; ' : '') + 'fullscreen');
+          if (!allow.includes('pointer-lock')) el.setAttribute('allow', (el.getAttribute('allow') || '') + '; pointer-lock');
+          el.removeAttribute('allowfullscreen');
+          el.removeAttribute('allowFullScreen');
+        } catch {}
+      });
+    } catch {}
+  };
+
   const mountFsButton = () => {
     try {
       const L = window.Lumin as any;
@@ -426,9 +444,9 @@ export default function MoreGames() {
               commitRecent(cur.name, cur.media);
               setRecentGames(getRecentGames());
             }, 12000);
-            setTimeout(mountFsButton, 600);
-            setTimeout(mountFsButton, 1800);
-            setTimeout(mountFsButton, 3500);
+            setTimeout(() => { mountFsButton(); fixGameIframes(); }, 600);
+            setTimeout(() => { mountFsButton(); fixGameIframes(); }, 1800);
+            setTimeout(() => { mountFsButton(); fixGameIframes(); }, 3500);
           },
           onGameEnd: () => {
             const s = gameStartRef.current;

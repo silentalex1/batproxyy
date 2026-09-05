@@ -40,7 +40,7 @@ export default function Changelog() {
       setLoading(false);
     };
     load();
-    const interval = setInterval(load, 30000);
+    const interval = setInterval(load, 10000);
     const check = async () => {
       const token = localStorage.getItem('batprox-token');
       if (!token) return;

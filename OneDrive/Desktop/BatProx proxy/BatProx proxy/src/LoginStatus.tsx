@@ -52,7 +52,7 @@ export default function LoginStatus() {
 
   useEffect(() => {
     refresh();
-    timerRef.current = setInterval(refresh, 15000);
+    timerRef.current = setInterval(refresh, 10000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [refresh]);
 
