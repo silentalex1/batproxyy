@@ -11,8 +11,6 @@ export default function BatMascot({ size = 80 }: BatMascotProps) {
   const target = useRef({ x: 0, y: 0 });
   const current = useRef({ x: 0, y: 0 });
   const blink = useRef({ active: false, start: 0, duration: 220, next: performance.now() + 2500 });
-  const intro = useRef({ start: performance.now() + 700, duration: 550, done: false });
-  const flashRef = useRef<SVGEllipseElement>(null);
   const rafRef = useRef<number>(0);
 
   useEffect(() => {
@@ -34,50 +32,28 @@ export default function BatMascot({ size = 80 }: BatMascotProps) {
       const track = `translate(${current.current.x.toFixed(2)} ${current.current.y.toFixed(2)})`;
 
       let scaleY = 1;
-      let flash = 0;
-      const introState = intro.current;
-      if (!introState.done) {
-        if (now < introState.start) {
-          scaleY = 0.06;
-        } else {
-          const p = Math.min(1, (now - introState.start) / introState.duration);
-          const back = 1 + 2.2 * Math.pow(p - 1, 3) + 1.2 * Math.pow(p - 1, 2);
-          scaleY = Math.max(0.06, 0.06 + 0.94 * back);
-          flash = Math.sin(Math.min(1, p) * Math.PI);
-          if (p >= 1) {
-            introState.done = true;
-            scaleY = 1;
-            flash = 0;
-            blink.current.next = now + 1600 + Math.random() * 2500;
-          }
-        }
-      } else {
-        const b = blink.current;
-        if (!b.active && now >= b.next) {
-          b.active = true;
-          b.start = now;
-        }
-        if (b.active) {
-          const p = (now - b.start) / b.duration;
-          if (p >= 1) {
-            b.active = false;
-            b.next = now + 2200 + Math.random() * 3800;
-          } else {
-            const ease = p < 0.4 ? p / 0.4 : 1 - (p - 0.4) / 0.6;
-            scaleY = Math.max(0.06, 1 - ease);
-          }
-        }
+      const b = blink.current;
+      if (!b.active && now >= b.next) {
+        b.active = true;
+        b.start = now;
       }
-      if (flashRef.current) {
-        flashRef.current.setAttribute('opacity', (0.25 + flash * 0.65).toFixed(3));
+      if (b.active) {
+        const p = (now - b.start) / b.duration;
+        if (p >= 1) {
+          b.active = false;
+          b.next = now + 2200 + Math.random() * 3800;
+        } else {
+          const ease = p < 0.4 ? p / 0.4 : 1 - (p - 0.4) / 0.6;
+          scaleY = Math.max(0.06, 1 - ease);
+        }
       }
 
       const squash = (el: SVGGElement | null, cx: number, cy: number) => {
         if (!el) return;
         el.setAttribute('transform', `${track} translate(${cx} ${cy}) scale(1 ${scaleY.toFixed(3)}) translate(${-cx} ${-cy})`);
       };
-      squash(leftEyeRef.current, 39, 55);
-      squash(rightEyeRef.current, 61, 55);
+      squash(leftEyeRef.current, 39, 55.3);
+      squash(rightEyeRef.current, 61, 55.3);
     };
 
     const loop = (now: number) => {
@@ -98,11 +74,7 @@ export default function BatMascot({ size = 80 }: BatMascotProps) {
         <filter id="slitGlow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="1.8" />
         </filter>
-        <filter id="flashGlow" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="5" />
-        </filter>
       </defs>
-      <ellipse ref={flashRef} cx="50" cy="55" rx="27" ry="12" fill="#c084fc" filter="url(#flashGlow)" opacity="0.25" />
       <path d="M30 50 C16 44 2 44 -4 54 L6 55 C2 60 3 67 9 71 L7 77 C15 80 24 78 29 72 C31 64 31 56 30 50 Z" fill="#1c1533" stroke="#a855f7" strokeOpacity="0.4" strokeWidth="1.4" strokeLinejoin="round" />
       <path d="M22 56 C14 53 7 54 3 58" stroke="#a855f7" strokeOpacity="0.35" strokeWidth="1.2" strokeLinecap="round" fill="none" />
       <path d="M21 64 C15 63 10 66 8 70" stroke="#a855f7" strokeOpacity="0.3" strokeWidth="1.2" strokeLinecap="round" fill="none" />
@@ -129,14 +101,12 @@ export default function BatMascot({ size = 80 }: BatMascotProps) {
       <ellipse cx="29" cy="66" rx="4.5" ry="2.8" fill="#f472b6" opacity="0.32" />
       <ellipse cx="71" cy="66" rx="4.5" ry="2.8" fill="#f472b6" opacity="0.32" />
       <g ref={leftEyeRef}>
-        <rect x="29" y="50" width="20" height="10" rx="5" transform="rotate(8 39 55)" fill="#a855f7" filter="url(#slitGlow)" opacity="0.85" />
-        <rect x="29" y="50" width="20" height="10" rx="5" transform="rotate(8 39 55)" fill="#ffffff" />
-        <circle cx="42" cy="52.5" r="1.6" fill="#c084fc" />
+        <rect x="31" y="53" width="16" height="4.6" rx="2.3" transform="rotate(8 39 55.3)" fill="#a855f7" filter="url(#slitGlow)" opacity="0.7" />
+        <rect x="31" y="53" width="16" height="4.6" rx="2.3" transform="rotate(8 39 55.3)" fill="#ffffff" />
       </g>
       <g ref={rightEyeRef}>
-        <rect x="51" y="50" width="20" height="10" rx="5" transform="rotate(-8 61 55)" fill="#a855f7" filter="url(#slitGlow)" opacity="0.85" />
-        <rect x="51" y="50" width="20" height="10" rx="5" transform="rotate(-8 61 55)" fill="#ffffff" />
-        <circle cx="58" cy="52.5" r="1.6" fill="#c084fc" />
+        <rect x="53" y="53" width="16" height="4.6" rx="2.3" transform="rotate(-8 61 55.3)" fill="#a855f7" filter="url(#slitGlow)" opacity="0.7" />
+        <rect x="53" y="53" width="16" height="4.6" rx="2.3" transform="rotate(-8 61 55.3)" fill="#ffffff" />
       </g>
     </svg>
   );
