@@ -16,6 +16,7 @@ export default function LoginStatus() {
   const [reportSent, setReportSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || 'guest'; } catch { return 'guest'; } });
+  const [reportUser, setReportUser] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const probe = useCallback(async (): Promise<{ up: boolean; others: number }> => {
@@ -56,12 +57,14 @@ export default function LoginStatus() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [refresh]);
 
+  const who = () => (reportUser.trim() || me || 'guest');
+
   const castVote = async (working: boolean) => {
     const v = working ? 'yes' : 'no';
     setVoted(v);
     try { localStorage.setItem('batprox-login-vote', v); } catch {}
     try {
-      await fetch('/api/login-vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: me, working }) });
+      await fetch('/api/login-vote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: who(), working }) });
     } catch {}
   };
 
@@ -69,7 +72,7 @@ export default function LoginStatus() {
     const t = reportText.trim();
     if (!t) return;
     try {
-      await fetch('/api/login-report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: me, error: t }) });
+      await fetch('/api/login-report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: who(), error: t }) });
       setReportSent(true);
       setReportText('');
     } catch {}
@@ -77,7 +80,7 @@ export default function LoginStatus() {
 
   const requestReset = async () => {
     try {
-      await fetch('/api/pw-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: me }) });
+      await fetch('/api/pw-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: who() }) });
     } catch {}
     setResetSent(true);
   };
@@ -151,6 +154,7 @@ export default function LoginStatus() {
       </div>
       <div className="relative z-10 w-full max-w-3xl bg-black/55 border border-white/10 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-2xl mt-5">
         <h2 className="text-sm font-bold text-white mb-2">is the login working for you?</h2>
+        <input value={reportUser} onChange={e => setReportUser(e.target.value)} placeholder="your username" className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/60 text-sm mb-3" />
         {!voted ? (
           <div className="flex gap-2.5">
             <button onClick={() => castVote(true)} className="flex-1 py-2.5 rounded-xl bg-green-600/20 hover:bg-green-600/40 text-green-200 border border-green-500/30 text-sm font-semibold transition-all">yes</button>

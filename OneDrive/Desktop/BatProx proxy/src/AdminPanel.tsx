@@ -254,8 +254,16 @@ export default function AdminPanel() {
       return;
     }
     if (lower === 'show commands' || lower === 'show all' || lower === 'help' || lower === 'commands') {
-      const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show users - list all usernames', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
+      const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show users - list all usernames', '  reset feedbacks - clear all feedback suggestions', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
       setCmdLog(prev => [...prev, lines]);
+      return;
+    }
+    if (lower === 'reset feedbacks') {
+      try {
+        const response = await fetch('/api/admin/reset-feedbacks', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` } });
+        if (response.ok) { setFeedbacks([]); setCmdLog(prev => [...prev, 'All feedbacks have been reset.']); }
+        else { const d = await response.json(); setCmdLog(prev => [...prev, d.error || 'Failed']); }
+      } catch { setCmdLog(prev => [...prev, 'Network error']); }
       return;
     }
     if (lower === 'show users') {

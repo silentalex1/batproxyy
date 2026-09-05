@@ -46,6 +46,7 @@ function Dashboard() {
   const [thanksFading, setThanksFading] = useState(false);
   const [showGamesNotice, setShowGamesNotice] = useState(false);
   const [updateNotice, setUpdateNotice] = useState(false);
+  const [updateId, setUpdateId] = useState(0);
 
   useEffect(() => {
     fetch('/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
@@ -86,7 +87,7 @@ function Dashboard() {
       if (!latest) return;
       let seen = 0;
       try { seen = Number(localStorage.getItem('batprox-last-announce') || 0); } catch {}
-      if (latest.id > seen) setUpdateNotice(true);
+      if (latest.id > seen) { setUpdateId(latest.id); setUpdateNotice(true); }
     }).catch(() => {});
     initUltraviolet().catch(() => {});
     const token = localStorage.getItem('batprox-token');
@@ -499,7 +500,7 @@ function Dashboard() {
           <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
             <p className="text-white text-base font-semibold mb-2">the website has been updated..</p>
             <p className="text-sm text-white/60 mb-6">check the changelog to see what has been changed!</p>
-            <button onClick={() => { fetch('/api/changelogs').then(r => r.ok ? r.json() : null).then(d => { const l = ((d && d.changelogs) || []).find((c: any) => c.announce); try { localStorage.setItem('batprox-last-announce', String((l && l.id) || Date.now())); } catch {} navigate('/changelog'); }).catch(() => navigate('/changelog')); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay :)</button>
+            <button onClick={() => { try { localStorage.setItem('batprox-last-announce', String(updateId || Date.now())); } catch {} setUpdateNotice(false); navigate('/changelog'); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay :)</button>
           </div>
         </div>
       )}

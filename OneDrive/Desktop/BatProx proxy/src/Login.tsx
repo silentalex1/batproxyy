@@ -21,8 +21,7 @@ export default function Login() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [showForgot, setShowForgot] = useState(false);
   const [invitedBy, setInvitedBy] = useState('');
-  const [denyNotice, setDenyNotice] = useState(false);
-  const [denyFading, setDenyFading] = useState(false);
+
   const [tosAgreed, setTosAgreed] = useState(() => localStorage.getItem('batprox-tos-agreed') === '1');
   const [tosPrompt, setTosPrompt] = useState(false);
 
@@ -39,17 +38,9 @@ export default function Login() {
   const openForgot = () => {
     setCtxMenu(null);
     setInvitedBy('');
+    setForgotUser('');
+    setForgotError('');
     setShowForgot(true);
-  };
-
-  const showDeny = () => {
-    setDenyNotice(true);
-    setDenyFading(false);
-    setTimeout(() => setDenyFading(true), 3000);
-    setTimeout(() => {
-      setDenyNotice(false);
-      setDenyFading(false);
-    }, 3700);
   };
 
   const API_BASES = ['', 'https://api.stealthybat.org'];
@@ -80,34 +71,39 @@ export default function Login() {
     throw new Error(lastErr);
   };
 
+  const [forgotUser, setForgotUser] = useState('');
+  const [forgotError, setForgotError] = useState('');
+
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setForgotError('');
     if (invitedBy.trim().toLowerCase() !== decodeKey().toLowerCase()) {
-      setShowForgot(false);
+      setForgotError('Wrong answer.');
       return;
     }
-    const token = localStorage.getItem('batprox-token');
-    if (!token) {
-      setShowForgot(false);
-      showDeny();
+    if (forgotUser.trim().length < 3) {
+      setForgotError('Enter your username.');
       return;
     }
     try {
-      const response = await tryBases('/api/auth/me', {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const response = await tryBases('/api/auth/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: forgotUser.trim(), answer: invitedBy.trim() })
       });
-      if (response.ok) {
+      let data: any = {};
+      try { data = await response.json(); } catch {}
+      const payload = data && data.data !== undefined && data.data !== null ? data.data : data;
+      if (payload && payload.success && payload.token && payload.user && payload.user.username) {
+        localStorage.setItem('batprox-token', payload.token);
+        localStorage.setItem('batprox-user', payload.user.username);
         setShowForgot(false);
         navigate('/dashboard');
       } else {
-        localStorage.removeItem('batprox-token');
-        localStorage.removeItem('batprox-user');
-        setShowForgot(false);
-        showDeny();
+        setForgotError((payload && payload.error) || 'Could not recover that account.');
       }
     } catch {
-      setShowForgot(false);
-      showDeny();
+      setForgotError('Network error. Try again.');
     }
   };
 
@@ -327,14 +323,22 @@ export default function Login() {
                 onSubmit={handleForgotSubmit}
                 className="absolute left-full top-0 ml-5 w-64 bg-[#0d0d12] border border-white/10 rounded-2xl p-4 shadow-2xl z-20 animate-fade-in"
               >
+                <label className="block text-xs text-white/50 mb-2 text-left">Your username</label>
+                <input
+                  type="text"
+                  value={forgotUser}
+                  onChange={(e) => { setForgotUser(e.target.value); setForgotError(''); }}
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all mb-3"
+                />
                 <label className="block text-xs text-white/50 mb-2 text-left">Who invited you?</label>
                 <input
                   type="text"
                   value={invitedBy}
-                  onChange={(e) => setInvitedBy(e.target.value)}
-                  autoFocus
+                  onChange={(e) => { setInvitedBy(e.target.value); setForgotError(''); }}
                   className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all mb-3"
                 />
+                {forgotError && <p className="text-red-400 text-xs mb-3 text-left">{forgotError}</p>}
                 <button
                   type="submit"
                   className="w-full py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-all"
@@ -472,16 +476,6 @@ export default function Login() {
         </div>
       )}
 
-      {denyNotice && (
-        <div
-          className={`fixed top-6 left-1/2 z-50 px-5 py-3 rounded-xl bg-red-600/20 border border-red-500/40 text-red-300 text-sm shadow-2xl backdrop-blur-md ${
-            denyFading ? 'animate-fade-out-up' : 'animate-fade-in'
-          }`}
-          style={{ transform: 'translateX(-50%)' }}
-        >
-          we do not detect an recent account from you. Pay up.
-        </div>
-      )}
       {tosPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
