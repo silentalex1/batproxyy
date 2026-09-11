@@ -310,7 +310,7 @@ function Dashboard() {
               'Website was only made by an 18 yr old.',
               'school sucks',
               "Did you know if you press 'shift+k' it will go in search engine automatically?",
-              'Did you know if you press shift+s you can switch accounts?'
+              'Did you also know if you press shift+s you can switch accounts?'
             ]}
           />
 
