@@ -49,6 +49,10 @@ const rules = [
   {
     title: '12. Got caught.',
     body: 'If you got caught, and if you get in trouble from just playing a game on this website, or just using my website in general, then that is NOT my fault, that is YOUR fault. You\'re the one that agreed to these terms (probably without reading these), and continued playing on my site platform so technically, you getting in trouble from your own actions because you were interested in playing on my game website is not really my fault.'
+  },
+  {
+    title: '13. Sharing an account',
+    body: 'if you want to share account you can either share an account by going to your settings, and under the profile option. Or you can give consent to let your friend have access to your account, either way works. But never EVER share your account password to ANYONE treat it as your normal basic password.'
   }
 ];
 

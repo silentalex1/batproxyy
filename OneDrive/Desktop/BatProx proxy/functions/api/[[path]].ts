@@ -1,7 +1,7 @@
 export async function onRequest(context:any){
   if(context.request.method==='OPTIONS') return new Response(null,{status:204, headers:{'Access-Control-Allow-Origin':'https://stealthybat.org','Access-Control-Allow-Credentials':'true','Access-Control-Allow-Methods':'GET, POST, PUT, DELETE, OPTIONS','Access-Control-Allow-Headers':'*'}});
   const url=new URL(context.request.url);
-  const known=['/api/auth','/api/admin','/api/bridge','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/recentgames','/api/gamestats','/api/presence','/api/search'];
+  const known=['/api/auth','/api/admin','/api/account','/api/bridge','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/recentgames','/api/gamestats','/api/presence','/api/search'];
   if(!known.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))){
     const ref=context.request.headers.get('referer')||'';
     const m=ref.match(/proxy\?url=([^&]+)/);
@@ -18,7 +18,7 @@ export async function onRequest(context:any){
       }catch{}
     }
   }
-  const direct=['/api/users','/api/presence','/api/gamestats','/api/recentgames','/api/chat','/api/notes','/api/feedback-response','/api/notifications','/api/admin','/api/bridge','/api/sites','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/search'];
+  const direct=['/api/users','/api/presence','/api/gamestats','/api/recentgames','/api/chat','/api/notes','/api/feedback-response','/api/notifications','/api/admin','/api/account','/api/bridge','/api/sites','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/search'];
   const backends=direct.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))?['https://api.stealthybat.org','https://authlogin.stealthlybat.it.com']:['https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
   const reqBody=context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer();
   for(const backend of backends){

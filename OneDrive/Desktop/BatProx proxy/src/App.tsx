@@ -22,6 +22,9 @@ import UserActivity from './UserActivity';
 import StaffPanel from './StaffPanel';
 import Movies from './Movies';
 import LoginStatus from './LoginStatus';
+import Advertisement from './Advertisement';
+import MyScripts from './MyScripts';
+import Apps from './Apps';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -47,6 +50,11 @@ function Dashboard() {
   const [showGamesNotice, setShowGamesNotice] = useState(false);
   const [updateNotice, setUpdateNotice] = useState(false);
   const [updateId, setUpdateId] = useState(0);
+  const [showReminder, setShowReminder] = useState(false);
+  const [reminderTime, setReminderTime] = useState('');
+  const [reminderText, setReminderText] = useState('');
+  const [announceTime, setAnnounceTime] = useState(() => { try { return localStorage.getItem('batprox-reminder-announce') === '1'; } catch { return false; } });
+  void showReminder; void setShowReminder; void reminderTime; void setReminderTime; void reminderText; void setReminderText; void announceTime; void setAnnounceTime;
 
   useEffect(() => {
     fetch('/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
@@ -87,7 +95,7 @@ function Dashboard() {
       if (!latest) return;
       let seen = 0;
       try { seen = Number(localStorage.getItem('batprox-last-announce') || 0); } catch {}
-      if (latest.id > seen) { setUpdateId(latest.id); setUpdateNotice(true); }
+      if (latest.id > seen) { try { localStorage.setItem('batprox-last-announce', String(latest.id)); } catch {} setUpdateId(latest.id); setUpdateNotice(true); }
     }).catch(() => {});
     initUltraviolet().catch(() => {});
     const token = localStorage.getItem('batprox-token');
@@ -207,6 +215,9 @@ function Dashboard() {
         }
         navigate('/homework');
         return;
+      case 'My scripts':
+        navigate('/my-scripts');
+        return;
       default:
         return;
     }
@@ -291,14 +302,15 @@ function Dashboard() {
             <span className="text-lg sm:text-2xl font-medium text-white/35 mb-1">{clock.ampm}</span>
           </div>
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-2" style={{ color: 'var(--bp-accent)' }}>
-            Bat Prox
+            <span>Bat</span> <span>Prox</span>
           </h1>
           <RotatingTagline
             lines={[
               'Website took 3 weeks to make.',
               'Website was only made by an 18 yr old.',
               'school sucks',
-              "Did you know if you press 'shift+k' it will go in search engine automatically?"
+              "Did you know if you press 'shift+k' it will go in search engine automatically?",
+              'Did you know if you press shift+s you can switch accounts?'
             ]}
           />
 
@@ -348,6 +360,11 @@ function Dashboard() {
                       <rect x="3" y="5" width="18" height="14" rx="2" />
                       <path strokeLinecap="round" d="M7 5v14M17 5v14M3 9h18M3 15h18" />
                     </svg>
+                  ) : item.label === 'My scripts' ? (
+                    <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14 10l-2 2m0 0l-2-2m2 2v6m-7 4h14a2 2 0 002-2V8a2 2 0 00-2-2H7a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 16l-2-2 2-2M14 16l2-2-2-2" />
+                    </svg>
                   ) : (
                     <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
@@ -361,7 +378,7 @@ function Dashboard() {
 
           <a
             href="https://discord.gg/QreCHyeSpj"
-            className="px-5 py-2 rounded-full bg-white/[0.05] text-white/80 border border-white/10 hover:bg-white/10 hover:text-white transition-all backdrop-blur-sm text-sm"
+            className="mt-8 px-5 py-2 rounded-full bg-white/[0.05] text-white/80 border border-white/10 hover:bg-white/10 hover:text-white transition-all backdrop-blur-sm text-sm"
           >
             Join the Discord
           </a>
@@ -500,7 +517,7 @@ function Dashboard() {
           <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
             <p className="text-white text-base font-semibold mb-2">the website has been updated..</p>
             <p className="text-sm text-white/60 mb-6">check the changelog to see what has been changed!</p>
-            <button onClick={() => { try { localStorage.setItem('batprox-last-announce', String(updateId || Date.now())); } catch {} setUpdateNotice(false); navigate('/changelog'); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay :)</button>
+            <button onClick={() => { try { localStorage.setItem('batprox-last-announce', String(updateId)); } catch {} setUpdateNotice(false); navigate('/changelog'); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay :)</button>
           </div>
         </div>
       )}
@@ -533,7 +550,6 @@ export default function App() {
         <Route path="/admin-panel" element={<AdminPanel />} />
         <Route path="/TOS" element={<TOS />} />
         <Route path="/homework" element={<MoreGames />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
         <Route path="/ai-work" element={<AIWork />} />
         <Route path="/changelog" element={<Changelog />} />
         <Route path="/bat-status" element={<BatStatus />} />
@@ -543,6 +559,10 @@ export default function App() {
         <Route path="/moderate-staff" element={<StaffPanel />} />
         <Route path="/movies" element={<Movies />} />
         <Route path="/login-status" element={<LoginStatus />} />
+        <Route path="/advertisement" element={<Advertisement />} />
+        <Route path="/my-scripts" element={<MyScripts />} />
+        <Route path="/apps" element={<Apps />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Router>
   );

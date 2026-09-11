@@ -207,6 +207,47 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pfpRef = useRef<HTMLInputElement>(null);
+  const [shareName, setShareName] = useState('');
+  const [shareMsg, setShareMsg] = useState('');
+  const [shareErr, setShareErr] = useState('');
+  const [shareBusy, setShareBusy] = useState(false);
+  const [granted, setGranted] = useState<Array<{ to: string; ts: number }>>([]);
+
+  const loadGranted = async () => {
+    const token = localStorage.getItem('batprox-token');
+    if (!token) return;
+    try {
+      const r = await fetch('/api/account/shares', { cache: 'no-store', headers: { 'Authorization': `Bearer ${token}` } });
+      const d = await r.json();
+      if (d.success) setGranted(d.granted || []);
+    } catch {}
+  };
+
+  const shareAccount = async () => {
+    const to = shareName.trim();
+    if (!to || shareBusy) return;
+    setShareBusy(true);
+    setShareErr('');
+    setShareMsg('');
+    try {
+      const token = localStorage.getItem('batprox-token');
+      const r = await fetch('/api/account/share', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ to }) });
+      const d = await r.json();
+      if (d.success) { setShareMsg(`${d.to} can now switch into your account with shift+s.`); setShareName(''); loadGranted(); }
+      else setShareErr(d.error || 'Could not share your account.');
+    } catch { setShareErr('Network error while sharing.'); }
+    setShareBusy(false);
+  };
+
+  const unshareAccount = async (to: string) => {
+    setShareErr('');
+    setShareMsg('');
+    try {
+      const token = localStorage.getItem('batprox-token');
+      await fetch('/api/account/unshare', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ to }) });
+      setGranted(prev => prev.filter(g => g.to !== to));
+    } catch {}
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -226,6 +267,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       else setSettings(defaultSettings);
     };
     load();
+    loadGranted();
   }, [isOpen]);
 
   const profileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -435,6 +477,33 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     onChange={() => updateSettings({ ...settings, notifyMsgs: !settings.notifyMsgs })}
                   />
                 </SettingsRow>
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-5 py-4">
+                  <p className="text-sm font-medium text-white/90 mb-1">Share account</p>
+                  <p className="text-xs text-white/40 mb-3">Let a validated user switch into your account with shift+s. Never give out your invite code.</p>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      value={shareName}
+                      onChange={(e) => { setShareName(e.target.value); setShareMsg(''); setShareErr(''); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); shareAccount(); } }}
+                      placeholder="Enter username"
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/60 text-sm"
+                    />
+                    <button type="button" onClick={shareAccount} disabled={shareBusy || !shareName.trim()} className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition-all">{shareBusy ? 'sharing' : 'share'}</button>
+                  </div>
+                  {shareErr && <p className="text-red-300 text-xs mb-2">{shareErr}</p>}
+                  {shareMsg && <p className="text-green-300 text-xs mb-2">{shareMsg}</p>}
+                  {granted.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
+                      <p className="text-[11px] uppercase tracking-widest text-white/30 pt-1">shared with</p>
+                      {granted.map(g => (
+                        <div key={g.to} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.07]">
+                          <span className="text-xs text-white/80 truncate">{g.to}</span>
+                          <button type="button" onClick={() => unshareAccount(g.to)} className="text-[11px] px-3 py-1 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all shrink-0">remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

@@ -17,6 +17,50 @@ export default function PageChrome() {
   const [dmIncoming, setDmIncoming] = useState<{ id: number; from: string } | null>(null);
   const [unread, setUnread] = useState(0);
   const [pingMsg, setPingMsg] = useState<{ id: number; room: string } | null>(null);
+  const [switcher, setSwitcher] = useState(false);
+  const [shared, setShared] = useState<Array<{ owner: string; ts: number; rank: string }>>([]);
+  const [pick, setPick] = useState('');
+  const [switchErr, setSwitchErr] = useState('');
+  const [switching, setSwitching] = useState(false);
+
+  const openSwitcher = async () => {
+    setSwitcher(true);
+    setSwitchErr('');
+    setSwitching(false);
+    try {
+      const token = localStorage.getItem('batprox-token') || '';
+      if (!token) { setShared([]); setSwitchErr('Log in first.'); return; }
+      const r = await fetch('/api/account/shares', { cache: 'no-store', headers: { 'Authorization': `Bearer ${token}` } });
+      const d = await r.json();
+      const list = d.accounts || [];
+      setShared(list);
+      setPick(list.length ? list[0].owner : '');
+      if (!list.length) setSwitchErr('Nobody has shared an account with you yet.');
+    } catch {
+      setShared([]);
+      setSwitchErr('Could not load your shared accounts.');
+    }
+  };
+
+  const doSwitch = async () => {
+    if (!pick || switching) return;
+    setSwitching(true);
+    setSwitchErr('');
+    try {
+      const token = localStorage.getItem('batprox-token') || '';
+      const r = await fetch('/api/account/switch', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ account: pick }) });
+      const d = await r.json();
+      if (!d.success || !d.token) { setSwitchErr(d.error || 'Could not switch to that account.'); setSwitching(false); return; }
+      localStorage.setItem('batprox-token', d.token);
+      localStorage.setItem('batprox-user', d.user.username);
+      localStorage.removeItem('batprox-display');
+      setSwitcher(false);
+      window.location.href = '/dashboard';
+    } catch {
+      setSwitchErr('Network error while switching.');
+      setSwitching(false);
+    }
+  };
 
   useEffect(() => {
     if (location.pathname === '/advertisement') {
@@ -170,6 +214,11 @@ export default function PageChrome() {
         navigate('/search-engine');
         return;
       }
+      if (e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        openSwitcher();
+        return;
+      }
       try {
         const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}');
         if (!s.panicKey) return;
@@ -231,10 +280,37 @@ export default function PageChrome() {
 
   const gaming = location.pathname === '/homework';
   const showPing = unread > 0 && location.pathname !== '/chatting' && !gaming;
-  if (!showBlossom && !dmIncoming && !showPing) return null;
+  if (!showBlossom && !dmIncoming && !showPing && !switcher) return null;
   return (
     <>
       {showBlossom && <Blossom />}
+      {switcher && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => setSwitcher(false)}>
+          <div className="relative w-full max-w-sm rounded-3xl border border-white/12 bg-[#0b0b10]/97 p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] bp-enter" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setSwitcher(false)} title="Close" className="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'rgba(var(--bp-glow), 0.16)', border: '1px solid rgba(var(--bp-glow), 0.35)' }}>
+              <svg className="w-6 h-6" style={{ color: 'var(--bp-accent)' }} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+            </div>
+            <h2 className="text-base font-bold text-white mb-1">select the account you want to switch</h2>
+            <p className="text-[11px] text-white/35 mb-5">accounts other people have shared with you</p>
+            <div className="relative mb-4">
+              <select value={pick} onChange={e => setPick(e.target.value)} disabled={shared.length === 0} className="w-full appearance-none px-4 py-3 pr-10 rounded-xl bg-white/[0.05] border border-white/12 text-white text-sm focus:outline-none focus:border-[var(--bp-accent)] disabled:opacity-40 cursor-pointer transition-colors">
+                {shared.length === 0 && <option value="">no shared accounts</option>}
+                {shared.map(a => <option key={a.owner} value={a.owner} className="bg-[#0d0d12]">{a.owner}{a.rank === 'moderator' ? ' · staff' : ''}</option>)}
+              </select>
+              <svg className="w-4 h-4 text-white/40 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+            {switchErr && <p className="text-red-300 text-xs mb-4 leading-relaxed">{switchErr}</p>}
+            <div className="flex gap-2">
+              <button onClick={() => setSwitcher(false)} className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-sm transition-colors">Cancel</button>
+              <button onClick={doSwitch} disabled={!pick || switching} className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-transform hover:scale-[1.02] active:scale-95" style={{ background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))' }}>{switching ? 'switching...' : 'switch'}</button>
+            </div>
+            <p className="text-center text-[10px] text-white/25 mt-4">shift+s opens this any time</p>
+          </div>
+        </div>
+      )}
       {showPing && (
         <button onClick={goChat} title={`${unread} new message${unread === 1 ? '' : 's'}`} className="group fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full flex items-center justify-center text-white shadow-[0_10px_30px_-6px_rgba(0,0,0,0.8)] ring-1 ring-white/15 transition-transform duration-200 hover:scale-105 active:scale-95" style={{ background: 'linear-gradient(140deg, var(--bp-accent), var(--bp-accent-2))' }}>
           <span className="absolute inset-0 rounded-full animate-bp-ripple pointer-events-none" style={{ boxShadow: '0 0 0 0 rgba(var(--bp-glow), 0.55)' }} />

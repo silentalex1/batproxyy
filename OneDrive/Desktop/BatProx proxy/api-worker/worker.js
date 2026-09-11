@@ -283,6 +283,92 @@ function blockedHost(host){
       return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin, rank, isMod:rank==='moderator'||!!payload.isAdmin}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid token'}),{status:403});}
   }
+  if(url.pathname==='/api/account/share' || url.pathname==='/api/account/shares' || url.pathname==='/api/account/switch' || url.pathname==='/api/account/unshare'){
+    const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); hb.set('Cache-Control','no-store'); return hb; };
+    const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
+    const auth=request.headers.get('Authorization')||'';
+    const tok=auth.split(' ')[1]||'';
+    if(!tok) return new Response(JSON.stringify({success:false, error:'Sign in first'}),{status:401, headers:jh()});
+    let me=await hmacVerify(tok, secret);
+    if(!me){
+      try{
+        const legacy=JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        const expect=sign({id:legacy.id||1, username:legacy.username, isAdmin:!!legacy.isAdmin}, secret);
+        if(expect===tok) me=legacy;
+      }catch{}
+    }
+    if(!me||!me.username) return new Response(JSON.stringify({success:false, error:'Invalid token'}),{status:403, headers:jh()});
+    if(me.exp && me.exp<Math.floor(Date.now()/1000)) return new Response(JSON.stringify({success:false, error:'Session expired, log in again'}),{status:403, headers:jh()});
+    const meName=String(me.username);
+    const loadUsers=async()=>{ try{ const raw=kv?await kv.get('users'):null; const a=raw?JSON.parse(raw||'[]'):[]; return Array.isArray(a)?a:[]; }catch{ return []; } };
+    const loadShares=async()=>{ try{ const raw=kv?await kv.get('account_shares'):null; const o=raw?JSON.parse(raw):{}; return (o&&typeof o==='object')?o:{}; }catch{ return {}; } };
+    const saveShares=async(o)=>{ try{ if(kv) await kv.put('account_shares', JSON.stringify(o)); }catch{} };
+    if(url.pathname==='/api/account/shares' && request.method==='GET'){
+      const shares=await loadShares();
+      const mine=Array.isArray(shares[meName])?shares[meName]:[];
+      const users=await loadUsers();
+      const out=mine.filter(x=>x&&x.owner&&x.owner!==meName).map(x=>{
+        const u=users.find(y=>y.username===x.owner);
+        return {owner:x.owner, ts:x.ts||0, rank:(u&&u.rank)||'user'};
+      });
+      const granted=[];
+      for(const k of Object.keys(shares)){
+        for(const x of (Array.isArray(shares[k])?shares[k]:[])){
+          if(x&&x.owner===meName) granted.push({to:k, ts:x.ts||0});
+        }
+      }
+      return new Response(JSON.stringify({success:true, accounts:out, granted}),{headers:jh()});
+    }
+    if(request.method!=='POST') return new Response(JSON.stringify({success:false, error:'POST required'}),{status:405, headers:jh()});
+    const body=await request.json().catch(()=>({}));
+    if(url.pathname==='/api/account/share'){
+      const to=String(body.to||'').trim();
+      if(!to) return new Response(JSON.stringify({success:false, error:'Enter a username'}),{status:200, headers:jh()});
+      if(to.toLowerCase()===meName.toLowerCase()) return new Response(JSON.stringify({success:false, error:'That is your own account'}),{status:200, headers:jh()});
+      const users=await loadUsers();
+      const target=users.find(u=>String(u.username).toLowerCase()===to.toLowerCase());
+      if(!target) return new Response(JSON.stringify({success:false, error:'No validated account with that username'}),{status:200, headers:jh()});
+      const shares=await loadShares();
+      const list=Array.isArray(shares[target.username])?shares[target.username]:[];
+      if(list.some(x=>x&&x.owner===meName)) return new Response(JSON.stringify({success:false, error:'You already shared your account with '+target.username}),{status:200, headers:jh()});
+      list.push({owner:meName, ts:Date.now()});
+      shares[target.username]=list.slice(-20);
+      await saveShares(shares);
+      return new Response(JSON.stringify({success:true, to:target.username}),{headers:jh()});
+    }
+    if(url.pathname==='/api/account/unshare'){
+      const to=String(body.to||'').trim();
+      const shares=await loadShares();
+      for(const k of Object.keys(shares)){
+        if(k.toLowerCase()!==to.toLowerCase()) continue;
+        shares[k]=(Array.isArray(shares[k])?shares[k]:[]).filter(x=>!(x&&x.owner===meName));
+        if(!shares[k].length) delete shares[k];
+      }
+      await saveShares(shares);
+      return new Response(JSON.stringify({success:true}),{headers:jh()});
+    }
+    const want=String(body.account||'').trim();
+    if(!want) return new Response(JSON.stringify({success:false, error:'Pick an account'}),{status:200, headers:jh()});
+    const shares=await loadShares();
+    const mine=Array.isArray(shares[meName])?shares[meName]:[];
+    const grant=mine.find(x=>x&&String(x.owner).toLowerCase()===want.toLowerCase());
+    if(!grant) return new Response(JSON.stringify({success:false, error:'That account has not been shared with you'}),{status:403, headers:jh()});
+    const users=await loadUsers();
+    const owner=users.find(u=>String(u.username).toLowerCase()===String(grant.owner).toLowerCase());
+    if(!owner) return new Response(JSON.stringify({success:false, error:'That account no longer exists'}),{status:200, headers:jh()});
+    const blRaw=kv?await kv.get('blacklist_users'):null;
+    const blUsers=blRaw?JSON.parse(blRaw):[];
+    if(blUsers.includes(owner.username)) return new Response(JSON.stringify({success:false, error:'That account is not available'}),{status:200, headers:jh()});
+    const isAdminUser=owner.admin===true||owner.username==='realalex'||owner.username==='admin';
+    const token=await hmacSign({id:owner.id||1, username:owner.username, isAdmin:isAdminUser, via:meName, exp:Math.floor(Date.now()/1000)+86400}, secret);
+    try{
+      const rawL=kv?await kv.get('account_switch_log'):null;
+      const log=rawL?JSON.parse(rawL):[];
+      log.push({ts:Date.now(), from:meName, to:owner.username, ip:getIP()});
+      if(kv) await kv.put('account_switch_log', JSON.stringify(log.slice(-200)));
+    }catch{}
+    return new Response(JSON.stringify({success:true, token, user:{id:owner.id||1, username:owner.username}}),{headers:jh()});
+  }
   if(url.pathname==='/api/bridge/ping' || url.pathname==='/api/bridge/jobs' || url.pathname==='/api/bridge/result'){
     const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); return hb; };
     const want=String(env.BRIDGE_TOKEN||'');
