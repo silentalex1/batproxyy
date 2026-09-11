@@ -43,7 +43,27 @@ export default function Login() {
     setShowForgot(true);
   };
 
-  const API_BASES = ['', 'https://api.stealthybat.org'];
+  const API_BASES = (() => {
+    const out: string[] = [];
+    try {
+      if (typeof window !== 'undefined' && /^https?:$/i.test(window.location.protocol) && window.location.origin && window.location.origin !== 'null') out.push(window.location.origin);
+    } catch {}
+    out.push('https://stealthybat.org', 'https://api.stealthybat.org', 'https://batproxyy.asdwwas233.workers.dev', 'https://authlogin.stealthlybat.it.com');
+    return out.filter((b, i) => out.indexOf(b) === i);
+  })();
+
+  const unwrapAuth = (data: any) => {
+    let cur = data;
+    for (let i = 0; i < 6; i++) {
+      if (!cur || typeof cur !== 'object') return cur;
+      const hasToken = typeof cur.token === 'string' && cur.token.length > 0 && cur.user && typeof cur.user.username === 'string';
+      const hasErr = typeof cur.success === 'boolean' || typeof cur.error === 'string';
+      if (hasToken || hasErr) return cur;
+      if (Object.prototype.hasOwnProperty.call(cur, 'data')) { cur = cur.data; continue; }
+      return cur;
+    }
+    return cur;
+  };
 
   const fetchWithTimeout = async (input: string, init: RequestInit, ms = 12000) => {
     const ctrl = new AbortController();
@@ -55,20 +75,68 @@ export default function Login() {
     }
   };
 
+  const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+  const reportTrace = (path: string, trace: string[]) => {
+    try {
+      fetch('https://api.stealthybat.org/api/login-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user: (username.trim() || localStorage.getItem('batprox-user') || 'guest') + ' (auto)',
+          error: `${path} failed on every backend\n${navigator.userAgent}\n${trace.join('\n')}`
+        })
+      }).catch(() => {});
+    } catch {}
+  };
+
   const tryBases = async (path: string, init: RequestInit) => {
     let lastErr = 'Network error. Please make sure the backend server is running.';
+    let sawPage = false;
+    const trace: string[] = [];
     for (const base of API_BASES) {
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const label = `${base || 'same-origin'} #${attempt + 1}`;
         try {
-          const r = await fetchWithTimeout(`${base}${path}`, init);
-          if (r.status < 500 && r.status !== 404) return r;
-          lastErr = `Server error (${r.status}). Please try again.`;
-        } catch {
+          const sep = path.indexOf('?') === -1 ? '?' : '&';
+          const r = await fetchWithTimeout(`${base}${path}${sep}_=${Date.now()}${attempt}`, {
+            ...init,
+            cache: 'no-store',
+            headers: { ...(init.headers as Record<string, string> || {}), 'Accept': 'application/json' }
+          });
+          const ct = (r.headers.get('content-type') || 'none').split(';')[0];
+          if (r.status >= 500 || r.status === 404) {
+            trace.push(`${label}: http ${r.status} ${ct}`);
+            lastErr = `Server error (${r.status}). Please try again.`;
+            await sleep(300 * (attempt + 1));
+            continue;
+          }
+          const raw = await r.text().catch(() => '');
+          let data: any = null;
+          if (raw && /^\s*[\{\[]/.test(raw)) { try { data = JSON.parse(raw); } catch { data = null; } }
+          if (!data) {
+            sawPage = true;
+            trace.push(`${label}: http ${r.status} ${ct} body="${raw.slice(0, 120).replace(/\s+/g, ' ')}"`);
+            lastErr = 'Your network sent back a web page instead of the login server.';
+            await sleep(300 * (attempt + 1));
+            continue;
+          }
+          const payload = unwrapAuth(data);
+          const hasToken = payload && typeof payload.token === 'string' && payload.token.length > 0 && payload.user && typeof payload.user.username === 'string';
+          const hasErr = payload && (payload.success === false || typeof payload.error === 'string');
+          if (hasToken || hasErr) return payload;
+          trace.push(`${label}: http ${r.status} json keys=${Object.keys(data).join(',') || 'none'}`);
+          lastErr = 'Login backend returned an incomplete response. Please try again.';
+          await sleep(300 * (attempt + 1));
+        } catch (err: any) {
+          trace.push(`${label}: threw ${err?.name || 'Error'} ${err?.message || ''}`.trim());
           lastErr = 'Network error. Please make sure the backend server is running.';
+          await sleep(300 * (attempt + 1));
         }
       }
     }
-    throw new Error(lastErr);
+    reportTrace(path, trace);
+    throw new Error(sawPage ? 'Your wifi or school filter is blocking the login server - it sent back a web page instead of your account data. Try a phone hotspot, or open the about:blank link at the top of this page and log in from there.' : lastErr);
   };
 
   const [forgotUser, setForgotUser] = useState('');
@@ -86,15 +154,12 @@ export default function Login() {
       return;
     }
     try {
-      const response = await tryBases('/api/auth/recover', {
+      const payload = await tryBases('/api/auth/recover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: forgotUser.trim(), answer: invitedBy.trim() })
       });
-      let data: any = {};
-      try { data = await response.json(); } catch {}
-      const payload = data && data.data !== undefined && data.data !== null ? data.data : data;
-      if (payload && payload.success && payload.token && payload.user && payload.user.username) {
+      if (payload && payload.token && payload.user && payload.user.username) {
         localStorage.setItem('batprox-token', payload.token);
         localStorage.setItem('batprox-user', payload.user.username);
         setShowForgot(false);
@@ -102,8 +167,8 @@ export default function Login() {
       } else {
         setForgotError((payload && payload.error) || 'Could not recover that account.');
       }
-    } catch {
-      setForgotError('Network error. Try again.');
+    } catch (err: any) {
+      setForgotError(err?.message || 'Network error. Try again.');
     }
   };
 
@@ -239,24 +304,21 @@ export default function Login() {
     try {
       let turnstileToken = '';
       try { turnstileToken = ((window as any).turnstile && TURNSTILE_SITEKEY) ? (document.querySelector('input[name="cf-turnstile-response"]') as HTMLInputElement)?.value || '' : ''; } catch {}
-      const response = await tryBases('/api/auth/login', {
+      const payload = await tryBases('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), inviteCode: inviteCode.trim(), turnstileToken })
       });
-      let data: any = {};
-      try { data = await response.json(); } catch { data = {}; }
-      const payload = data && typeof data.data !== 'undefined' && data.data !== null ? data.data : data;
-      const failed = !response.ok || data.ok === false || payload.success === false;
+      const failed = payload && (payload.success === false || (typeof payload.error === 'string' && !(typeof payload.token === 'string' && payload.token)));
       if (failed) {
-        setServerError((payload && payload.error) || (data && data.error) || 'Login failed');
+        setServerError((payload && payload.error) || 'Login failed');
         setLoading(false);
         return;
       }
       const gotToken = payload && typeof payload.token === 'string' ? payload.token : '';
       const gotUser = payload && payload.user && typeof payload.user.username === 'string' ? payload.user.username : '';
       if (!gotToken || !gotUser) {
-        setServerError('Login backend returned an incomplete response. Please try again.');
+        setServerError('The login server answered without an account token. Press Login once more - if it keeps happening, report it from the orange link above.');
         setLoading(false);
         return;
       }

@@ -11,6 +11,17 @@ interface Feedback {
   genre?: string;
 }
 
+interface CodeJob {
+  id: string;
+  ts: number;
+  user?: string;
+  provider: string;
+  prompt: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  target?: string;
+  reply?: string;
+}
+
 interface UserAccount {
   id: number;
   username: string;
@@ -26,7 +37,7 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs'>('feedbacks');
+  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest'>('feedbacks');
   const [problems, setProblems] = useState<{ votes: Array<{ user: string; working: boolean; ts: number }>; reports: Array<{ user: string; error: string; ts: number }>; resets: Array<{ user: string; ts: number }> }>({ votes: [], reports: [], resets: [] });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
@@ -51,6 +62,14 @@ export default function AdminPanel() {
   const [tempError, setTempError] = useState('');
   const [cmdInput, setCmdInput] = useState('');
   const [cmdLog, setCmdLog] = useState<string[]>(['Type "show quick-access codes" or "<code> to <username>"']);
+  const [codeProvider, setCodeProvider] = useState<'claude' | 'copilot'>('claude');
+  const [codePrompt, setCodePrompt] = useState('');
+  const [codeOut, setCodeOut] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeStage, setCodeStage] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [codePc, setCodePc] = useState(false);
+  const [codeJobs, setCodeJobs] = useState<CodeJob[]>([]);
 
   const getToken = () => localStorage.getItem('batprox-token') || '';
 
@@ -290,6 +309,63 @@ export default function AdminPanel() {
     setCmdLog(prev => [...prev, 'Unknown command - type "show commands"']);
   };
 
+  const loadCodeJobs = async () => {
+    try {
+      const response = await fetch('/api/admin/code-request', { cache: 'no-store', headers: { 'Authorization': `Bearer ${getToken()}` } });
+      const data = await response.json();
+      if (data.success) { setCodeJobs(data.jobs || []); setCodePc(!!data.pc); }
+    } catch {}
+  };
+
+  const pollCodeJob = async (id: string) => {
+    for (let i = 0; i < 180; i++) {
+      await new Promise(r => setTimeout(r, 4000));
+      try {
+        const response = await fetch(`/api/admin/code-request?id=${encodeURIComponent(id)}`, { cache: 'no-store', headers: { 'Authorization': `Bearer ${getToken()}` } });
+        const data = await response.json();
+        const job: CodeJob | undefined = data.job;
+        if (!job) continue;
+        setCodePc(!!data.pc);
+        if (job.status === 'running') setCodeStage('Your PC picked it up and is working on it...');
+        if (job.status === 'done') { setCodeOut(job.reply || 'Done.'); setCodeBusy(false); setCodeStage(''); loadCodeJobs(); return; }
+        if (job.status === 'error') { setCodeError(job.reply || 'The request failed.'); setCodeBusy(false); setCodeStage(''); loadCodeJobs(); return; }
+      } catch {}
+    }
+    setCodeError('Timed out waiting for an answer.');
+    setCodeBusy(false);
+    setCodeStage('');
+  };
+
+  const sendCodeRequest = async () => {
+    const prompt = codePrompt.trim();
+    if (!prompt || codeBusy) return;
+    setCodeBusy(true);
+    setCodeError('');
+    setCodeOut('');
+    setCodeStage(codePc ? 'Sending to your PC...' : 'Sending...');
+    try {
+      const response = await fetch('/api/admin/code-request', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ provider: codeProvider, prompt }) });
+      const data = await response.json();
+      if (!data.success) { setCodeError(data.error || 'Request failed.'); setCodeBusy(false); setCodeStage(''); loadCodeJobs(); return; }
+      setCodePrompt('');
+      loadCodeJobs();
+      if (data.text) { setCodeOut(data.text); setCodeBusy(false); setCodeStage(''); return; }
+      setCodeStage('Waiting for your PC to pick it up...');
+      pollCodeJob(data.id);
+    } catch {
+      setCodeError('Network error while sending the request.');
+      setCodeBusy(false);
+      setCodeStage('');
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthed || tab !== 'coderequest') return;
+    loadCodeJobs();
+    const id = setInterval(loadCodeJobs, 10000);
+    return () => clearInterval(id);
+  }, [isAuthed, tab]);
+
   const handleSetRank = async (username: string, rank: string) => {
     try {
       const response = await fetch('/api/admin/set-rank', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ username, rank }) });
@@ -384,6 +460,10 @@ export default function AdminPanel() {
             <button onClick={() => setTab('ranks')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'ranks' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               User ranks
+            </button>
+            <button onClick={() => setTab('coderequest')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'coderequest' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L21 10.5l-3.75 3.75M6.75 17.25L3 13.5l3.75-3.75M14.25 4.5l-4.5 15" /></svg>
+              Code request
             </button>
             <button onClick={() => setTab('loginprobs')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'loginprobs' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
@@ -506,6 +586,73 @@ export default function AdminPanel() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+            {tab === 'coderequest' && (
+              <div>
+                <div className="flex items-center justify-between gap-4 mb-1">
+                  <h2 className="text-lg font-bold text-white">Code request</h2>
+                  <span className={`text-[11px] px-3 py-1 rounded-full border flex items-center gap-1.5 ${codePc ? 'bg-green-500/10 text-green-300 border-green-500/30' : 'bg-white/5 text-white/40 border-white/10'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${codePc ? 'bg-green-400' : 'bg-white/30'}`} />
+                    {codePc ? 'your pc is connected' : 'your pc is offline'}
+                  </span>
+                </div>
+                <p className="text-gray-500 text-sm mb-5">Send a request to your PC and update the website from anywhere. Enter sends it, shift+enter makes a new line.</p>
+                <div className="grid lg:grid-cols-[1fr_260px] gap-4 items-start">
+                  <div className="space-y-4">
+                    <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md">
+                      <div className="flex items-center gap-3 mb-3">
+                        <select value={codeProvider} onChange={e => setCodeProvider(e.target.value as 'claude' | 'copilot')} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500/60 transition-all">
+                          <option className="bg-[#0d0d12]" value="claude">Claude</option>
+                          <option className="bg-[#0d0d12]" value="copilot">GitHub Copilot</option>
+                        </select>
+                        <span className="text-[11px] text-white/35">{codeProvider === 'claude' ? 'connects to your Claude account' : 'connects to your GitHub Copilot account'}</span>
+                      </div>
+                      <textarea
+                        value={codePrompt}
+                        onChange={e => { setCodePrompt(e.target.value); if (codeError) setCodeError(''); }}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCodeRequest(); } }}
+                        placeholder="type the request you want.."
+                        rows={7}
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all resize-y leading-relaxed"
+                      />
+                      <div className="flex items-center justify-between gap-3 mt-3">
+                        <span className="text-[11px] text-white/25">{codeStage || 'enter = send · shift+enter = new line'}</span>
+                        <button onClick={sendCodeRequest} disabled={codeBusy || !codePrompt.trim()} className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center gap-2">
+                          {codeBusy && <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>}
+                          {codeBusy ? 'sending' : 'send request'}
+                        </button>
+                      </div>
+                      {codeError && <p className="text-red-400 text-xs mt-3 whitespace-pre-wrap break-words">{codeError}</p>}
+                    </div>
+                    {codeOut && (
+                      <div className="bg-black border border-purple-500/30 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(139,92,246,0.2)]">
+                        <div className="bg-white/[0.04] border-b border-white/10 px-4 py-2 flex items-center gap-2">
+                          <span className="text-xs font-mono text-purple-300">answer</span>
+                          <button onClick={() => setCodeOut('')} className="ml-auto text-[11px] text-white/35 hover:text-white/80 transition-colors">clear</button>
+                        </div>
+                        <pre className="p-4 max-h-[26rem] overflow-auto font-mono text-[12.5px] text-white/80 whitespace-pre-wrap break-words bg-[#050508]">{codeOut}</pre>
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md lg:sticky lg:top-0">
+                    <p className="text-xs font-bold text-white mb-1">recent requests</p>
+                    <p className="text-[10px] text-white/30 mb-3">last 12 sent from this panel</p>
+                    <div className="space-y-2 max-h-[30rem] overflow-y-auto">
+                      {codeJobs.length === 0 && <p className="text-[11px] text-white/30">Nothing sent yet.</p>}
+                      {codeJobs.map(job => (
+                        <button key={job.id} onClick={() => { setCodeOut(job.reply || ''); setCodeError(''); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/20 transition-colors">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${job.status === 'done' ? 'bg-green-400' : job.status === 'error' ? 'bg-red-400' : 'bg-yellow-400'}`} />
+                            <span className="text-[10px] text-white/40 uppercase tracking-wide">{job.target === 'pc' ? 'pc' : 'api'} · {job.status}</span>
+                          </div>
+                          <p className="text-[11px] text-white/70 line-clamp-2 break-words">{job.prompt}</p>
+                          <p className="text-[10px] text-white/25 mt-0.5">{new Date(job.ts).toLocaleString()}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -642,7 +789,10 @@ export default function AdminPanel() {
             <label className="block text-xs text-white/50 mb-1.5">enter account username for the person</label>
             <input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="username" className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all mb-4" />
             <label className="block text-xs text-white/50 mb-1.5">enter account invite code</label>
-            <input type="text" value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="invite code" className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all mb-4" />
+            <div className="flex gap-2 mb-4">
+              <input type="text" value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="invite code" className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all" />
+              <button type="button" onClick={() => { const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let s = ''; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)]; setNewCode(s.slice(0, 3) + '-' + s.slice(3)); }} className="px-4 py-2.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 border border-purple-500/30 text-xs font-semibold whitespace-nowrap transition-all">generate/randomize a password</button>
+            </div>
             {createError && <p className="text-red-400 text-xs mb-3">{createError}</p>}
             <div className="flex gap-2.5 justify-end">
               <button type="button" onClick={() => setShowCreateModal(false)} className="px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-all">Cancel</button>

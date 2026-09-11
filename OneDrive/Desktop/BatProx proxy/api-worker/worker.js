@@ -6,7 +6,73 @@ function sign(payload, secret){
   const data=h+'.'+p;
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
-function cors(h){ h.set('Access-Control-Allow-Origin','https://stealthybat.org'); h.set('Access-Control-Allow-Credentials','true'); h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS'); h.set('Access-Control-Allow-Headers','*'); return h; }
+function cors(h, origin){
+  let allow='https://stealthybat.org';
+  try{
+    const o=String(origin||'');
+    if(!o || o==='null'){
+      h.set('Access-Control-Allow-Origin','*');
+      h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS');
+      h.set('Access-Control-Allow-Headers','*');
+      return h;
+    }
+    if(o.indexOf('blob:')===0) allow=o;
+    else {
+      const host=new URL(o).hostname;
+      if(host==='stealthybat.org'||host.endsWith('.stealthybat.org')||host.endsWith('.workers.dev')||host.endsWith('.pages.dev')) allow=o;
+    }
+  }catch{}
+  h.set('Access-Control-Allow-Origin', allow);
+  h.set('Access-Control-Allow-Credentials','true');
+  h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS');
+  h.set('Access-Control-Allow-Headers','*');
+  return h;
+}
+function xmlText(s){ return String(s||'').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&apos;/g,"'"); }
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+async function collectSearch(q){
+  const items=[];
+  const seen=new Set();
+  const add=(title,link,desc)=>{
+    if(!link||!title) return;
+    let href=String(link).trim();
+    try{ href=new URL(href).href; }catch{ return; }
+    if(!/^https?:/i.test(href)) return;
+    if(seen.has(href)) return;
+    seen.add(href);
+    items.push({title:xmlText(title).replace(/<[^>]+>/g,'').trim(), link:href, desc:xmlText(desc).replace(/<[^>]+>/g,'').trim()});
+  };
+  try{
+    const r=await fetch('https://www.bing.com/search?q='+encodeURIComponent(q)+'&format=rss',{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36','Accept':'application/rss+xml, application/xml, text/xml, */*'}});
+    const t=await r.text();
+    const re=/<item>([\s\S]*?)<\/item>/gi;
+    let m;
+    while((m=re.exec(t))){
+      const block=m[1];
+      add((block.match(/<title>([\s\S]*?)<\/title>/i)||[])[1]||'', (block.match(/<link>([\s\S]*?)<\/link>/i)||[])[1]||'', (block.match(/<description>([\s\S]*?)<\/description>/i)||[])[1]||'');
+    }
+  }catch{}
+  if(items.length<3){
+    try{
+      const r=await fetch('https://www.bing.com/search?q='+encodeURIComponent(q),{headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36','Accept':'text/html'}});
+      const t=await r.text();
+      const re=/<li class="b_algo"[\s\S]*?<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let m;
+      while((m=re.exec(t))) add(m[2], m[1], '');
+    }catch{}
+  }
+  return items.slice(0,12);
+}
+function searchPage(engine, q, items){
+  const names={batnight:'BatNight Engine',scry:'Scry engine',scremjet:'Scremjet',google:'Google',ddg:'DuckDuckGo',ask:'Ask'};
+  const name=names[engine]||'BatNight Engine';
+  const accent=engine==='scry'?'#22d3ee':engine==='scremjet'?'#fb923c':engine==='google'?'#60a5fa':'#c084fc';
+  const rows=items.map(it=>{
+    return '<a class="hit" href="#" data-go="'+escHtml(it.link)+'"><div class="t">'+escHtml(it.title||it.link)+'</div><div class="u">'+escHtml(it.link)+'</div>'+(it.desc?'<div class="d">'+escHtml(it.desc)+'</div>':'')+'</a>';
+  }).join('');
+  const empty=(!q)?'<p class="empty">Type a search.</p>':(items.length?'':'<p class="empty">No results. Try another query.</p>');
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escHtml(name)+'</title><style>html,body{margin:0;background:#07070b;color:#f5f5f5;font-family:system-ui,sans-serif}body{padding:20px 18px 40px}.bar{display:flex;gap:10px;align-items:center;margin:0 auto 22px;max-width:860px}h1{font-size:18px;margin:0 8px 0 0;color:'+accent+';white-space:nowrap}form{flex:1;display:flex;gap:8px}input{flex:1;border:1px solid #ffffff22;background:#12121a;color:#fff;border-radius:999px;padding:10px 16px;font-size:14px;outline:none}button{border:0;background:'+accent+';color:#0b0b10;border-radius:999px;padding:10px 16px;font-weight:700;cursor:pointer}.list{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:10px}.hit{display:block;text-decoration:none;color:inherit;background:#0f0f16;border:1px solid #ffffff12;border-radius:16px;padding:14px 16px}.hit:hover{border-color:'+accent+'66}.t{font-size:16px;font-weight:650;color:#fff}.u{font-size:12px;color:'+accent+';margin:4px 0;word-break:break-all}.d{font-size:13px;color:#c4c4d4;line-height:1.45}.empty{max-width:860px;margin:24px auto;color:#9ca3af;text-align:center}</style></head><body><div class="bar"><h1>'+escHtml(name)+'</h1><form method="GET" action="/api/search"><input type="hidden" name="engine" value="'+escHtml(engine)+'"><input name="q" value="'+escHtml(q)+'" autofocus><button type="submit">Search</button></form></div><div class="list">'+rows+empty+'</div><script>(function(){document.addEventListener("click",function(e){var t=e.target;var a=t&&t.closest?t.closest("a.hit"):null;if(!a)return;e.preventDefault();e.stopPropagation();var u=a.getAttribute("data-go")||"";if(!u)return;try{parent.postMessage({type:"batprox-nav",url:u},"*");}catch(x){}});})();<\/script></body></html>';
+}
 function b64urlBytes(buf){ const b=new Uint8Array(buf); let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 async function hmacKey(secret){ return crypto.subtle.importKey('raw', new TextEncoder().encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign','verify']); }
 async function hmacSign(payload, secret){
@@ -35,6 +101,37 @@ function rl(key, limit, winMs){
   if(RL_MAP.size>2000) RL_MAP.clear();
   RL_MAP.set(key, arr);
   return true;
+}
+function codeJobId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+async function loadCodeJobs(kv){
+  try{
+    const raw=kv?await kv.get('code_jobs'):null;
+    const arr=raw?JSON.parse(raw):[];
+    return Array.isArray(arr)?arr:[];
+  }catch{ return []; }
+}
+async function saveCodeJobs(kv, jobs){
+  try{ if(kv) await kv.put('code_jobs', JSON.stringify(jobs.slice(-40))); }catch{}
+}
+function expireCodeJobs(jobs){
+  const now=Date.now();
+  let changed=false;
+  for(const j of jobs){
+    if((j.status==='running'||j.status==='pending') && now-(j.startedAt||j.ts||now)>900000){
+      j.status='error';
+      j.reply='Your PC never picked this request up. Make sure the BatProx bridge is running on it.';
+      j.doneAt=now;
+      changed=true;
+    }
+  }
+  return changed;
+}
+async function bridgeLive(kv){
+  try{
+    const raw=kv?await kv.get('code_bridge'):null;
+    const b=raw?JSON.parse(raw):null;
+    return !!(b&&b.ts&&Date.now()-b.ts<120000);
+  }catch{ return false; }
 }
 function blockedHost(host){
   const h=String(host||'').toLowerCase().replace(/\.$/,'');
@@ -70,16 +167,27 @@ function blockedHost(host){
    }:rawKv;
    const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
    if(request.method==='OPTIONS'){
-    return new Response(null,{status:204, headers:cors(new Headers())});
+    return new Response(null,{status:204, headers:cors(new Headers(), request.headers.get('Origin'))});
   }
   if(url.pathname==='/' ){
-    return new Response(JSON.stringify({message:'StealthyBat backend — not hello world', docs:'https://stealthybat.org/api-status/docs', health:'/health'}),{headers:{'Content-Type':'application/json',...Object.fromEntries(cors(new Headers()))}});
+    return new Response(JSON.stringify({message:'StealthyBat backend — not hello world', docs:'https://stealthybat.org/api-status/docs', health:'/health'}),{headers:{'Content-Type':'application/json',...Object.fromEntries(cors(new Headers(), request.headers.get('Origin')))}});
   }
   if(url.pathname==='/health'){
-    return new Response(JSON.stringify({status:'StealthyBat API online — backend is handling accounts & proxy', domain:'api.stealthybat.org', timestamp:new Date().toISOString()}),{headers:{'Content-Type':'application/json',...Object.fromEntries(cors(new Headers()))}});
+    return new Response(JSON.stringify({status:'StealthyBat API online — backend is handling accounts & proxy', domain:'api.stealthybat.org', timestamp:new Date().toISOString()}),{headers:{'Content-Type':'application/json',...Object.fromEntries(cors(new Headers(), request.headers.get('Origin')))}});
+  }
+  if(url.pathname==='/api/search' && (request.method==='GET'||request.method==='HEAD')){
+    const q=String(url.searchParams.get('q')||'').trim();
+    const engine=String(url.searchParams.get('engine')||'batnight').toLowerCase();
+    const items=q?await collectSearch(q):[];
+    const html=searchPage(engine,q,items);
+    const h=cors(new Headers(), request.headers.get('Origin'));
+    h.set('Content-Type','text/html; charset=utf-8');
+    h.set('Cache-Control','no-store');
+    h.delete('X-Frame-Options');
+    return new Response(html,{status:200, headers:h});
   }
   if(url.pathname==='/api/auth/login' && request.method==='POST'){
-    const jh=()=>{ const hb=cors(new Headers()); hb.set('Content-Type','application/json'); return hb; };
+    const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); return hb; };
     try{
       const body=await request.json();
       const username=body.username, inviteCode=body.inviteCode;
@@ -112,19 +220,19 @@ function blockedHost(host){
       const blFiltered=blIps.filter(x=> typeof x==='string' ? true : (!x.expiresAt || new Date(x.expiresAt).getTime()>now2));
       const ipBanned=blFiltered.some(x=> typeof x==='string' ? false : (x.ip===ip && x.username===cu));
       if(blUsers.includes(cu) || ipBanned){
-        const h=cors(new Headers()); h.set('Content-Type','application/json');
+        const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
         return new Response(JSON.stringify({success:false, error:'You are banned from using this site.', banned:true}),{status:200, headers:h});
       }
       const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
       let isAdminUser=isAdmin;
       try{ const rawA=kv?await kv.get('users'):null; const arrA=rawA?JSON.parse(rawA||'[]'):[]; const fa=arrA.find(x=>x.username===cu); if(fa&&fa.admin===true) isAdminUser=true; }catch{}
       const token=await hmacSign({id:1,username:cu,isAdmin:isAdminUser,exp:Math.floor(Date.now()/1000)+86400},secret);
-      const h=cors(new Headers()); h.set('Content-Type','application/json');
+      const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
       return new Response(JSON.stringify({success:true, token, user:{id:1, username:cu}}),{headers:h});
     }catch(e){ return new Response(JSON.stringify({success:false, error:'Login failed: '+(e.message||'unknown')}),{status:200, headers:jh()});}
   }
   if(url.pathname==='/api/auth/recover' && request.method==='POST'){
-    const jh=()=>{ const hb=cors(new Headers()); hb.set('Content-Type','application/json'); return hb; };
+    const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); return hb; };
     try{
       const {username,answer}=await request.json();
       const cu=String(username||'').trim();
@@ -159,20 +267,139 @@ function blockedHost(host){
       if(payload.exp && payload.exp < Math.floor(Date.now()/1000)) return new Response(JSON.stringify({error:'Token expired'}),{status:403});
       let rank='user';
       try{ const rawU=kv?await kv.get('users'):null; const arr=rawU?JSON.parse(rawU||'[]'):[]; const f=arr.find(x=>x.username===payload.username); if(f&&f.rank) rank=f.rank; }catch{}
-      const h=cors(new Headers()); h.set('Content-Type','application/json');
+      const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
       return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin, rank, isMod:rank==='moderator'||!!payload.isAdmin}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid token'}),{status:403});}
   }
+  if(url.pathname==='/api/bridge/ping' || url.pathname==='/api/bridge/jobs' || url.pathname==='/api/bridge/result'){
+    const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); return hb; };
+    const want=String(env.BRIDGE_TOKEN||'');
+    const got=String(request.headers.get('x-bridge-token')||'');
+    if(!want) return new Response(JSON.stringify({success:false, error:'BRIDGE_TOKEN is not set on the worker'}),{status:503, headers:jh()});
+    if(!got||got!==want) return new Response(JSON.stringify({success:false, error:'Bad bridge token'}),{status:403, headers:jh()});
+    try{ if(kv) await kv.put('code_bridge', JSON.stringify({ts:Date.now(), host:String(request.headers.get('x-bridge-host')||'pc').slice(0,60)})); }catch{}
+    if(url.pathname==='/api/bridge/ping') return new Response(JSON.stringify({success:true, ts:Date.now()}),{headers:jh()});
+    let jobs=await loadCodeJobs(kv);
+    if(url.pathname==='/api/bridge/jobs'){
+      const take=jobs.filter(j=>j.status==='pending'&&j.target==='pc');
+      if(take.length){
+        take.forEach(j=>{ j.status='running'; j.startedAt=Date.now(); });
+        await saveCodeJobs(kv, jobs);
+      }
+      return new Response(JSON.stringify({success:true, jobs:take}),{headers:jh()});
+    }
+    if(request.method!=='POST') return new Response(JSON.stringify({success:false, error:'POST required'}),{status:405, headers:jh()});
+    const body=await request.json().catch(()=>({}));
+    const job=jobs.find(x=>x.id===String(body.id||''));
+    if(!job) return new Response(JSON.stringify({success:false, error:'Unknown request id'}),{status:200, headers:jh()});
+    job.status=body.error?'error':'done';
+    job.reply=String(body.error||body.reply||'').slice(0,20000);
+    job.doneAt=Date.now();
+    await saveCodeJobs(kv, jobs);
+    return new Response(JSON.stringify({success:true}),{headers:jh()});
+  }
+  if(url.pathname==='/api/admin/code-request'){
+    const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); return hb; };
+    const auth=request.headers.get('Authorization')||'';
+    const tok=auth.split(' ')[1]||'';
+    if(!tok) return new Response(JSON.stringify({success:false, error:'Admin token required'}),{status:401, headers:jh()});
+    const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
+    let payload=await hmacVerify(tok, secret);
+    if(!payload){
+      try{
+        const legacy=JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        const expect=sign({id:legacy.id||1, username:legacy.username, isAdmin:!!legacy.isAdmin}, secret);
+        if(expect===tok) payload=legacy;
+      }catch{}
+    }
+    if(!payload || !payload.isAdmin) return new Response(JSON.stringify({success:false, error:'Admin only'}),{status:403, headers:jh()});
+    const pcLive=await bridgeLive(kv);
+    if(request.method==='GET'){
+      let jobs=await loadCodeJobs(kv);
+      if(expireCodeJobs(jobs)) await saveCodeJobs(kv, jobs);
+      const id=url.searchParams.get('id');
+      if(id){
+        const job=jobs.find(x=>x.id===id);
+        if(!job) return new Response(JSON.stringify({success:false, error:'Request not found'}),{status:200, headers:jh()});
+        return new Response(JSON.stringify({success:true, job, pc:pcLive}),{headers:jh()});
+      }
+      return new Response(JSON.stringify({success:true, jobs:jobs.slice(-12).reverse(), pc:pcLive}),{headers:jh()});
+    }
+    if(request.method!=='POST') return new Response(JSON.stringify({success:false, error:'POST required'}),{status:405, headers:jh()});
+    try{
+      const body=await request.json();
+      const provider=String(body.provider||'claude').toLowerCase();
+      const prompt=String(body.prompt||'').trim();
+      if(!prompt) return new Response(JSON.stringify({success:false, error:'Type the request you want'}),{status:200, headers:jh()});
+      const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider, prompt:prompt.slice(0,8000), status:'pending', target:pcLive?'pc':'api', reply:''};
+      const jobs=await loadCodeJobs(kv);
+      expireCodeJobs(jobs);
+      jobs.push(job);
+      await saveCodeJobs(kv, jobs);
+      if(pcLive) return new Response(JSON.stringify({success:true, id:job.id, status:'pending', target:'pc'}),{headers:jh()});
+      const gh=env.GITHUB_TOKEN||env.COPILOT_TOKEN||env.GITHUB_MODELS_TOKEN||'';
+      const cl=env.ANTHROPIC_API_KEY||env.CLAUDE_API_KEY||'';
+      const or=env.OPENROUTER_API_KEY||'';
+      const gem=env.GEMINI_API_KEY||'';
+      let text='';
+      let err='';
+      if(provider==='claude'){
+        if(cl){
+          const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':cl,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-5',max_tokens:4096,messages:[{role:'user',content:prompt}]})});
+          const j=await r.json().catch(()=>({}));
+          text=((((j.content||[])[0]||{}).text)||'');
+          if(!text) err=(j.error&&(j.error.message||JSON.stringify(j.error)))||'Claude request failed';
+        } else if(or){
+          const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+or},body:JSON.stringify({model:'anthropic/claude-sonnet-5',messages:[{role:'user',content:prompt}]})});
+          const j=await r.json().catch(()=>({}));
+          text=((((j.choices||[])[0]||{}).message||{}).content)||'';
+          if(!text) err=(j.error&&j.error.message)||'Claude request failed';
+        } else err='Your PC is offline and no ANTHROPIC_API_KEY is set on the worker. Start the bridge on your PC or add the key in Cloudflare Worker secrets.';
+      } else {
+        if(gh){
+          const r=await fetch('https://models.github.ai/inference/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+gh,'Accept':'application/vnd.github+json'},body:JSON.stringify({model:'openai/gpt-4.1',messages:[{role:'system',content:'You are GitHub Copilot helping update the BatProx website.'},{role:'user',content:prompt}]})});
+          const j=await r.json().catch(()=>({}));
+          text=((((j.choices||[])[0]||{}).message||{}).content)||'';
+          if(!text) err=(j.error&&(j.error.message||JSON.stringify(j.error)))||'';
+        }
+        if(!text && or){
+          const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+or},body:JSON.stringify({model:'openai/gpt-4o',messages:[{role:'user',content:prompt}]})});
+          const j=await r.json().catch(()=>({}));
+          text=((((j.choices||[])[0]||{}).message||{}).content)||'';
+          if(!text) err=(j.error&&j.error.message)||err||'GitHub Copilot request failed';
+        }
+        if(!text && gem){
+          const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gem),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})});
+          const j=await r.json().catch(()=>({}));
+          text=(((((j.candidates||[])[0]||{}).content||{}).parts||[]).map(x=>x.text||'').join(''))||'';
+          if(!text) err=(j.error&&j.error.message)||err||'GitHub Copilot request failed';
+        }
+        if(!text && !err) err='Your PC is offline and no GITHUB_TOKEN, OPENROUTER_API_KEY or GEMINI_API_KEY is set on the worker.';
+      }
+      const after=await loadCodeJobs(kv);
+      const mine=after.find(x=>x.id===job.id)||job;
+      mine.status=text?'done':'error';
+      mine.reply=String(text||err||'Request failed').slice(0,20000);
+      mine.doneAt=Date.now();
+      if(!after.some(x=>x.id===job.id)) after.push(mine);
+      await saveCodeJobs(kv, after);
+      if(!text) return new Response(JSON.stringify({success:false, id:job.id, error:err||'Request failed'}),{status:200, headers:jh()});
+      return new Response(JSON.stringify({success:true, id:job.id, status:'done', target:'api', provider, text}),{headers:jh()});
+    }catch(e){
+      return new Response(JSON.stringify({success:false, error:'Code request failed'}),{status:200, headers:jh()});
+    }
+  }
   if(url.pathname.includes('/csp_report') || url.pathname.includes('/storage_report') || url.pathname.includes('/logClientError') || url.pathname.includes('/trace/trace')){
-    return new Response(null,{status:204, headers:cors(new Headers())});
+    return new Response(null,{status:204, headers:cors(new Headers(), request.headers.get('Origin'))});
   }
   if(url.pathname==='/proxy' || url.pathname.startsWith('/proxy/')){
-    const targetUrl=url.searchParams.get('url');
+    let targetUrl=url.searchParams.get('url');
+    try{ const b64=decodeURIComponent(targetUrl); const dec=decodeURIComponent(escape(atob(b64))); if(/^https?:\/\//.test(dec)) targetUrl=dec; }catch{} try{ const dec2=decodeURIComponent(escape(atob(targetUrl))); if(/^https?:\/\//.test(dec2)) targetUrl=dec2; }catch{}
     if(!targetUrl) return new Response('URL parameter is required',{status:400});
     try{
       const parsed=new URL(targetUrl);
       if(!['http:','https:'].includes(parsed.protocol)) return new Response('Only HTTP and HTTPS allowed',{status:400});
-      if(targetUrl.includes('sentry.io')||targetUrl.includes('ingest')||targetUrl.includes('cdn-cgi/rum')||targetUrl.includes('/_/_/csp_report')||targetUrl.includes('/_/_/trace')||targetUrl.includes('&quot;')) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
+      if(targetUrl.includes('sentry.io')||targetUrl.includes('ingest')||targetUrl.includes('cdn-cgi/rum')||targetUrl.includes('/_/_/csp_report')||targetUrl.includes('/_/_/trace')||targetUrl.includes('&quot;')){const hd=new Headers();hd.set('Access-Control-Allow-Origin','*');hd.set('Access-Control-Allow-Methods','GET, POST, OPTIONS');hd.set('Access-Control-Allow-Headers','*');hd.set('Content-Type','application/json');return new Response('{}',{status:200, headers:hd});}
       let fUrl=targetUrl;
       try{ fUrl=decodeURIComponent(targetUrl).replace(/&quot;/g,'').replace(/&amp;/g,'&').trim(); if(fUrl!==targetUrl) try{ new URL(fUrl); }catch{ fUrl=targetUrl; } }catch{}
       if(fUrl.includes('stealthybat.org')||fUrl.includes('stealthlybat.it.com')||fUrl.includes('banned.stealthybat.org')) return new Response('',{status:204, headers:{'Access-Control-Allow-Origin':'*'}});
@@ -193,17 +420,33 @@ function blockedHost(host){
       const base = r.url ? new URL(r.url).href : parsed.href;
       const isText=/html|css|javascript|json|xml|svg|text\//i.test(ct);
       let text=isText?new TextDecoder().decode(body):null;
+      if(text!==null && /javascript/i.test(ct) && (fUrl.toLowerCase().includes('sentry')||text.includes('Keep your account safe'))){const sb='self.Sentry={init:function(){},captureException:function(){},captureMessage:function(){},captureEvent:function(){},addBreadcrumb:function(){},withScope:function(c){try{c({addBreadcrumb:function(){}})}catch(e){}},configureScope:function(){},getCurrentHub:function(){return{captureException:function(){}}}};window.Sentry=self.Sentry;window.__SENTRY__={hub:{captureException:function(){}}};';const hb=new Headers();hb.set('Content-Type','application/javascript');hb.set('Access-Control-Allow-Origin','*');hb.set('X-Proxy-Response','true');return new Response(sb,{status:200, headers:hb});}
       if(text!==null && ct.includes('html')){
-        const proxyAsset=(raw, b)=>{ if(!raw) return raw; const t=String(raw).trim(); if(!t||t.indexOf('&quot;')>-1||t.indexOf('&amp;')>-1||t.startsWith('data:')||t.startsWith('javascript:')||t.startsWith('mailto:')||t.startsWith('#')||t.startsWith('blob:')||t.startsWith('/proxy')||t.length>2000) return t; try{ const abs=new URL(t,b).href; return '/proxy?url='+encodeURIComponent(abs);}catch{return t;}};
+        const proxyAsset=(raw, b)=>{ if(!raw) return raw; const t=String(raw).trim(); if(!t||t.indexOf('&quot;')>-1||t.indexOf('&amp;')>-1||t.startsWith('data:')||t.startsWith('javascript:')||t.startsWith('mailto:')||t.startsWith('#')||t.startsWith('blob:')||t.startsWith('/proxy')||t.length>2000) return t; try{ const abs=new URL(t,b).href; try{return '/proxy?url='+encodeURIComponent(btoa(unescape(encodeURIComponent(abs))))}catch{return '/proxy?url='+encodeURIComponent(abs)}}catch{return t;}};
         const rewriteCss=(css,b)=>css.replace(/url\((['"]?)([^'")]+)\1\)/gi,(m,q,u)=>{ if(u.indexOf('&quot;')>-1||u.indexOf('data:')===0) return m; return 'url('+q+proxyAsset(u,b)+q+')';});
         text=text.replace(/<meta[^>]+http-equiv=["']?content-security-policy["']?[^>]*>/gi,'');
         text=text.replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi,'');
         text=text.replace(/\s+integrity="[^"]*"/gi,'');
         text=text.replace(/\s+integrity='[^']*'/gi,'');
-        text=text.replace(/(src|href|action|poster|data-src|data-href)=(["'])([^"']+)\2/gi,(m,a,q,u)=>a+'='+q+proxyAsset(u,base)+q);
-        text=rewriteCss(text,base);
-        text=text.replace(/srcset=(["'])([^"']+)\1/gi,(m,q,v)=>{ const parts=v.split(',').map(p=>{const b=p.trim().split(/\s+/); b[0]=proxyAsset(b[0],base); return b.join(' ');}); return 'srcset='+q+parts.join(', ')+q;});
-        const inject=`<script>(function(){window.__bpBase=${JSON.stringify(base)};var PASSES=['proxy','api/auth','api/admin','api/suggestions','api/my-games','api/ai','api/status','api/changelogs','api/sites','api/check-blacklist','api/user/settings','wisp','uv','epoxy','baremux','site'];function p(u){try{if(!u||typeof u!=='string')return u;if(u.indexOf('stealthybat.org')>-1||u.indexOf('stealthlybat.it.com')>-1)return u;if(u.charAt(0)==='#'||u.indexOf('data:')===0||u.indexOf('blob:')===0||u.indexOf('javascript:')===0||u.indexOf('mailto:')===0)return u;if(u.indexOf('about:')===0)return u;if(u.indexOf('/proxy?url=')===0)return u;var a=new URL(u,window.__bpBase||document.baseURI);if(a.hostname.indexOf('stealthybat.org')>-1||a.hostname.indexOf('stealthlybat.it.com')>-1)return u;for(var i=0;i<PASSES.length;i++){if(a.pathname==='/' + PASSES[i]||a.pathname.indexOf('/' + PASSES[i]+'/')===0)return a.pathname+a.search+a.hash;}var b=new URL(window.__bpBase||document.baseURI);if(a.origin===window.location.origin)return '/proxy?url='+encodeURIComponent(b.protocol+'//'+b.host+a.pathname+a.search+a.hash);return '/proxy?url='+encodeURIComponent(a.href);}catch(e){return u;}}function stayIn(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var t=a.target||'';if(t==='_blank'||t==='_new'){e.preventDefault();e.stopPropagation();a.target='_self';a.href=p(a.href);return;}}catch(x){}}document.addEventListener('click',stayIn,true);document.addEventListener('auxclick',stayIn,true);document.addEventListener('submit',function(e){try{var f=e.target;if(f&&f.tagName==='FORM'&&(f.target==='_blank'||f.target==='_new'))f.target='_self';}catch(x){}},true);setInterval(function(){try{var as=document.querySelectorAll('a[target="_blank"],a[target="_new"]');for(var i=0;i<as.length;i++){as[i].target='_self';as[i].href=p(as[i].href);}}catch(e){}},1200);var ow=window.open;window.open=function(u,f,feats){try{if(typeof u==='string'&&u!=='about:blank'){try{window.parent.postMessage({type:'batprox-nav',url:p(u)},'*');}catch(e){}return null;}}catch(e){}return ow(u,f,feats);};var of=window.fetch;window.fetch=function(i,n){try{var u=typeof i==='string'?i:(i&&i.url?i.url:null);if(!u)return of(i,n);if(u==='about:blank'||u==='about:srcdoc'||u.indexOf('about:blank')===0||u.indexOf('about:srcdoc')===0)return Promise.resolve(new Response('',{status:200,headers:{'Content-Type':'text/html'}}));if(u.indexOf('sentry.io')>-1||u.indexOf('cdn-cgi')>-1||u.indexOf('/_/_/')>-1||u.indexOf('ingest.sentry.io')>-1||u.indexOf('passkey')>-1||u.indexOf('StartAuthentication')>-1||u.indexOf('accounts.google.com/gsi')>-1||u.indexOf('fedcm')>-1||u.indexOf('FedCM')>-1)return Promise.resolve(new Response('',{status:200,headers:{'Content-Type':'text/plain'}}));if(typeof i==='string')return of(p(i),n);if(i&&typeof Request!=='undefined'&&i instanceof Request)return of(new Request(p(i.url),i),n);if(i&&i.url)return of(new Request(p(i.url),i),n);}catch(e){}return of(i,n);};var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=[].slice.call(arguments);if(typeof a[1]==='string'){if(a[1].indexOf('sentry.io')>-1||a[1].indexOf('cdn-cgi')>-1||a[1].indexOf('/_/_/')>-1||a[1].indexOf('ingest.')>-1||a[1].indexOf('passkey')>-1||a[1].indexOf('StartAuthentication')>-1||a[1].indexOf('accounts.google.com/gsi')>-1||a[1].indexOf('fedcm')>-1){a[1]='data:text/plain,';}else a[1]=p(a[1]);}return oo.apply(this,a);};(function(){function hk(pr,pp){try{var dd=Object.getOwnPropertyDescriptor(pr,pp);if(!dd||!dd.get||!dd.set)return;Object.defineProperty(pr,pp,{get:dd.get,set:function(v){try{if(typeof v==='string'&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.indexOf('javascript:')!==0&&v.indexOf('about:')!==0&&v.charAt(0)!=='#'&&v.indexOf('/proxy?url=')!==0)v=p(v);}catch(e){}return dd.set.call(this,v);},configurable:true});}catch(e){}}try{hk(HTMLScriptElement.prototype,'src');hk(HTMLLinkElement.prototype,'href');hk(HTMLImageElement.prototype,'src');hk(HTMLMediaElement.prototype,'src');hk(HTMLSourceElement.prototype,'src');hk(HTMLIFrameElement.prototype,'src');hk(HTMLElement.prototype,'src');}catch(e){}})();var osa=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){try{if(typeof v==='string'&&(n==='src'||n==='href'||n==='action')&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.indexOf('javascript:')!==0&&v.indexOf('about:')!==0&&v.charAt(0)!=='#')v=p(v);}catch(e){}return osa.call(this,n,v);};var ael=EventTarget.prototype.addEventListener;EventTarget.prototype.addEventListener=function(t,fn,opts){try{if(t==='unload'||t==='beforeunload'||t==='pagehide')return;}catch(e){}return ael.call(this,t,fn,opts);};document.addEventListener('keydown',function(e){try{var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'||tg.isContentEditable))return;var s=JSON.parse(localStorage.getItem('batprox-settings')||'{}');if(!s.panicKey)return;if(['Control','Shift','Alt','Meta'].indexOf(e.key)>-1)return;var c=(e.ctrlKey?'Ctrl+':'')+(e.altKey?'Alt+':'')+(e.shiftKey?'Shift+':'')+e.key;if(c.toLowerCase()!==String(s.panicKey).toLowerCase()&&e.key.toLowerCase()!==String(s.panicKey).toLowerCase())return;e.preventDefault();e.stopPropagation();var d=s.panicUrl||'https://www.google.com/';try{window.parent.postMessage({type:'bp-parent',redirect:d},'*');}catch(x){}try{if(window.top&&window.top!==window)window.top.location.href=d;}catch(x){}}catch(x){}},true);window.addEventListener('unhandledrejection',function(e){e.preventDefault();},{capture:true});window.addEventListener('error',function(e){if(e&&e.message&&(e.message.indexOf('Failed to fetch')>-1||e.message.indexOf('ERR_NAME_NOT_RESOLVED')>-1||e.message.indexOf('ERR_FAILED')>-1||e.message.indexOf('net::')>-1||e.message.indexOf('WebSocket')>-1||e.message.indexOf('CORS')>-1||e.message.indexOf('AngularJS')>-1||e.message.indexOf('ApolloClient')>-1||e.message.indexOf('PurchaseDialog')>-1||e.message.indexOf('Sentry')>-1||e.message.indexOf('RealTime')>-1||e.message.indexOf('SignalR')>-1||e.message.indexOf('cdn-cgi')>-1||e.message.indexOf('sentry')>-1||e.message.indexOf('OW is not defined')))e.preventDefault();},{capture:true});(function(){var _w=console.warn,_e=console.error;console.warn=function(){var m=String(arguments[0]||'');if(/AngularJS|ApolloClient|PurchaseDialog|RealTime|SignalR|Sentry|cdn-cgi|bare-mux|preload|OTS|Failed to decode|AnalyticsTrackingStore|GSI_LOGGER|FedCM|fedcm|One Tap|passkey|StartAuthentication|pointer-lock|allowfullscreen|Unrecognized feature/i.test(m))return;return _w.apply(console,arguments);};console.error=function(){var m=String(arguments[0]||'');if(/AngularJS|ApolloClient|PurchaseDialog|RealTime|SignalR|Sentry|cdn-cgi|bare-mux|MessagePort|SharedWorker|preload|OTS|Failed to decode|Failed to fetch initial|AnalyticsTrackingStore|GSI_LOGGER|FedCM|fedcm|passkey|StartAuthentication|pointer-lock|allowfullscreen|Unrecognized feature|Failed to load|ERR_NAME_NOT_RESOLVED|ERR_FAILED|net::/i.test(m))return;return _e.apply(console,arguments);};})();(function(){var OWS=window.WebSocket;if(!OWS)return;window.WebSocket=function(u,pt){try{if(typeof u==='string'&&(u.indexOf('realtime.roblox.com')>-1||u.indexOf('sentry.io')>-1||u.indexOf('signalr')>-1)){var m=new EventTarget();setTimeout(function(){m.dispatchEvent(new CloseEvent('close'));if(m.onclose)m.onclose({});},50);m.send=function(){};m.close=function(){};m.readyState=3;return m;}}catch(x){}return new OWS(u,pt);};window.WebSocket.prototype=OWS.prototype;})();})();<\/script>`;
+        text=text.replace(/<link[^>]+\brel=["']?preload["']?[^>]*>/gi, m=>m.replace(/\s+crossorigin(?:="[^"]*"|='[^']*'|=[^\s>]+)?/gi,''));
+        let parts=text.split(/(<script[\s\S]*?<\/script>)/gi);
+        for(let i=0;i<parts.length;i++){
+          if(/^<script/i.test(parts[i])){
+            const m=parts[i].match(/^<script([^>]*)>([\s\S]*?)<\/script>/i);
+            if(m){
+              let open='<script'+m[1]+'>';
+              open=open.replace(/\s+integrity="[^"]*"/gi,'').replace(/\s+integrity='[^']*'/gi,'');
+              open=open.replace(/(src|href)=(["'])([^"']+)\2/gi,(mm,a,q,u)=>a+'='+q+proxyAsset(u,base)+q);
+              parts[i]=open+m[2]+'</script>';
+            }
+            continue;
+          }
+          parts[i]=parts[i].replace(/(src|href|action|poster|data-src|data-href)=(["'])([^"']+)\2/gi,(m,a,q,u)=>a+'='+q+proxyAsset(u,base)+q);
+          parts[i]=rewriteCss(parts[i],base);
+          parts[i]=parts[i].replace(/srcset=(["'])([^"']+)\1/gi,(m,q,v)=>{const ps=v.split(',').map(p=>{const b=p.trim().split(/\s+/);b[0]=proxyAsset(b[0],base);return b.join(' ');});return 'srcset='+q+ps.join(', ')+q;});
+        }
+        text=parts.join('');
+        const inject=`<script>(function(){window.Sentry={init:function(){},captureException:function(){},captureMessage:function(){},captureEvent:function(){},addBreadcrumb:function(){},withScope:function(c){try{c({})}catch(e){}},configureScope:function(){}};window.__SENTRY__={hub:{captureException:function(){}}};window.GoogleAnalyticsEvents={trigger:function(){},send:function(){}};window.ga=function(){};window.OneTrust={OnConsentChanged:function(){},GetDomainData:function(){return{}},setOTDataLayer:function(){},init:function(){}};try{var _lg=console.log;console.log=function(){var m=String(arguments[0]||'');if(/Keep your account safe|_______|stealthybat|rbxcdn|cdn-cgi|sentry/i.test(m))return;return _lg.apply(console,arguments);};}catch(e){}try{if(navigator.sendBeacon){var _sb=navigator.sendBeacon;navigator.sendBeacon=function(u,d){try{var su=String(u);if(su.indexOf('sentry')>-1||su.indexOf('ingest')>-1||su.indexOf('cdn-cgi')>-1||su.indexOf('metrics.roblox.com')>-1||su.indexOf('bundle-metrics')>-1)return true;}catch(e){}return _sb.call(navigator,u,d);};}}catch(e){}window.__bpBase=${JSON.stringify(base)};var PASSES=['proxy','api/auth','api/admin','api/suggestions','api/my-games','api/ai','api/status','api/changelogs','api/sites','api/check-blacklist','api/user/settings','wisp','uv','epoxy','baremux','site'];function p(u){try{if(!u||typeof u!=='string')return u;if(u.indexOf('apis.stealthybat.org')>-1)return '/proxy?url='+encodeURIComponent(btoa(unescape(encodeURIComponent(u.replace('apis.stealthybat.org','apis.roblox.com')))));if(u.indexOf('stealthybat.org/w/')>-1&&window.__bpBase){try{var _u=new URL(u);var _b=new URL(window.__bpBase);if(_u.hostname==='stealthybat.org'&&_b.hostname!=='stealthybat.org'){_u.hostname=_b.hostname;_u.protocol=_b.protocol;return '/proxy?url='+encodeURIComponent(btoa(unescape(encodeURIComponent(_u.href))))}}catch(e){}}if(u.indexOf('stealthybat.org')>-1||u.indexOf('stealthlybat.it.com')>-1)return u;if(u.indexOf('roblox.com')>-1){try{return '/proxy?url='+encodeURIComponent(btoa(unescape(encodeURIComponent(new URL(u, window.__bpBase||document.baseURI).href))));}catch(e){}}if(u.charAt(0)==='#'||u.indexOf('data:')===0||u.indexOf('blob:')===0||u.indexOf('javascript:')===0||u.indexOf('mailto:')===0)return u;if(u.indexOf('about:')===0)return u;if(u.indexOf('/proxy?url=')===0)return u;var a=new URL(u,window.__bpBase||document.baseURI);if(a.hostname.indexOf('stealthybat.org')>-1||a.hostname.indexOf('stealthlybat.it.com')>-1)return u;for(var i=0;i<PASSES.length;i++){if(a.pathname==='/' + PASSES[i]||a.pathname.indexOf('/' + PASSES[i]+'/')===0)return a.pathname+a.search+a.hash;}var b=new URL(window.__bpBase||document.baseURI);if(a.origin===window.location.origin)return '/proxy?url='+encodeURIComponent(b.protocol+'//'+b.host+a.pathname+a.search+a.hash);return '/proxy?url='+encodeURIComponent(btoa(unescape(encodeURIComponent(a.href))));}catch(e){return u;}}function stayIn(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var t=a.target||'';if(t==='_blank'||t==='_new'){e.preventDefault();e.stopPropagation();a.target='_self';a.href=p(a.href);return;}}catch(x){}}document.addEventListener('click',stayIn,true);document.addEventListener('auxclick',stayIn,true);document.addEventListener('submit',function(e){try{var f=e.target;if(f&&f.tagName==='FORM'&&(f.target==='_blank'||f.target==='_new'))f.target='_self';}catch(x){}},true);setInterval(function(){try{var as=document.querySelectorAll('a[target="_blank"],a[target="_new"]');for(var i=0;i<as.length;i++){as[i].target='_self';as[i].href=p(as[i].href);}}catch(e){}},1200);var ow=window.open;window.open=function(u,f,feats){try{if(typeof u==='string'&&u!=='about:blank'){try{window.parent.postMessage({type:'batprox-nav',url:p(u)},'*');}catch(e){}return null;}}catch(e){}return ow(u,f,feats);};var of=window.fetch;window.fetch=function(i,n){try{var u=typeof i==='string'?i:(i&&i.url?i.url:null);if(!u)return of(i,n);if(u==='about:blank'||u==='about:srcdoc'||u.indexOf('about:blank')===0||u.indexOf('about:srcdoc')===0)return Promise.resolve(new Response('',{status:200,headers:{'Content-Type':'text/html'}}));if(u.indexOf('sentry.io')>-1||u.indexOf('cdn-cgi')>-1||u.indexOf('/_/_/')>-1||u.indexOf('ingest.sentry.io')>-1||u.indexOf('passkey')>-1||u.indexOf('StartAuthentication')>-1||u.indexOf('accounts.google.com/gsi')>-1||u.indexOf('fedcm')>-1||u.indexOf('FedCM')>-1)return Promise.resolve(new Response('',{status:200,headers:{'Content-Type':'text/plain'}}));if(typeof i==='string')return of(p(i),n);if(i&&typeof Request!=='undefined'&&i instanceof Request)return of(new Request(p(i.url),i),n);if(i&&i.url)return of(new Request(p(i.url),i),n);}catch(e){}return of(i,n);};var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=[].slice.call(arguments);if(typeof a[1]==='string'){if(a[1].indexOf('sentry.io')>-1||a[1].indexOf('cdn-cgi')>-1||a[1].indexOf('/_/_/')>-1||a[1].indexOf('ingest.')>-1||a[1].indexOf('passkey')>-1||a[1].indexOf('StartAuthentication')>-1||a[1].indexOf('accounts.google.com/gsi')>-1||a[1].indexOf('fedcm')>-1){a[1]='data:text/plain,';}else a[1]=p(a[1]);}return oo.apply(this,a);};(function(){function hk(pr,pp){try{var dd=Object.getOwnPropertyDescriptor(pr,pp);if(!dd||!dd.get||!dd.set)return;Object.defineProperty(pr,pp,{get:dd.get,set:function(v){try{if(typeof v==='string'&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.indexOf('javascript:')!==0&&v.indexOf('about:')!==0&&v.charAt(0)!=='#'&&v.indexOf('/proxy?url=')!==0)v=p(v);}catch(e){}return dd.set.call(this,v);},configurable:true});}catch(e){}}try{hk(HTMLScriptElement.prototype,'src');hk(HTMLLinkElement.prototype,'href');hk(HTMLImageElement.prototype,'src');hk(HTMLMediaElement.prototype,'src');hk(HTMLSourceElement.prototype,'src');hk(HTMLIFrameElement.prototype,'src');hk(HTMLElement.prototype,'src');}catch(e){}})();var osa=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){try{if(typeof v==='string'&&(n==='src'||n==='href'||n==='action')&&v.indexOf('data:')!==0&&v.indexOf('blob:')!==0&&v.indexOf('javascript:')!==0&&v.indexOf('about:')!==0&&v.charAt(0)!=='#')v=p(v);}catch(e){}return osa.call(this,n,v);};var ael=EventTarget.prototype.addEventListener;EventTarget.prototype.addEventListener=function(t,fn,opts){try{if(t==='unload'||t==='beforeunload'||t==='pagehide')return;}catch(e){}return ael.call(this,t,fn,opts);};document.addEventListener('keydown',function(e){try{var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'||tg.isContentEditable))return;var s=JSON.parse(localStorage.getItem('batprox-settings')||'{}');if(!s.panicKey)return;if(['Control','Shift','Alt','Meta'].indexOf(e.key)>-1)return;var c=(e.ctrlKey?'Ctrl+':'')+(e.altKey?'Alt+':'')+(e.shiftKey?'Shift+':'')+e.key;if(c.toLowerCase()!==String(s.panicKey).toLowerCase()&&e.key.toLowerCase()!==String(s.panicKey).toLowerCase())return;e.preventDefault();e.stopPropagation();var d=s.panicUrl||'https://www.google.com/';try{window.parent.postMessage({type:'bp-parent',redirect:d},'*');}catch(x){}try{if(window.top&&window.top!==window)window.top.location.href=d;}catch(x){}}catch(x){}},true);window.addEventListener('unhandledrejection',function(e){e.preventDefault();},{capture:true});window.addEventListener('error',function(e){if(e&&e.message&&(e.message.indexOf('hasAttribute')>-1||e.message.indexOf('setOTDataLayer')>-1||e.message.indexOf('Failed to fetch')>-1||e.message.indexOf('ERR_NAME_NOT_RESOLVED')>-1||e.message.indexOf('ERR_FAILED')>-1||e.message.indexOf('net::')>-1||e.message.indexOf('WebSocket')>-1||e.message.indexOf('CORS')>-1||e.message.indexOf('AngularJS')>-1||e.message.indexOf('ApolloClient')>-1||e.message.indexOf('PurchaseDialog')>-1||e.message.indexOf('Sentry')>-1||e.message.indexOf('RealTime')>-1||e.message.indexOf('SignalR')>-1||e.message.indexOf('cdn-cgi')>-1||e.message.indexOf('sentry')>-1||e.message.indexOf('GoogleAnalyticsEvents')>-1||e.message.indexOf('Invalid regular expression')>-1||e.message.indexOf('OW is not defined')))e.preventDefault();},{capture:true});(function(){var _w=console.warn,_e=console.error;console.warn=function(){var m=Array.from(arguments).join(' ');if(/AngularJS|ApolloClient|PurchaseDialog|RealTime|SignalR|Sentry|cdn-cgi|bare-mux|preload|OTS|Failed to decode|AnalyticsTrackingStore|GSI_LOGGER|FedCM|fedcm|One Tap|passkey|StartAuthentication|pointer-lock|allowfullscreen|Unrecognized feature|SDUI|RegistryCompositionWarning|sdui-core|Grammarly|grm ERROR|createAgentDirectory|metrics\.roblox|bundle-metrics|rotating-client|discord\.com\/api|apis\.roblox|apis\.stealthybat|GoogleAnalyticsEvents|CORS|Access to XMLHttpRequest|net::ERR_FAILED|Invalid regular expression/i.test(m))return;return _w.apply(console,arguments);};console.error=function(){var m=Array.from(arguments).join(' ');if(/AngularJS|ApolloClient|PurchaseDialog|RealTime|SignalR|Sentry|cdn-cgi|bare-mux|MessagePort|SharedWorker|preload|OTS|Failed to decode|Failed to fetch initial|AnalyticsTrackingStore|GSI_LOGGER|FedCM|fedcm|passkey|StartAuthentication|pointer-lock|allowfullscreen|Unrecognized feature|Failed to load|ERR_NAME_NOT_RESOLVED|ERR_FAILED|net::|SDUI|RegistryCompositionWarning|sdui-core|Grammarly|grm ERROR|createAgentDirectory|metrics\.roblox|bundle-metrics|rotating-client|discord\.com\/api|apis\.roblox|apis\.stealthybat|GoogleAnalyticsEvents|CORS|Access to XMLHttpRequest|net::ERR_FAILED|Invalid regular expression|Uncaught|ReferenceError/i.test(m))return;return _e.apply(console,arguments);};})();(function(){var OWS=window.WebSocket;if(!OWS)return;window.WebSocket=function(u,pt){try{if(typeof u==='string'&&(u.indexOf('realtime.roblox.com')>-1||u.indexOf('sentry.io')>-1||u.indexOf('signalr')>-1)){var m=new EventTarget();setTimeout(function(){m.dispatchEvent(new CloseEvent('close'));if(m.onclose)m.onclose({});},50);m.send=function(){};m.close=function(){};m.readyState=3;return m;}}catch(x){}return new OWS(u,pt);};window.WebSocket.prototype=OWS.prototype;})();})();<\/script>`;
         const headOpen=text.match(/<head[^>]*>/i);
         if(headOpen) text=text.replace(headOpen[0], headOpen[0]+inject);
         else if(text.includes('</head>')) text=text.replace('</head>', inject+'</head>');
@@ -217,16 +460,16 @@ function blockedHost(host){
       if(text!==null && text.indexOf('Bad Worker Origin')>-1) { const hb=new Headers(); hb.set('Content-Type','application/javascript'); hb.set('Access-Control-Allow-Origin','*'); hb.set('X-Proxy-Response','true'); return new Response('/* blocked */',{status:200, headers:hb}); }
       if(r.status===400 && text!==null && /javascript/i.test(ct)) { const hb=new Headers(); hb.set('Content-Type','application/javascript'); hb.set('Access-Control-Allow-Origin','*'); hb.set('X-Proxy-Response','true'); return new Response('/* blocked */',{status:200, headers:hb}); }
       if(r.status===400 && text===null && fUrl.endsWith('.js')) { const hb=new Headers(); hb.set('Content-Type','application/javascript'); hb.set('Access-Control-Allow-Origin','*'); hb.set('X-Proxy-Response','true'); return new Response('/* blocked */',{status:200, headers:hb}); }
-      const h=new Headers(r.headers); for(const k of [...h.keys()]){ const lk=k.toLowerCase(); if(lk==='content-security-policy'||lk==='content-security-policy-report-only'||lk==='x-frame-options'||lk==='x-content-type-options') h.delete(k); } h.delete('content-security-policy'); h.delete('x-frame-options'); h.set('Access-Control-Allow-Origin','*'); h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS'); h.set('Access-Control-Allow-Headers','*'); h.set('X-Frame-Options','ALLOWALL'); h.set('X-Proxy-Response','true');
+      const h=new Headers(r.headers); for(const k of [...h.keys()]){ const lk=k.toLowerCase(); if(lk==='content-security-policy'||lk==='content-security-policy-report-only'||lk==='x-frame-options'||lk==='x-content-type-options'||lk==='content-encoding'||lk==='content-length'||lk==='transfer-encoding') h.delete(k); } h.delete('content-security-policy'); h.delete('x-frame-options'); h.delete('content-encoding'); h.delete('content-length'); h.delete('transfer-encoding'); h.set('Access-Control-Allow-Origin','*'); h.set('Access-Control-Allow-Methods','GET, POST, PUT, DELETE, OPTIONS'); h.set('Access-Control-Allow-Headers','*'); h.set('X-Proxy-Response','true');
       if(text===null){ const ext=fUrl.split('?')[0].split('.').pop().toLowerCase(); const map={js:'application/javascript',mjs:'application/javascript',css:'text/css',woff2:'font/woff2',woff:'font/woff',ttf:'font/ttf',otf:'font/otf',svg:'image/svg+xml',json:'application/json',wasm:'application/wasm'}; if(map[ext] && !ct.includes(map[ext])) h.set('Content-Type', map[ext]); else h.set('Content-Type', ct); }
       else h.set('Content-Type', ct);
       const s=r.status<500?r.status:200;
       if(text===null && (s===404||s===204) && body.byteLength<500) return new Response(body,{status:200, headers:h});
       return new Response(body,{status:s, headers:h});
-    }catch(e){ return new Response('',{status:200, headers:cors(new Headers())});}
+    }catch(e){ return new Response('',{status:200, headers:cors(new Headers(), request.headers.get('Origin'))});}
   }
   if(url.pathname==='/api/check-blacklist' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const ip=getIP();
     const username=url.searchParams.get('user')||'';
     const blRaw=kv?await kv.get('blacklist_ips'):null;
@@ -240,11 +483,11 @@ function blockedHost(host){
     return new Response(JSON.stringify({banned:isBanned, ip}),{headers:h});
   }
   if(url.pathname==='/api/my-games' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     return new Response(JSON.stringify({games:[]}),{headers:h});
   }
   if(url.pathname==='/api/suggestions' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {content,userIdentifier,genre,title}=await request.json();
       const raw=kv?await kv.get('feedbacks'):null;
@@ -255,7 +498,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/ai/chat' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const apiKey=env.OPENROUTER_API_KEY;
     if(apiKey){
       try{
@@ -271,7 +514,7 @@ function blockedHost(host){
     return new Response(JSON.stringify({response:'AI service active — configure OPENROUTER_API_KEY for full responses'}),{headers:h});
   }
   if(url.pathname==='/api/admin/create-user' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {username,inviteCode}=await request.json();
       const cu=String(username||'').trim(), cc=String(inviteCode||'').trim();
@@ -287,7 +530,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/remove-due' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username,removeAt,inviteCode}=await request.json();
       const cu=String(username||'').trim();
@@ -302,7 +545,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/temp-remove' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username,days}=await request.json();
       const cu=String(username||'').trim();
@@ -323,7 +566,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/remove-user' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username}=await request.json();
       const cu=String(username||'').trim();
@@ -331,11 +574,26 @@ function blockedHost(host){
       let arr=raw?JSON.parse(raw):[];
       arr=arr.filter(x=>x.username!==cu);
       if(kv) await kv.put('users', JSON.stringify(arr));
+      try{
+        if(env.batprox) try{await env.batprox.prepare('DELETE FROM presence WHERE username=?').bind(cu).run();}catch{}
+        try{const r=kv?await kv.get('presence'):null; if(r){const m=JSON.parse(r); if(m[cu]){delete m[cu]; if(kv) await kv.put('presence', JSON.stringify(m));}}}catch{}
+        try{const a=await chatGet('chat_messages',[]); const f=a.filter((x)=>x.user!==cu); if(f.length!==a.length) await chatPut('chat_messages',f);}catch{}
+        try{const m=await chatGet('chat_names',{}); if(m[cu]){delete m[cu]; await chatPut('chat_names',m);}}catch{}
+        try{const m=await chatGet('chat_profiles',{}); if(m[cu]){delete m[cu]; await chatPut('chat_profiles',m);}}catch{}
+        try{const m=await chatGet('chat_typing',{}); let ch=false; if(m[cu]){delete m[cu]; ch=true;} for(const k of Object.keys(m)){ if(Array.isArray(m[k])){ const nf=m[k].filter((v)=>v!==cu); if(nf.length!==m[k].length){m[k]=nf; ch=true;}}} if(ch) await chatPut('chat_typing',m);}catch{}
+        try{const r=kv?await kv.get('gamestats'):null; if(r){const m=JSON.parse(r); if(m[cu]){delete m[cu]; if(kv) await kv.put('gamestats', JSON.stringify(m));}}}catch{}
+        try{if(kv) await kv.put('recentgames_'+cu, JSON.stringify([]));}catch{}
+        try{if(kv) await kv.put('notes_'+cu, JSON.stringify([]));}catch{}
+        try{if(kv) await kv.put('user_settings_'+cu, JSON.stringify({}));}catch{}
+        try{const rms=await chatGet('chat_rooms',[]); let ch=false; if(Array.isArray(rms)){for(const rm of rms){ if(Array.isArray(rm.members)){ const nf=rm.members.filter((x)=>x!==cu); if(nf.length!==rm.members.length){rm.members=nf; ch=true;}} if(rm.owner===cu) rm.owner='';} if(ch) await chatPut('chat_rooms',rms);}}catch{}
+        try{let dms=await chatGet('chat_dms',[]); if(Array.isArray(dms)){const nd=dms.filter((x)=>x.user!==cu && x.other!==cu && !(String(x.id||'').includes(cu))); if(nd.length!==dms.length) await chatPut('chat_dms',nd);}}catch{}
+        try{let inv=await chatGet('dm_invites',[]); if(Array.isArray(inv)){const ni=inv.filter((x)=>x.from!==cu && x.to!==cu); if(ni.length!==inv.length) await chatPut('dm_invites',ni);}}catch{}
+      }catch{}
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/pay-later' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username,payLater}=await request.json();
       const cu=String(username||'').trim();
@@ -350,7 +608,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/blacklist' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username, ip}=await request.json();
       const cu=String(username||'').trim();
@@ -369,11 +627,25 @@ function blockedHost(host){
       let bUsers=rawB?JSON.parse(rawB):[];
       if(cu && !bUsers.includes(cu)) bUsers.push(cu);
       if(kv) await kv.put('blacklist_users', JSON.stringify(bUsers));
+      try{
+        if(env.batprox) try{await env.batprox.prepare('DELETE FROM presence WHERE username=?').bind(cu).run();}catch{}
+        try{const r=kv?await kv.get('presence'):null; if(r){const m=JSON.parse(r); if(m[cu]){delete m[cu]; if(kv) await kv.put('presence', JSON.stringify(m));}}}catch{}
+        try{const a=await chatGet('chat_messages',[]); const f=a.filter((x)=>x.user!==cu); if(f.length!==a.length) await chatPut('chat_messages',f);}catch{}
+        try{const m=await chatGet('chat_names',{}); if(m[cu]){delete m[cu]; await chatPut('chat_names',m);}}catch{}
+        try{const m=await chatGet('chat_profiles',{}); if(m[cu]){delete m[cu]; await chatPut('chat_profiles',m);}}catch{}
+        try{const m=await chatGet('chat_typing',{}); let ch=false; if(m[cu]){delete m[cu]; ch=true;} for(const k of Object.keys(m)){ if(Array.isArray(m[k])){ const nf=m[k].filter((v)=>v!==cu); if(nf.length!==m[k].length){m[k]=nf; ch=true;}}} if(ch) await chatPut('chat_typing',m);}catch{}
+        try{const r=kv?await kv.get('gamestats'):null; if(r){const m=JSON.parse(r); if(m[cu]){delete m[cu]; if(kv) await kv.put('gamestats', JSON.stringify(m));}}}catch{}
+        try{if(kv) await kv.put('recentgames_'+cu, JSON.stringify([]));}catch{}
+        try{if(kv) await kv.put('notes_'+cu, JSON.stringify([]));}catch{}
+        try{const rms=await chatGet('chat_rooms',[]); let ch=false; if(Array.isArray(rms)){for(const rm of rms){ if(Array.isArray(rm.members)){ const nf=rm.members.filter((x)=>x!==cu); if(nf.length!==rm.members.length){rm.members=nf; ch=true;}} if(rm.owner===cu) rm.owner='';} if(ch) await chatPut('chat_rooms',rms);}}catch{}
+        try{let dms=await chatGet('chat_dms',[]); if(Array.isArray(dms)){const nd=dms.filter((x)=>x.user!==cu && x.other!==cu && !(String(x.id||'').includes(cu))); if(nd.length!==dms.length) await chatPut('chat_dms',nd);}}catch{}
+        try{let inv=await chatGet('dm_invites',[]); if(Array.isArray(inv)){const ni=inv.filter((x)=>x.from!==cu && x.to!==cu); if(ni.length!==inv.length) await chatPut('dm_invites',ni);}}catch{}
+      }catch{}
       return new Response(JSON.stringify({success:true, ip:targetIp}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/revoke-key' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username,newCode}=await request.json();
       const cu=String(username||'').trim(), nc=String(newCode||'').trim();
@@ -387,25 +659,25 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/users' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('users'):null;
     const users=raw?JSON.parse(raw):[];
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/admin/feedbacks' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('feedbacks'):null;
     const feedbacks=raw?JSON.parse(raw):[];
     return new Response(JSON.stringify({feedbacks}),{headers:h});
   }
   if(url.pathname==='/api/status-overrides' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('status_overrides'):null;
     const overrides=raw?JSON.parse(raw):[];
     return new Response(JSON.stringify({overrides}),{headers:h});
   }
   if(url.pathname==='/api/admin/status' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {name,color}=await request.json();
       const raw=kv?await kv.get('status_overrides'):null;
@@ -416,16 +688,16 @@ function blockedHost(host){
       else { const idx=arr.findIndex(x=>x.name===cleanName); if(idx>=0) arr[idx].color=cleanColor; else arr.push({name:cleanName,color:cleanColor}); }
       if(kv) await kv.put('status_overrides', JSON.stringify(arr));
       return new Response(JSON.stringify({success:true, name:cleanName, color:cleanColor}),{headers:h});
-    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:cors(new Headers())});}
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:cors(new Headers(), request.headers.get('Origin'))});}
   }
   if(url.pathname==='/api/changelogs' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('changelogs'):null;
     const changelogs=raw?JSON.parse(raw):[{id:1, version:'beta v1.0', title:'Website release - beta v1.0', description:'Bat Prox live on stealthybat.org', created_at:new Date().toISOString()}];
     return new Response(JSON.stringify({changelogs}),{headers:h});
   }
   if(url.pathname==='/api/changelogs' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {version,title,description,announce}=await request.json();
       const raw=kv?await kv.get('changelogs'):null;
@@ -437,7 +709,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname.startsWith('/api/changelogs/') && request.method==='DELETE'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     const id=parseInt(url.pathname.split('/').pop(),10);
     const raw=kv?await kv.get('changelogs'):null;
     let arr=raw?JSON.parse(raw):[];
@@ -446,7 +718,7 @@ function blockedHost(host){
     return new Response(JSON.stringify({success:true}),{headers:h});
   }
   if(url.pathname.startsWith('/api/suggestions/') && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const userId=decodeURIComponent(url.pathname.split('/').pop()||'');
     const raw=kv?await kv.get('feedbacks'):null;
     const all=raw?JSON.parse(raw):[];
@@ -456,7 +728,7 @@ function blockedHost(host){
     return new Response(JSON.stringify({notifications:filtered}),{headers:h});
   }
   if(url.pathname==='/api/notifications/seen' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {userIdentifier,ids}=await request.json();
       const u=String(userIdentifier||'').trim();
@@ -469,7 +741,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if((url.pathname==='/api/admin/approve-feedback' || url.pathname==='/api/admin/decline-feedback') && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {suggestionId}=await request.json();
       const raw=kv?await kv.get('feedbacks'):null;
@@ -479,9 +751,9 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
-  if(url.pathname==='/api/sites' && request.method==='GET'){ const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store'); const raw=kv?await kv.get('sites'):null; const sites=raw?JSON.parse(raw):[]; return new Response(JSON.stringify({sites}),{headers:h}); }
+  if(url.pathname==='/api/sites' && request.method==='GET'){ const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store'); const raw=kv?await kv.get('sites'):null; const sites=raw?JSON.parse(raw):[]; return new Response(JSON.stringify({sites}),{headers:h}); }
   if(url.pathname==='/api/sites' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {name,html,owner}=await request.json();
       const raw=kv?await kv.get('sites'):null;
@@ -494,7 +766,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/user/settings' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const auth=request.headers.get('Authorization')||'';
     const token=auth.split(' ')[1]||'';
     if(!token) return new Response(JSON.stringify({error:'Access token required'}),{status:401,headers:h});
@@ -506,7 +778,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({settings:null}),{headers:h});}
   }
   if(url.pathname==='/api/user/settings' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const auth=request.headers.get('Authorization')||'';
     const token=auth.split(' ')[1]||'';
     if(!token) return new Response(JSON.stringify({error:'Access token required'}),{status:401,headers:h});
@@ -519,7 +791,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400,headers:h});}
   }
   if(url.pathname==='/api/presence' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {username,visible,game,sessionStart}=await request.json();
       const cu=String(username||'').trim().slice(0,20);
@@ -549,7 +821,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/presence' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const now=Date.now();
     let rows=[];
     if(env.batprox){
@@ -566,7 +838,7 @@ function blockedHost(host){
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {username,game,seconds}=await request.json();
       const cu=String(username||'').trim().slice(0,20), g=String(game||'').trim().slice(0,80);
@@ -581,7 +853,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/gamestats' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('gamestats'):null;
     const map=raw?JSON.parse(raw):{};
     const user=url.searchParams.get('user');
@@ -589,7 +861,7 @@ function blockedHost(host){
     return new Response(JSON.stringify({stats:map}),{headers:h});
   }
   if(url.pathname==='/api/recentgames' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {username,games}=await request.json();
       const cu=String(username||'').trim().slice(0,20);
@@ -600,17 +872,17 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/recentgames' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
     const raw=(user&&kv)?await kv.get('recentgames_'+user):null;
     return new Response(JSON.stringify({games:raw?JSON.parse(raw):[]}),{headers:h});
   }
   if(url.pathname==='/api/generate' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     return new Response(JSON.stringify({service:'MocahAI inference', status:'online', model:'gemini-2.5-flash', usage:'POST {model, prompt, images} here'}),{headers:h});
   }
   if(url.pathname==='/api/generate' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {model,prompt,images,debug}=await request.json();
       const q=String(prompt||'').slice(0,4000);
@@ -655,7 +927,7 @@ function blockedHost(host){
   const chatGet=async (k, fb)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):fb; }catch{ return fb; } };
   const chatPut=async (k, v)=>{ if(kv) await kv.put(k, JSON.stringify(v)); };
   if(url.pathname==='/api/chat/name' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {username,display}=await request.json();
       const cu=String(username||'').trim().slice(0,20), d=String(display||'').trim().slice(0,24);
@@ -667,7 +939,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/profile' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {username,display,bio,pfp}=await request.json();
       const cu=String(username||'').trim().slice(0,20);
@@ -682,27 +954,27 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/profiles' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const map=await chatGet('chat_profiles',{});
     const out={};
     for(const k of Object.keys(map)){ out[k]={display:map[k].display||k, bio:map[k].bio||'', pfp:map[k].pfp||''}; }
     return new Response(JSON.stringify({profiles:out}),{headers:h});
   }
   if(url.pathname==='/api/chat/name' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
     const map=await chatGet('chat_names',{});
     if(user) return new Response(JSON.stringify({display:map[user]||user}),{headers:h});
     return new Response(JSON.stringify({names:map}),{headers:h});
   }
   if(url.pathname==='/api/chat/messages' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const room=String(url.searchParams.get('room')||'community').slice(0,80);
     const all=await chatGet('chat_messages',[]);
     return new Response(JSON.stringify({messages:all.filter(m=>m.room===room).slice(-60)}),{headers:h});
   }
   if(url.pathname==='/api/chat/messages/delete' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {id,user}=await request.json();
       const mid=Number(id);
@@ -721,7 +993,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/messages' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {room,user,text,replyTo}=await request.json();
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
@@ -746,7 +1018,7 @@ function blockedHost(host){
     }catch(e){ return new Response(JSON.stringify({error:'DBG:'+((e&&e.message)||e)}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/messages/clear' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {room,user}=await request.json();
       const cu=String(user||'').trim();
@@ -761,14 +1033,14 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/rooms' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
     const rooms=await chatGet('chat_rooms',{});
     const mine=Object.values(rooms).filter(r=>(r.members||[]).includes(user)).map(r=>({id:r.id, owner:r.owner, members:r.members, created:r.created}));
     return new Response(JSON.stringify({rooms:mine}),{headers:h});
   }
   if(url.pathname==='/api/chat/rooms' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {owner,members}=await request.json();
       const cu=String(owner||'').trim().slice(0,20);
@@ -782,7 +1054,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/rooms/leave' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {roomId,user}=await request.json();
       const rooms=await chatGet('chat_rooms',{});
@@ -796,7 +1068,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/rooms/delete' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {roomId,user}=await request.json();
       const rooms=await chatGet('chat_rooms',{});
@@ -813,7 +1085,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/rooms/members' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {roomId,user,members,remove}=await request.json();
       const rooms=await chatGet('chat_rooms',{});
@@ -839,7 +1111,7 @@ function blockedHost(host){
   }
   const gcCode=()=> 'gc-'+Array.from({length:6},()=>'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*31)]).join('');
   if(url.pathname==='/api/chat/invites' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {roomId,user,maxUses,hours}=await request.json();
       const rooms=await chatGet('chat_rooms',{});
@@ -853,7 +1125,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/join' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {code,user}=await request.json();
       const c=String(code||'').trim();
@@ -877,7 +1149,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/invites/revoke' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {roomId,user}=await request.json();
       const rooms=await chatGet('chat_rooms',{});
@@ -890,7 +1162,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/dm-invites' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {from,to,accept,id}=await request.json();
       let arr=await chatGet('dm_invites',[]);
@@ -921,7 +1193,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/typing' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {room,user}=await request.json();
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
@@ -943,7 +1215,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/typing' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const rm=String(url.searchParams.get('room')||'community').slice(0,80);
     const now=Date.now();
     let users=[];
@@ -959,13 +1231,13 @@ function blockedHost(host){
     return new Response(JSON.stringify({typing:users}),{headers:h});
   }
   if(url.pathname==='/api/notes' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
     const raw=(user&&kv)?await kv.get('notes_'+user):null;
     return new Response(JSON.stringify({notes:raw?JSON.parse(raw):[]}),{headers:h});
   }
   if(url.pathname==='/api/notes' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {user,notes}=await request.json();
       const cu=String(user||'').trim().slice(0,20);
@@ -976,7 +1248,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/feedback-response' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {feedbackId,user,fixed}=await request.json();
       const fid=Number(feedbackId);
@@ -994,12 +1266,12 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/feedback-responses' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('feedback_responses'):null;
     return new Response(JSON.stringify({responses:raw?JSON.parse(raw):{}}),{headers:h});
   }
   if(url.pathname==='/api/login-vote' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {user,working}=await request.json();
       const cu=String(user||'').trim().slice(0,20);
@@ -1013,7 +1285,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/login-report' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {user,error}=await request.json();
       const cu=String(user||'').trim().slice(0,20);
@@ -1027,7 +1299,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/pw-reset' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
       const {user}=await request.json();
       const cu=String(user||'').trim().slice(0,20);
@@ -1040,13 +1312,13 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/admin/login-problems' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const gv=async (k)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):[]; }catch{ return []; } };
     const [votes,reports,resets]=await Promise.all([gv('login_votes'),gv('login_reports'),gv('pw_resets')]);
     return new Response(JSON.stringify({votes, reports, resets}),{headers:h});
   }
   if(url.pathname==='/api/admin/reset-feedbacks' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       if(kv) await kv.put('feedbacks', JSON.stringify([]));
       if(kv) await kv.put('feedback_responses', JSON.stringify({}));
@@ -1054,7 +1326,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/dms' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
     const all=await chatGet('chat_messages',[]);
     const inv=await chatGet('dm_invites',[]);
@@ -1065,13 +1337,13 @@ function blockedHost(host){
     return new Response(JSON.stringify({rooms}),{headers:h});
   }
   if(url.pathname==='/api/chat/dm-invites' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const user=url.searchParams.get('user')||'';
     const arr=await chatGet('dm_invites',[]);
     return new Response(JSON.stringify({invites:arr.filter(x=>x.to===user&&x.status==='pending').slice(-10)}),{headers:h});
   }
   if(url.pathname==='/api/admin/set-rank' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {username,rank}=await request.json();
       const cu=String(username||'').trim();
@@ -1086,26 +1358,26 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/users' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('users'):null;
     const arr=raw?JSON.parse(raw):[];
     return new Response(JSON.stringify({users:arr.map(x=>({username:x.username, rank:x.rank||'user'}))}),{headers:h});
   }
   if(url.pathname==='/api/feedbacks' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('feedbacks'):null;
     const feedbacks=raw?JSON.parse(raw):[];
     return new Response(JSON.stringify({feedbacks}),{headers:h});
   }
   if(url.pathname==='/api/feedback-comments' && request.method==='GET'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('feedback_comments'):null;
     const all=raw?JSON.parse(raw):[];
     const fid=url.searchParams.get('feedbackId');
     return new Response(JSON.stringify({comments:fid?all.filter(x=>String(x.feedbackId)===String(fid)):all}),{headers:h});
   }
   if(url.pathname==='/api/feedback-comments' && request.method==='POST'){
-    const h=cors(new Headers()); h.set('Content-Type','application/json');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
     try{
       const {feedbackId,user,text}=await request.json();
       const t=String(text||'').trim().slice(0,500);
@@ -1119,7 +1391,7 @@ function blockedHost(host){
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname.startsWith('/api/')){
-    const h=cors(new Headers()); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     return new Response(JSON.stringify({error:'Endpoint not implemented', path:url.pathname}),{status:404, headers:h});
   }
   if(url.pathname.startsWith('/wisp')){
@@ -1130,9 +1402,9 @@ function blockedHost(host){
         const headers=new Headers(request.headers);
         headers.set('Host','wisp.mercurywork.shop');
         return await fetch(upstream, {headers, method:request.method});
-      }catch(e){ return new Response('Wisp upstream failed', {status:502, headers:cors(new Headers())});}
+      }catch(e){ return new Response('Wisp upstream failed', {status:502, headers:cors(new Headers(), request.headers.get('Origin'))});}
     }
-    return new Response('Wisp requires websocket', {status:426, headers:cors(new Headers())});
+    return new Response('Wisp requires websocket', {status:426, headers:cors(new Headers(), request.headers.get('Origin'))});
   }
   return new Response('Not found',{status:404});
  }
