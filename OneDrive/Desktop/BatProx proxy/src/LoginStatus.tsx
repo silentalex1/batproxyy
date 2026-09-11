@@ -220,14 +220,12 @@ export default function LoginStatus() {
       <div className="relative z-10 w-full max-w-3xl bg-black/55 border border-white/10 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-2xl mt-5">
         <h2 className="text-sm font-bold text-white mb-2">is the login working for you?</h2>
         <input value={reportUser} onChange={e => setReportUser(e.target.value)} placeholder="your username" className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/60 text-sm mb-3" />
-        {!voted ? (
-          <div className="flex gap-2.5">
-            <button onClick={() => castVote(true)} className="flex-1 py-2.5 rounded-xl bg-green-600/20 hover:bg-green-600/40 text-green-200 border border-green-500/30 text-sm font-semibold transition-all">yes</button>
-            <button onClick={() => { castVote(false); setShowReport(true); }} className="flex-1 py-2.5 rounded-xl bg-red-600/20 hover:bg-red-600/40 text-red-200 border border-red-500/30 text-sm font-semibold transition-all">no</button>
-          </div>
-        ) : (
-          <p className="text-xs text-white/50">Thanks — your vote ({voted}) was recorded.</p>
-        )}
+        <div className="flex gap-2.5">
+          <button onClick={() => { castVote(true); setShowReport(false); }} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border ${voted === 'yes' ? 'bg-green-500/35 text-white border-green-400/70 shadow-[0_0_18px_rgba(74,222,128,0.35)]' : 'bg-green-600/20 hover:bg-green-600/40 text-green-200 border-green-500/30'}`}>yes{voted === 'yes' ? ' ✓' : ''}</button>
+          <button onClick={() => { castVote(false); setShowReport(true); }} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border ${voted === 'no' ? 'bg-red-500/35 text-white border-red-400/70 shadow-[0_0_18px_rgba(239,68,68,0.35)]' : 'bg-red-600/20 hover:bg-red-600/40 text-red-200 border-red-500/30'}`}>no{voted === 'no' ? ' ✓' : ''}</button>
+        </div>
+        {voted && <p className="text-xs text-white/45 mt-2.5">Thanks — your vote ({voted}) was recorded. You can change it any time.</p>}
+        {!showReport && <button onClick={() => setShowReport(true)} className="text-[11px] text-orange-300/70 hover:text-orange-200 underline mt-2.5">report a login error</button>}
         {showReport && (
           <div className="mt-4">
             <label className="block text-xs text-white/50 mb-1.5">Enter the login report error so i can fix it please:</label>

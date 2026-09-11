@@ -33,6 +33,16 @@ interface UserAccount {
   rank?: string;
 }
 
+const codeAgo = (ts: number) => {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
 export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
@@ -69,7 +79,9 @@ export default function AdminPanel() {
   const [codeStage, setCodeStage] = useState('');
   const [codeError, setCodeError] = useState('');
   const [codePc, setCodePc] = useState(false);
+  const [codeHost, setCodeHost] = useState('');
   const [codeJobs, setCodeJobs] = useState<CodeJob[]>([]);
+  const [codeOpen, setCodeOpen] = useState('');
 
   const getToken = () => localStorage.getItem('batprox-token') || '';
 
@@ -313,7 +325,7 @@ export default function AdminPanel() {
     try {
       const response = await fetch('/api/admin/code-request', { cache: 'no-store', headers: { 'Authorization': `Bearer ${getToken()}` } });
       const data = await response.json();
-      if (data.success) { setCodeJobs(data.jobs || []); setCodePc(!!data.pc); }
+      if (data.success) { setCodeJobs(data.jobs || []); setCodePc(!!data.pc); setCodeHost(data.pcHost || ''); }
     } catch {}
   };
 
@@ -342,14 +354,21 @@ export default function AdminPanel() {
     setCodeBusy(true);
     setCodeError('');
     setCodeOut('');
-    setCodeStage(codePc ? 'Sending to your PC...' : 'Sending...');
+    setCodeStage('Sending to your PC...');
     try {
       const response = await fetch('/api/admin/code-request', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ provider: codeProvider, prompt }) });
       const data = await response.json();
-      if (!data.success) { setCodeError(data.error || 'Request failed.'); setCodeBusy(false); setCodeStage(''); loadCodeJobs(); return; }
+      if (!data.success) {
+        setCodeError(data.error || 'Request failed.');
+        if (data.offline) setCodePc(false);
+        setCodeBusy(false);
+        setCodeStage('');
+        loadCodeJobs();
+        return;
+      }
       setCodePrompt('');
+      setCodeOpen(data.id);
       loadCodeJobs();
-      if (data.text) { setCodeOut(data.text); setCodeBusy(false); setCodeStage(''); return; }
       setCodeStage('Waiting for your PC to pick it up...');
       pollCodeJob(data.id);
     } catch {
@@ -362,7 +381,7 @@ export default function AdminPanel() {
   useEffect(() => {
     if (!isAuthed || tab !== 'coderequest') return;
     loadCodeJobs();
-    const id = setInterval(loadCodeJobs, 10000);
+    const id = setInterval(loadCodeJobs, 5000);
     return () => clearInterval(id);
   }, [isAuthed, tab]);
 
@@ -594,11 +613,11 @@ export default function AdminPanel() {
                 <div className="flex items-center justify-between gap-4 mb-1">
                   <h2 className="text-lg font-bold text-white">Code request</h2>
                   <span className={`text-[11px] px-3 py-1 rounded-full border flex items-center gap-1.5 ${codePc ? 'bg-green-500/10 text-green-300 border-green-500/30' : 'bg-white/5 text-white/40 border-white/10'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${codePc ? 'bg-green-400' : 'bg-white/30'}`} />
-                    {codePc ? 'your pc is connected' : 'your pc is offline'}
+                    <span className={`w-1.5 h-1.5 rounded-full ${codePc ? 'bg-green-400 animate-pulse' : 'bg-white/30'}`} />
+                    {codePc ? `your pc is connected${codeHost ? ` (${codeHost})` : ''}` : 'your pc is offline'}
                   </span>
                 </div>
-                <p className="text-gray-500 text-sm mb-5">Send a request to your PC and update the website from anywhere. Enter sends it, shift+enter makes a new line.</p>
+                <p className="text-gray-500 text-sm mb-5">Runs on your own Claude account through the bridge on your PC. Enter sends it, shift+enter makes a new line.</p>
                 <div className="grid lg:grid-cols-[1fr_260px] gap-4 items-start">
                   <div className="space-y-4">
                     <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md">
@@ -636,21 +655,44 @@ export default function AdminPanel() {
                       </div>
                     )}
                   </div>
-                  <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md lg:sticky lg:top-0">
-                    <p className="text-xs font-bold text-white mb-1">recent requests</p>
-                    <p className="text-[10px] text-white/30 mb-3">last 12 sent from this panel</p>
-                    <div className="space-y-2 max-h-[30rem] overflow-y-auto">
-                      {codeJobs.length === 0 && <p className="text-[11px] text-white/30">Nothing sent yet.</p>}
-                      {codeJobs.map(job => (
-                        <button key={job.id} onClick={() => { setCodeOut(job.reply || ''); setCodeError(''); }} className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/20 transition-colors">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${job.status === 'done' ? 'bg-green-400' : job.status === 'error' ? 'bg-red-400' : 'bg-yellow-400'}`} />
-                            <span className="text-[10px] text-white/40 uppercase tracking-wide">{job.target === 'pc' ? 'pc' : 'api'} · {job.status}</span>
-                          </div>
-                          <p className="text-[11px] text-white/70 line-clamp-2 break-words">{job.prompt}</p>
-                          <p className="text-[10px] text-white/25 mt-0.5">{new Date(job.ts).toLocaleString()}</p>
-                        </button>
-                      ))}
+                  <div className="bg-black/40 border border-white/10 rounded-xl backdrop-blur-md lg:sticky lg:top-0 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-white/[0.07] flex items-center gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-white leading-tight">recent requests</p>
+                        <p className="text-[10px] text-white/30">last 12 from this panel</p>
+                      </div>
+                      {codeJobs.length > 0 && <span className="ml-auto text-[10px] text-white/35 bg-white/[0.06] border border-white/10 px-2 py-0.5 rounded-full">{codeJobs.length}</span>}
+                    </div>
+                    <div className="p-2 space-y-1.5 max-h-[32rem] overflow-y-auto">
+                      {codeJobs.length === 0 && (
+                        <div className="px-3 py-8 text-center">
+                          <p className="text-[11px] text-white/30">Nothing sent yet.</p>
+                          <p className="text-[10px] text-white/20 mt-1">Your requests will show up here.</p>
+                        </div>
+                      )}
+                      {codeJobs.map(job => {
+                        const tone = job.status === 'done'
+                          ? { dot: 'bg-green-400', text: 'text-green-300', edge: 'border-l-green-400/70', chip: 'bg-green-500/10 text-green-300 border-green-500/25' }
+                          : job.status === 'error'
+                            ? { dot: 'bg-red-400', text: 'text-red-300', edge: 'border-l-red-400/70', chip: 'bg-red-500/10 text-red-300 border-red-500/25' }
+                            : { dot: 'bg-amber-400 animate-pulse', text: 'text-amber-300', edge: 'border-l-amber-400/70', chip: 'bg-amber-500/10 text-amber-300 border-amber-500/25' };
+                        const open = codeOpen === job.id;
+                        return (
+                          <button
+                            key={job.id}
+                            onClick={() => { setCodeOpen(job.id); setCodeOut(job.reply || ''); setCodeError(''); }}
+                            className={`w-full text-left pl-3 pr-2.5 py-2.5 rounded-lg border border-l-2 transition-all ${tone.edge} ${open ? 'bg-white/[0.09] border-white/25' : 'bg-white/[0.035] border-white/[0.07] hover:bg-white/[0.06] hover:border-white/20'}`}
+                          >
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} />
+                              <span className={`text-[9px] font-bold uppercase tracking-widest ${tone.text}`}>{job.status === 'pending' ? 'queued' : job.status}</span>
+                              <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded border ${tone.chip}`}>{job.provider === 'copilot' ? 'copilot' : 'claude'}</span>
+                            </div>
+                            <p className="text-[11.5px] text-white/80 leading-snug line-clamp-2 break-words">{job.prompt}</p>
+                            <p className="text-[10px] text-white/25 mt-1.5">{codeAgo(job.ts)}</p>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

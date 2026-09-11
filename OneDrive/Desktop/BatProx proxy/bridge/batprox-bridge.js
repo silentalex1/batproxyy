@@ -104,11 +104,27 @@ async function tick() {
   }
 }
 
+let closing = false;
+
+async function goOffline() {
+  if (closing) return;
+  closing = true;
+  try {
+    await fetch(API + '/api/bridge/ping', { method: 'POST', headers, body: JSON.stringify({ down: true }) });
+    console.log('[bridge] marked offline');
+  } catch {}
+  process.exit(0);
+}
+
+process.on('SIGINT', goOffline);
+process.on('SIGTERM', goOffline);
+process.on('SIGHUP', goOffline);
+
 (async () => {
   console.log('[bridge] ' + HOST + ' -> ' + API);
   console.log('[bridge] repo: ' + REPO);
   console.log('[bridge] auto push: ' + (PUSH ? 'on (' + BRANCH + ')' : 'off'));
-  for (;;) {
+  while (!closing) {
     await tick();
     await new Promise(r => setTimeout(r, POLL));
   }

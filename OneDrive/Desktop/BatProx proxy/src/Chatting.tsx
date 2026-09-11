@@ -14,6 +14,8 @@ interface DmInvite { id: number; from: string; to: string; status: string }
 type Room = { kind: 'community' | 'dm' | 'gc'; id: string; label: string };
 
 const dmId = (a: string, b: string) => 'dm:' + [a, b].sort().join(':');
+const cacheKey = (roomId: string) => 'bp-chat-cache:' + roomId;
+const MENTION = /@[\w$%.-]+/g;
 const avatarColor = (name: string) => {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
@@ -59,9 +61,18 @@ export default function Chatting() {
   const [shiftDown, setShiftDown] = useState(false);
   const [hoverMsg, setHoverMsg] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const [mentionStart, setMentionStart] = useState(-1);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const stickBottom = useRef(true);
+  const highlightOnce = useRef('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const typingAt = useRef(0);
+  const roomRef = useRef('community');
+  const pendingCaret = useRef<number | null>(null);
   useLowPower();
 
   useEffect(() => {
@@ -95,10 +106,14 @@ export default function Chatting() {
       }
       return;
     }
+    const key = hid + ':' + hroom;
+    if (highlightOnce.current === key) return;
     const t = setTimeout(() => {
       try {
         const el = document.querySelector(`[data-mid="${hid}"]`);
         if (el) {
+          highlightOnce.current = key;
+          stickBottom.current = false;
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           const id = parseInt(hid, 10);
           if (!isNaN(id)) setSelected(id);
@@ -137,10 +152,36 @@ export default function Chatting() {
 
   const loadMessages = useCallback(async (roomId: string) => {
     try {
-      const r = await fetch('/api/chat/messages?room=' + encodeURIComponent(roomId));
-      if (r.ok) { const d = await r.json(); setMessages(d.messages || []); }
+      const r = await fetch('/api/chat/messages?limit=250&room=' + encodeURIComponent(roomId));
+      if (!r.ok) return;
+      const d = await r.json();
+      const next: Msg[] = d.messages || [];
+      if (roomRef.current !== roomId) return;
+      try { localStorage.setItem(cacheKey(roomId), JSON.stringify(next.slice(-250))); } catch {}
+      setMessages(prev => {
+        if (prev.length === next.length) {
+          let same = true;
+          for (let i = 0; i < prev.length; i++) {
+            if (prev[i].id !== next[i].id || prev[i].text !== next[i].text) { same = false; break; }
+          }
+          if (same) return prev;
+        }
+        return next;
+      });
     } catch {}
   }, []);
+
+  useEffect(() => {
+    roomRef.current = room.id;
+    let cached: Msg[] = [];
+    try {
+      const raw = localStorage.getItem(cacheKey(room.id));
+      const arr = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(arr)) cached = arr;
+    } catch {}
+    setMessages(cached);
+    stickBottom.current = true;
+  }, [room.id]);
 
   const loadLists = useCallback(async () => {
     if (!me) return;
@@ -180,9 +221,9 @@ export default function Chatting() {
       } catch {}
     };
     loadTyping();
-    const a = setInterval(() => { loadMessages(room.id); loadTyping(); }, 2000);
-    const b = setInterval(loadLists, 15000);
-    const c = setInterval(checkDmInvites, 8000);
+    const a = setInterval(() => { loadMessages(room.id); loadTyping(); }, 900);
+    const b = setInterval(loadLists, 4000);
+    const c = setInterval(checkDmInvites, 4000);
     return () => { clearInterval(a); clearInterval(b); clearInterval(c); };
   }, [me, gate, room.id, loadMessages, loadLists, checkDmInvites]);
 
@@ -208,17 +249,38 @@ export default function Chatting() {
     } catch {}
   }, []);
 
-  useEffect(() => { if (me && !gate) { loadNotes(); loadProfiles(); } }, [me, gate, loadNotes, loadProfiles]);
+  useEffect(() => {
+    if (!me || gate) return;
+    loadNotes();
+    loadProfiles();
+    const id = setInterval(loadProfiles, 25000);
+    return () => clearInterval(id);
+  }, [me, gate, loadNotes, loadProfiles]);
 
   const beatTyping = () => {
     if (!me) return;
     const now = Date.now();
-    if (now - typingAt.current < 3000) return;
+    if (now - typingAt.current < 900) return;
     typingAt.current = now;
     fetch('/api/chat/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me }) }).catch(() => {});
   };
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    const pos = pendingCaret.current;
+    if (pos === null) return;
+    pendingCaret.current = null;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  }, [text]);
+
+  useEffect(() => {
+    if (!stickBottom.current) return;
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    else bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+  }, [messages]);
 
   useEffect(() => {
     const dn = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(true); };
@@ -269,6 +331,9 @@ export default function Chatting() {
     if (!t || !me) return;
     setText('');
     setReplyTo(null);
+    setMentionOpen(false);
+    setMentionStart(-1);
+    stickBottom.current = true;
     try {
       await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo }) });
       loadMessages(room.id);
@@ -281,7 +346,7 @@ export default function Chatting() {
     inputRef.current?.focus();
   };
 
-  const openRoom = (r: Room) => { setRoom(r); loadMessages(r.id); };
+  const openRoom = (r: Room) => { stickBottom.current = true; setRoom(r); loadMessages(r.id); };
 
   const openDm = (other: string) => {
     if (!me || other === me) return;
@@ -376,7 +441,57 @@ export default function Chatting() {
   };
 
   const isOnline = (u: string) => online.some(o => o.username === u && o.active);
-  const dispOf = (u: string) => names[u] || u;
+  const dispOf = (u: string) => profiles[u]?.display || names[u] || u;
+
+  const avatarEl = (user: string, cls: string, extra?: string) => {
+    const src = profiles[user]?.pfp || '';
+    if (src) return <img src={src} alt="" className={`${cls} rounded-full object-cover shrink-0 ${extra || ''}`} />;
+    return <span className={`${cls} rounded-full flex items-center justify-center font-bold shrink-0 ${extra || ''}`} style={{ background: avatarColor(user) }}>{dispOf(user).charAt(0).toUpperCase()}</span>;
+  };
+
+  const activeMembers = online.filter(o => o.active);
+  const mentionList = mentionOpen
+    ? activeMembers.filter(o => {
+        if (!mentionQuery) return true;
+        return o.username.toLowerCase().includes(mentionQuery) || dispOf(o.username).toLowerCase().includes(mentionQuery);
+      }).slice(0, 6)
+    : [];
+
+  const syncMention = (v: string, caret: number) => {
+    const upto = v.slice(0, caret);
+    const m = upto.match(/(?:^|\s)@([\w$%.-]*)$/);
+    if (!m) { setMentionOpen(false); setMentionStart(-1); return; }
+    setMentionOpen(true);
+    setMentionQuery(m[1].toLowerCase());
+    setMentionStart(caret - m[1].length - 1);
+    setMentionIdx(0);
+  };
+
+  const applyMention = (username: string) => {
+    const el = inputRef.current;
+    const caret = el ? el.selectionStart : text.length;
+    const at = mentionStart >= 0 ? mentionStart : caret;
+    const head = text.slice(0, at) + '@' + username + ' ';
+    pendingCaret.current = head.length;
+    setText(head + text.slice(caret));
+    setMentionOpen(false);
+    setMentionStart(-1);
+  };
+
+  const highlightParts = (t: string) => {
+    const out: React.ReactNode[] = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+    MENTION.lastIndex = 0;
+    while ((m = MENTION.exec(t))) {
+      if (m.index > last) out.push(<span key={last}>{t.slice(last, m.index)}</span>);
+      out.push(<span key={m.index} className="text-blue-400 font-medium bg-blue-500/15 rounded">{m[0]}</span>);
+      last = m.index + m[0].length;
+    }
+    if (last < t.length) out.push(<span key={last + 'e'}>{t.slice(last)}</span>);
+    if (t.endsWith('\n')) out.push(<span key="nl">{'​'}</span>);
+    return out;
+  };
 
   const renderText = (t: string) => {
     const parts = t.split(/(@[\w$%]+)/g);
@@ -427,7 +542,7 @@ export default function Chatting() {
               {dms.map(d => (
                 <button key={d.id} onClick={() => openDm(d.other)} className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-all ${room.id === d.id ? 'bg-white/[0.08] text-white' : 'text-white/60 hover:bg-white/[0.04]'}`}>
                   <span className="relative shrink-0">
-                    <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: avatarColor(d.other) }}>{dispOf(d.other).charAt(0).toUpperCase()}</span>
+                    {avatarEl(d.other, 'w-8 h-8 text-sm')}
                     {isOnline(d.other) && <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-black" />}
                   </span>
                   <span className="font-medium truncate">{dispOf(d.other)}</span>
@@ -454,7 +569,7 @@ export default function Chatting() {
           <div className="flex-1 flex flex-col bg-black/55 border border-white/10 rounded-2xl backdrop-blur-md overflow-hidden min-w-0">
             <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center gap-3">
               {room.kind !== 'community' && (
-                <button onClick={() => setCard({ username: dmOther || '' })} className="w-9 h-9 rounded-full flex items-center justify-center font-bold shrink-0" style={{ background: avatarColor(room.label) }}>{dispOf(room.label).charAt(0).toUpperCase()}</button>
+                <button onClick={() => setCard({ username: dmOther || '' })} className="shrink-0">{avatarEl(room.label, 'w-9 h-9 text-sm')}</button>
               )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold truncate">{roomLabel(room)}</p>
@@ -463,7 +578,7 @@ export default function Chatting() {
               </div>
               {room.kind === 'gc' && gcNow && <button onClick={() => setMenuGc(gcNow)} className="text-white/40 hover:text-white px-2 text-lg">···</button>}
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1 min-h-0">
+            <div ref={listRef} onScroll={() => { const el = listRef.current; if (!el) return; stickBottom.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 96; }} className="flex-1 overflow-y-auto px-4 py-4 space-y-1 min-h-0">
               {messages.length === 0 && <p className="text-white/25 text-xs text-center py-10">No messages yet. Say hi.</p>}
               {messages.map((m, i) => {
                 if (m.sys) return <p key={m.id} className="text-center text-[11px] text-white/35 py-2">{m.text}</p>;
@@ -501,8 +616,8 @@ export default function Chatting() {
                       </button>
                     )}
                     {!grouped ? (
-                      <button onClick={(e) => { e.stopPropagation(); setCard({ username: m.user }); }} className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 mt-0.5" style={{ background: avatarColor(m.user) }}>
-                        {(m.display || m.user).charAt(0).toUpperCase()}
+                      <button onClick={(e) => { e.stopPropagation(); setCard({ username: m.user }); }} className="shrink-0 mt-0.5">
+                        {avatarEl(m.user, 'w-9 h-9 text-sm')}
                       </button>
                     ) : <span className="w-9 shrink-0" />}
                     <div className="min-w-0 flex-1">
@@ -522,8 +637,26 @@ export default function Chatting() {
               })}
               <div ref={bottomRef} />
             </div>
-            {typing.length > 0 && <p className="px-5 pb-1 text-[11px] text-white/40">{typing.join(', ')} is typing..</p>}
-            <form onSubmit={send} className="p-3 border-t border-white/[0.06]">
+            {typing.length > 0 && <p className="px-5 pb-1 text-[11px] text-white/40 animate-pulse">{typing.length > 3 ? 'Others are typing..' : typing.length === 3 ? `${typing[0]}, ${typing[1]} and 1 other is typing..` : typing.length === 2 ? `${typing[0]} and ${typing[1]} are typing..` : `${typing[0]} is typing..`}</p>}
+            <form onSubmit={send} className="relative p-3 border-t border-white/[0.06]">
+              {mentionOpen && mentionList.length > 0 && (
+                <div className="absolute bottom-full left-4 mb-2 w-72 rounded-2xl border border-white/12 bg-[#0b0b10]/95 backdrop-blur-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden z-30">
+                  <p className="px-3.5 py-2 text-[10px] uppercase tracking-widest text-white/30 border-b border-white/[0.06]">active in this chat</p>
+                  <div className="max-h-60 overflow-y-auto py-1">
+                    {mentionList.map((o, i) => (
+                      <button type="button" key={o.username} onMouseEnter={() => setMentionIdx(i)} onClick={() => applyMention(o.username)} className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${i === mentionIdx ? 'bg-blue-500/20' : 'hover:bg-white/[0.05]'}`}>
+                        {avatarEl(o.username, 'w-7 h-7 text-[11px]')}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-semibold text-white truncate">{dispOf(o.username)}{o.username === me ? ' (you)' : ''}</span>
+                          <span className="block text-[10px] text-blue-300/70 truncate">@{o.username}</span>
+                        </span>
+                        <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                  <p className="px-3.5 py-1.5 text-[10px] text-white/25 border-t border-white/[0.06]">↑↓ to pick · enter to insert</p>
+                </div>
+              )}
               {replyTo && (
                 <div className="flex items-center gap-2 mx-1 mb-2 px-3.5 py-2 rounded-xl bg-orange-500/10 border border-orange-400/30 text-xs">
                   <span className="text-white/60 truncate flex-1">replying to: <span className="text-orange-200 font-semibold">{replyTo.user}</span> — {replyTo.text.slice(0, 80)}</span>
@@ -531,7 +664,29 @@ export default function Chatting() {
                 </div>
               )}
               <div className="flex items-end gap-2 bg-white/[0.05] border border-white/10 rounded-3xl pl-5 pr-1.5 py-1.5 focus-within:border-purple-500/50 transition-all">
-                <textarea ref={inputRef} value={text} rows={1} onChange={e => { setText(e.target.value); beatTyping(); }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`} className="flex-1 bg-transparent text-white placeholder-white/30 focus:outline-none text-sm min-w-0 resize-none py-2" maxLength={500} />
+                <div className="relative flex-1 min-w-0">
+                  <div aria-hidden className="absolute inset-0 py-2 text-sm leading-6 whitespace-pre-wrap break-words pointer-events-none overflow-hidden select-none">{highlightParts(text)}</div>
+                  <textarea
+                    ref={inputRef}
+                    value={text}
+                    rows={1}
+                    onChange={e => { setText(e.target.value); beatTyping(); syncMention(e.target.value, e.target.selectionStart); }}
+                    onClick={e => syncMention(text, (e.target as HTMLTextAreaElement).selectionStart)}
+                    onBlur={() => setTimeout(() => setMentionOpen(false), 120)}
+                    onKeyDown={e => {
+                      if (mentionOpen && mentionList.length > 0) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => (i + 1) % mentionList.length); return; }
+                        if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => (i - 1 + mentionList.length) % mentionList.length); return; }
+                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyMention(mentionList[mentionIdx].username); return; }
+                        if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false); return; }
+                      }
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+                    }}
+                    placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`}
+                    className="relative w-full bg-transparent text-transparent caret-white placeholder-white/30 focus:outline-none text-sm leading-6 resize-none py-2"
+                    maxLength={500}
+                  />
+                </div>
                 <button type="submit" className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 transition-all" style={{ background: 'var(--bp-accent)' }}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" /></svg>
                 </button>
@@ -546,11 +701,11 @@ export default function Chatting() {
               {online.map(o => (
                 <button key={o.username} onClick={() => setCard({ username: o.username })} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-white/[0.05] text-left transition-all">
                   <span className="relative shrink-0">
-                    <span className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: avatarColor(o.username) }}>{o.username.charAt(0).toUpperCase()}</span>
+                    {avatarEl(o.username, 'w-8 h-8 text-sm')}
                     {o.active && <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-black" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-xs font-semibold truncate">{o.username}{o.username === me ? ' (you)' : ''}</span>
+                    <span className="block text-xs font-semibold truncate">{dispOf(o.username)}{o.username === me ? ' (you)' : ''}</span>
                     <span className="block text-[10px] text-white/30">{o.active ? 'Active now' : 'Idle'}</span>
                   </span>
                 </button>
@@ -661,18 +816,18 @@ export default function Chatting() {
           <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-7 w-full max-w-lg shadow-2xl">
             <p className="text-sm font-bold text-white mb-1">Personal notes</p>
             <p className="text-[11px] text-white/35 mb-4">Only you can see these. Saved to your account. Shift+Enter for a new line.</p>
-            <div className="space-y-2 max-h-72 overflow-y-auto mb-4">
+            <div className="space-y-2 max-h-72 overflow-y-auto overflow-x-hidden mb-4">
               {notes.length === 0 && <p className="text-xs text-white/30 text-center py-4">No notes yet.</p>}
               {notes.map(n => (
-                <div key={n.id} className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
-                  <p className="flex-1 text-xs text-white/75 whitespace-pre-wrap break-words">{n.text}</p>
+                <div key={n.id} className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] min-w-0 overflow-hidden">
+                  <p className="flex-1 text-xs text-white/75 whitespace-pre-wrap break-all min-w-0" style={{ overflowWrap: 'anywhere' }}>{n.text}</p>
                   <button onClick={() => saveNotes(notes.filter(x => x.id !== n.id))} className="text-white/30 hover:text-red-300 text-sm shrink-0">×</button>
                 </div>
               ))}
             </div>
             <div className="flex gap-2 items-end">
-              <textarea value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim().slice(0, 1000), ts: Date.now() }]); setNoteText(''); } } }} placeholder="Write a note... (Shift+Enter for new line)" rows={3} className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm resize-none" />
-              <button onClick={() => { if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim().slice(0, 1000), ts: Date.now() }]); setNoteText(''); } }} className="px-5 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold shrink-0">Add</button>
+              <textarea value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim(), ts: Date.now() }]); setNoteText(''); } } }} placeholder="Write a note... (Shift+Enter for new line)" rows={3} className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 text-sm resize-none min-w-0" />
+              <button onClick={() => { if (noteText.trim()) { saveNotes([...notes, { id: Date.now(), text: noteText.trim(), ts: Date.now() }]); setNoteText(''); } }} className="px-5 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold shrink-0">Add</button>
             </div>
             <button onClick={() => setShowNotes(false)} className="w-full py-2 mt-3 text-xs text-white/40">Close</button>
           </div>

@@ -102,6 +102,17 @@ function rl(key, limit, winMs){
   RL_MAP.set(key, arr);
   return true;
 }
+function trimRooms(all){
+  const perRoom={};
+  const keep=[];
+  for(let i=all.length-1;i>=0;i--){
+    const r=all[i]&&all[i].room?all[i].room:'community';
+    perRoom[r]=(perRoom[r]||0)+1;
+    if(perRoom[r]<=400) keep.push(all[i]);
+  }
+  keep.reverse();
+  return keep.slice(-6000);
+}
 function codeJobId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 async function loadCodeJobs(kv){
   try{
@@ -126,12 +137,13 @@ function expireCodeJobs(jobs){
   }
   return changed;
 }
-async function bridgeLive(kv){
+async function bridgeState(kv){
   try{
     const raw=kv?await kv.get('code_bridge'):null;
     const b=raw?JSON.parse(raw):null;
-    return !!(b&&b.ts&&Date.now()-b.ts<120000);
-  }catch{ return false; }
+    if(!b||!b.ts||b.down) return {live:false, host:'', seen:b&&b.ts?b.ts:0};
+    return {live:Date.now()-b.ts<30000, host:String(b.host||''), seen:b.ts};
+  }catch{ return {live:false, host:'', seen:0}; }
 }
 function blockedHost(host){
   const h=String(host||'').toLowerCase().replace(/\.$/,'');
@@ -277,8 +289,13 @@ function blockedHost(host){
     const got=String(request.headers.get('x-bridge-token')||'');
     if(!want) return new Response(JSON.stringify({success:false, error:'BRIDGE_TOKEN is not set on the worker'}),{status:503, headers:jh()});
     if(!got||got!==want) return new Response(JSON.stringify({success:false, error:'Bad bridge token'}),{status:403, headers:jh()});
-    try{ if(kv) await kv.put('code_bridge', JSON.stringify({ts:Date.now(), host:String(request.headers.get('x-bridge-host')||'pc').slice(0,60)})); }catch{}
-    if(url.pathname==='/api/bridge/ping') return new Response(JSON.stringify({success:true, ts:Date.now()}),{headers:jh()});
+    let down=false;
+    if(url.pathname==='/api/bridge/ping' && request.method==='POST'){
+      const pb=await request.clone().json().catch(()=>({}));
+      down=!!pb.down;
+    }
+    try{ if(kv) await kv.put('code_bridge', JSON.stringify({ts:Date.now(), down, host:String(request.headers.get('x-bridge-host')||'pc').slice(0,60)})); }catch{}
+    if(url.pathname==='/api/bridge/ping') return new Response(JSON.stringify({success:true, ts:Date.now(), down}),{headers:jh()});
     let jobs=await loadCodeJobs(kv);
     if(url.pathname==='/api/bridge/jobs'){
       const take=jobs.filter(j=>j.status==='pending'&&j.target==='pc');
@@ -313,7 +330,8 @@ function blockedHost(host){
       }catch{}
     }
     if(!payload || !payload.isAdmin) return new Response(JSON.stringify({success:false, error:'Admin only'}),{status:403, headers:jh()});
-    const pcLive=await bridgeLive(kv);
+    const pcState=await bridgeState(kv);
+    const pcLive=pcState.live;
     if(request.method==='GET'){
       let jobs=await loadCodeJobs(kv);
       if(expireCodeJobs(jobs)) await saveCodeJobs(kv, jobs);
@@ -321,9 +339,9 @@ function blockedHost(host){
       if(id){
         const job=jobs.find(x=>x.id===id);
         if(!job) return new Response(JSON.stringify({success:false, error:'Request not found'}),{status:200, headers:jh()});
-        return new Response(JSON.stringify({success:true, job, pc:pcLive}),{headers:jh()});
+        return new Response(JSON.stringify({success:true, job, pc:pcLive, pcHost:pcState.host, pcSeen:pcState.seen}),{headers:jh()});
       }
-      return new Response(JSON.stringify({success:true, jobs:jobs.slice(-12).reverse(), pc:pcLive}),{headers:jh()});
+      return new Response(JSON.stringify({success:true, jobs:jobs.slice(-12).reverse(), pc:pcLive, pcHost:pcState.host, pcSeen:pcState.seen}),{headers:jh()});
     }
     if(request.method!=='POST') return new Response(JSON.stringify({success:false, error:'POST required'}),{status:405, headers:jh()});
     try{
@@ -331,60 +349,13 @@ function blockedHost(host){
       const provider=String(body.provider||'claude').toLowerCase();
       const prompt=String(body.prompt||'').trim();
       if(!prompt) return new Response(JSON.stringify({success:false, error:'Type the request you want'}),{status:200, headers:jh()});
-      const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider, prompt:prompt.slice(0,8000), status:'pending', target:pcLive?'pc':'api', reply:''};
+      if(!pcLive) return new Response(JSON.stringify({success:false, offline:true, error:'Your PC is offline, so there is no Claude account to send this to. Start the bridge on your PC with npm run bridge, then send it again.'}),{status:200, headers:jh()});
+      const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider, prompt:prompt.slice(0,8000), status:'pending', target:'pc', reply:''};
       const jobs=await loadCodeJobs(kv);
       expireCodeJobs(jobs);
       jobs.push(job);
       await saveCodeJobs(kv, jobs);
-      if(pcLive) return new Response(JSON.stringify({success:true, id:job.id, status:'pending', target:'pc'}),{headers:jh()});
-      const gh=env.GITHUB_TOKEN||env.COPILOT_TOKEN||env.GITHUB_MODELS_TOKEN||'';
-      const cl=env.ANTHROPIC_API_KEY||env.CLAUDE_API_KEY||'';
-      const or=env.OPENROUTER_API_KEY||'';
-      const gem=env.GEMINI_API_KEY||'';
-      let text='';
-      let err='';
-      if(provider==='claude'){
-        if(cl){
-          const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':cl,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-5',max_tokens:4096,messages:[{role:'user',content:prompt}]})});
-          const j=await r.json().catch(()=>({}));
-          text=((((j.content||[])[0]||{}).text)||'');
-          if(!text) err=(j.error&&(j.error.message||JSON.stringify(j.error)))||'Claude request failed';
-        } else if(or){
-          const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+or},body:JSON.stringify({model:'anthropic/claude-sonnet-5',messages:[{role:'user',content:prompt}]})});
-          const j=await r.json().catch(()=>({}));
-          text=((((j.choices||[])[0]||{}).message||{}).content)||'';
-          if(!text) err=(j.error&&j.error.message)||'Claude request failed';
-        } else err='Your PC is offline and no ANTHROPIC_API_KEY is set on the worker. Start the bridge on your PC or add the key in Cloudflare Worker secrets.';
-      } else {
-        if(gh){
-          const r=await fetch('https://models.github.ai/inference/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+gh,'Accept':'application/vnd.github+json'},body:JSON.stringify({model:'openai/gpt-4.1',messages:[{role:'system',content:'You are GitHub Copilot helping update the BatProx website.'},{role:'user',content:prompt}]})});
-          const j=await r.json().catch(()=>({}));
-          text=((((j.choices||[])[0]||{}).message||{}).content)||'';
-          if(!text) err=(j.error&&(j.error.message||JSON.stringify(j.error)))||'';
-        }
-        if(!text && or){
-          const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+or},body:JSON.stringify({model:'openai/gpt-4o',messages:[{role:'user',content:prompt}]})});
-          const j=await r.json().catch(()=>({}));
-          text=((((j.choices||[])[0]||{}).message||{}).content)||'';
-          if(!text) err=(j.error&&j.error.message)||err||'GitHub Copilot request failed';
-        }
-        if(!text && gem){
-          const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gem),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})});
-          const j=await r.json().catch(()=>({}));
-          text=(((((j.candidates||[])[0]||{}).content||{}).parts||[]).map(x=>x.text||'').join(''))||'';
-          if(!text) err=(j.error&&j.error.message)||err||'GitHub Copilot request failed';
-        }
-        if(!text && !err) err='Your PC is offline and no GITHUB_TOKEN, OPENROUTER_API_KEY or GEMINI_API_KEY is set on the worker.';
-      }
-      const after=await loadCodeJobs(kv);
-      const mine=after.find(x=>x.id===job.id)||job;
-      mine.status=text?'done':'error';
-      mine.reply=String(text||err||'Request failed').slice(0,20000);
-      mine.doneAt=Date.now();
-      if(!after.some(x=>x.id===job.id)) after.push(mine);
-      await saveCodeJobs(kv, after);
-      if(!text) return new Response(JSON.stringify({success:false, id:job.id, error:err||'Request failed'}),{status:200, headers:jh()});
-      return new Response(JSON.stringify({success:true, id:job.id, status:'done', target:'api', provider, text}),{headers:jh()});
+      return new Response(JSON.stringify({success:true, id:job.id, status:'pending', target:'pc'}),{headers:jh()});
     }catch(e){
       return new Response(JSON.stringify({success:false, error:'Code request failed'}),{status:200, headers:jh()});
     }
@@ -971,7 +942,9 @@ function blockedHost(host){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const room=String(url.searchParams.get('room')||'community').slice(0,80);
     const all=await chatGet('chat_messages',[]);
-    return new Response(JSON.stringify({messages:all.filter(m=>m.room===room).slice(-60)}),{headers:h});
+    const mine=all.filter(m=>m.room===room);
+    const limit=Math.max(1, Math.min(400, parseInt(url.searchParams.get('limit')||'250',10)||250));
+    return new Response(JSON.stringify({messages:mine.slice(-limit), total:mine.length}),{headers:h});
   }
   if(url.pathname==='/api/chat/messages/delete' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
@@ -1013,7 +986,7 @@ function blockedHost(host){
       const id=all.length?Math.max(...all.map(m=>m.id||0))+1:1;
       const rt=replyTo&&typeof replyTo==='object'?{user:String(replyTo.user||'').slice(0,20), text:String(replyTo.text||'').slice(0,200)}:null;
       all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt});
-      await chatPut('chat_messages',all.slice(-600));
+      await chatPut('chat_messages',trimRooms(all));
       return new Response(JSON.stringify({success:true, id}),{headers:h});
     }catch(e){ return new Response(JSON.stringify({error:'DBG:'+((e&&e.message)||e)}),{status:400, headers:h});}
   }

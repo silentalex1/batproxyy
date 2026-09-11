@@ -15,6 +15,40 @@ declare global {
 }
 
 let uvReady: Promise<void> | null = null;
+let lastWisp = '';
+
+function probeWisp(url: string, ms = 4000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let ws: WebSocket | null = null;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      try { if (ws && !ok) ws.close(); } catch {}
+      try { if (ws && ok) ws.close(); } catch {}
+      resolve(ok);
+    };
+    const timer = window.setTimeout(() => finish(false), ms);
+    try {
+      ws = new WebSocket(url);
+      ws.onopen = () => finish(true);
+      ws.onerror = () => finish(false);
+      ws.onclose = () => finish(false);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+export function activeWisp(): string {
+  return lastWisp;
+}
+
+export function resetUltraviolet() {
+  uvReady = null;
+  lastWisp = '';
+}
 
 function waitForWorker(worker: ServiceWorker | null): Promise<void> {
   if (!worker || worker.state === 'activated') return Promise.resolve();
@@ -49,14 +83,34 @@ export function getUvUrl(targetUrl: string): string {
 }
 
 export function getSandboxUrl(targetUrl: string): string {
-  return '/proxy?url=' + encodeURIComponent(normalizeTarget(targetUrl));
+  const t = normalizeTarget(targetUrl);
+  try { return '/proxy?url=' + encodeURIComponent(btoa(unescape(encodeURIComponent(t)))); } catch { return '/proxy?url=' + encodeURIComponent(t); }
+}
+
+function tryDecodeTarget(v: string | null): string | null {
+  if (!v) return v;
+  try {
+    const d = decodeURIComponent(v);
+    if (/^https?:\/\//.test(d)) return d;
+  } catch {}
+  try {
+    const b = atob(v);
+    const d = decodeURIComponent(escape(b));
+    if (/^https?:\/\//.test(d)) return d;
+  } catch {}
+  try {
+    const b = atob(decodeURIComponent(v));
+    const d = decodeURIComponent(escape(b));
+    if (/^https?:\/\//.test(d)) return d;
+  } catch {}
+  return v;
 }
 
 export function decodeProxiedLocation(href: string): string | null {
   try {
     const parsed = new URL(href, window.location.origin);
     if (parsed.pathname === '/proxy') {
-      return parsed.searchParams.get('url');
+      return tryDecodeTarget(parsed.searchParams.get('url'));
     }
     const prefix = window.__uv$config?.prefix;
     if (prefix && parsed.pathname.startsWith(prefix) && window.__uv$config.decodeUrl) {
@@ -94,15 +148,33 @@ export function initUltraviolet(): Promise<void> {
           }, { once: true });
         });
       }
-      const wispUrls = ['wss://wisp.mercurywork.shop/wisp/', 'wss://anura.terbium.work/wisp/', 'wss://wisp.run.place/wisp/'];
+      const wispUrls = [
+        'wss://wisp.mercurywork.shop/wisp/',
+        'wss://anura.terbium.work/wisp/',
+        'wss://wisp.run.place/wisp/',
+        'wss://wisp.terbiumon.top/wisp/',
+        'wss://wisp.whimsy.run/wisp/'
+      ];
       const connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
       let connected = false;
       for (const wispUrl of wispUrls) {
+        if (!(await probeWisp(wispUrl))) continue;
         try {
           await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
+          lastWisp = wispUrl;
           connected = true;
           break;
         } catch {}
+      }
+      if (!connected) {
+        for (const wispUrl of wispUrls) {
+          try {
+            await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
+            lastWisp = wispUrl;
+            connected = true;
+            break;
+          } catch {}
+        }
       }
       if (!connected) throw new Error('Transport unavailable');
     })().catch((err) => {
