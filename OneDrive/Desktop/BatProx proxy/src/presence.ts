@@ -1,6 +1,7 @@
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let currentGame = '';
+let gameMode = false;
 
 function username(): string {
   try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; }
@@ -49,8 +50,26 @@ export function syncRecentIcons(games: any[]) {
   } catch {}
 }
 
+function restartTimer() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(beat, gameMode ? 15000 : 5000);
+}
+
+export function setGameMode(on: boolean) {
+  if (gameMode === on) return;
+  gameMode = on;
+  try { document.documentElement.dataset.gaming = on ? '1' : '0'; } catch {}
+  if (started) restartTimer();
+  beat();
+}
+
+export function isGameMode(): boolean {
+  return gameMode;
+}
+
 export function setPresenceGame(game: string) {
   currentGame = game;
+  setGameMode(!!game);
   beat();
 }
 
@@ -58,8 +77,7 @@ export function startPresence() {
   if (started) return;
   started = true;
   beat();
-  if (timer) clearInterval(timer);
-  timer = setInterval(beat, 10000);
+  restartTimer();
   document.addEventListener('visibilitychange', beat);
   window.addEventListener('beforeunload', () => {
     try {

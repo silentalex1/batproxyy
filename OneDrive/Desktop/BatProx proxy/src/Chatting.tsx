@@ -5,7 +5,7 @@ import { AmbientBg, SideRail, TopBar, NavBtn, BatteryIndicator } from './Chrome'
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
-interface Msg { id: number; room: string; user: string; display: string; text: string; ts: number; sys?: boolean; replyTo?: { user: string; text: string } | null }
+interface Msg { id: number; room: string; user: string; display: string; text: string; ts: number; sys?: boolean; edited?: number; replyTo?: { user: string; text: string } | null }
 interface Gc { id: string; owner: string; members: string[]; created: number }
 interface DmRoom { id: string; other: string }
 interface Presence { username: string; active: boolean }
@@ -65,6 +65,7 @@ export default function Chatting() {
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionIdx, setMentionIdx] = useState(0);
   const [mentionStart, setMentionStart] = useState(-1);
+  const [editing, setEditing] = useState<Msg | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const stickBottom = useRef(true);
@@ -73,6 +74,7 @@ export default function Chatting() {
   const typingAt = useRef(0);
   const roomRef = useRef('community');
   const pendingCaret = useRef<number | null>(null);
+  const seenRef = useRef<Set<number>>(new Set());
   useLowPower();
 
   useEffect(() => {
@@ -276,10 +278,16 @@ export default function Chatting() {
   }, [text]);
 
   useEffect(() => {
+    const first = seenRef.current.size === 0;
+    for (const m of messages) seenRef.current.add(m.id);
+    if (seenRef.current.size > 800) seenRef.current = new Set(messages.map(m => m.id));
     if (!stickBottom.current) return;
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-    else bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+    if (el) {
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (first || gap > 600) el.scrollTop = el.scrollHeight;
+      else el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    } else bottomRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [messages]);
 
   useEffect(() => {
@@ -329,15 +337,56 @@ export default function Chatting() {
     if (e) e.preventDefault();
     const t = text.trim();
     if (!t || !me) return;
+    if (editing) {
+      const target = editing;
+      setText('');
+      setEditing(null);
+      setMentionOpen(false);
+      setMentionStart(-1);
+      setMessages(prev => prev.map(m => m.id === target.id ? { ...m, text: t, edited: Date.now() } : m));
+      try {
+        await fetch('/api/chat/messages/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: target.id, user: me, text: t }) });
+        loadMessages(room.id);
+      } catch {}
+      return;
+    }
     setText('');
     setReplyTo(null);
     setMentionOpen(false);
     setMentionStart(-1);
     stickBottom.current = true;
+    const optimistic: Msg = { id: -Date.now(), room: room.id, user: me, display: dispOf(me), text: t, ts: Date.now(), replyTo };
+    setMessages(prev => [...prev, optimistic]);
     try {
       await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo }) });
       loadMessages(room.id);
+    } catch {
+      setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+    }
+  };
+
+  const startEditLast = () => {
+    if (!me) return;
+    const mine = messages.filter(m => !m.sys && m.user === me && m.id > 0);
+    const last = mine[mine.length - 1];
+    if (!last) return;
+    setEditing(last);
+    setReplyTo(null);
+    setSelected(last.id);
+    pendingCaret.current = last.text.length;
+    setText(last.text);
+    stickBottom.current = false;
+    try {
+      const el = document.querySelector(`[data-mid="${last.id}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch {}
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setText('');
+    setSelected(null);
+    setMentionOpen(false);
   };
 
   const replyNow = (m: Msg) => {
@@ -591,10 +640,12 @@ export default function Chatting() {
                   </span>
                 ) : null;
                 const sel = selected === m.id;
+                const isEditing = editing !== null && editing.id === m.id;
+                const fresh = !seenRef.current.has(m.id);
                 if (room.kind === 'dm') {
                   return (
                     <div key={m.id} data-mid={m.id} onMouseEnter={(e) => { if (e.shiftKey) setHoverMsg(m.id); }} onMouseLeave={() => setHoverMsg(h => h === m.id ? null : h)} className={`flex ${mine ? 'justify-end' : 'justify-start'} transition-opacity duration-300 ${deleting === m.id ? 'opacity-0' : 'opacity-100'}`}>
-                      <div onClick={() => setSelected(sel ? null : m.id)} onDoubleClick={() => replyNow(m)} className={`relative max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap cursor-pointer ${mine ? 'text-white' : 'bg-white/[0.07] text-white/85'} ${sel ? 'ring-2 ring-orange-400' : ''}`} style={mine ? { background: 'var(--bp-accent)' } : undefined}>
+                      <div onClick={() => setSelected(sel ? null : m.id)} onDoubleClick={() => replyNow(m)} className={`relative max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap cursor-pointer transition-shadow duration-200 ${fresh ? 'bp-msg-in' : ''} ${mine ? 'text-white' : 'bg-white/[0.07] text-white/85'} ${isEditing ? 'bp-editing ring-2 ring-offset-2 ring-offset-black' : sel ? 'ring-2 ring-orange-400 shadow-[0_0_20px_rgba(251,146,60,0.35)]' : ''}`} style={mine ? { background: 'var(--bp-accent)', ...(isEditing ? { outline: '2px solid var(--bp-accent)' } : {}) } : isEditing ? { outline: '2px solid var(--bp-accent)' } : undefined}>
                         {shiftDown && hoverMsg === m.id && (
                           <button onClick={(e) => { e.stopPropagation(); deleteMsg(m.id); }} title="Delete message" className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-xs flex items-center justify-center shadow-lg">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.87 12.14A2 2 0 0116.15 21H7.85a2 2 0 01-2-1.86L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" /></svg>
@@ -602,14 +653,19 @@ export default function Chatting() {
                         )}
                         {quote}
                         {renderText(m.text)}
-                        <span className={`block text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-white/30'}`}>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        {sel && <button onClick={(e) => { e.stopPropagation(); replyNow(m); }} className="mt-1.5 text-[11px] px-3 py-1 rounded-lg bg-orange-500/25 border border-orange-400/50 text-orange-200">reply to message</button>}
+                        <span className={`block text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-white/30'}`}>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.edited ? ' (edited)' : ''}</span>
+                        {sel && (
+                          <span className="flex gap-1.5 mt-1.5">
+                            <button onClick={(e) => { e.stopPropagation(); replyNow(m); }} className="text-[11px] px-3 py-1 rounded-lg bg-orange-500/25 border border-orange-400/50 text-orange-200">reply</button>
+                            {m.user === me && m.id > 0 && <button onClick={(e) => { e.stopPropagation(); setEditing(m); setReplyTo(null); pendingCaret.current = m.text.length; setText(m.text); }} className="text-[11px] px-3 py-1 rounded-lg bg-white/15 border border-white/30 text-white">edit</button>}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
                 }
                 return (
-                  <div key={m.id} data-mid={m.id} onMouseEnter={(e) => { if (e.shiftKey) setHoverMsg(m.id); }} onMouseLeave={() => setHoverMsg(h => h === m.id ? null : h)} onClick={() => setSelected(sel ? null : m.id)} onDoubleClick={() => replyNow(m)} className={`relative flex gap-2.5 px-1 py-1 rounded-lg hover:bg-white/[0.02] group cursor-pointer transition-opacity duration-300 ${deleting === m.id ? 'opacity-0' : 'opacity-100'} ${sel ? 'ring-2 ring-orange-400/80 bg-orange-500/[0.06]' : ''}`}>
+                  <div key={m.id} data-mid={m.id} onMouseEnter={(e) => { if (e.shiftKey) setHoverMsg(m.id); }} onMouseLeave={() => setHoverMsg(h => h === m.id ? null : h)} onClick={() => setSelected(sel ? null : m.id)} onDoubleClick={() => replyNow(m)} className={`relative flex gap-2.5 px-2 py-1.5 rounded-xl hover:bg-white/[0.03] group cursor-pointer transition-all duration-200 ${fresh ? 'bp-msg-in' : ''} ${deleting === m.id ? 'opacity-0' : 'opacity-100'} ${isEditing ? 'bp-editing bg-white/[0.07]' : sel ? 'ring-2 ring-orange-400 bg-orange-500/[0.12] shadow-[0_0_22px_rgba(251,146,60,0.28)]' : ''}`} style={isEditing ? { border: '1px solid rgba(var(--bp-glow), 0.55)' } : undefined}>
                     {shiftDown && hoverMsg === m.id && (
                       <button onClick={(e) => { e.stopPropagation(); deleteMsg(m.id); }} title="Delete message" className="absolute top-0 right-1 w-6 h-6 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-xs flex items-center justify-center shadow-lg z-10">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.87 12.14A2 2 0 0116.15 21H7.85a2 2 0 01-2-1.86L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" /></svg>
@@ -626,11 +682,17 @@ export default function Chatting() {
                           <button onClick={(e) => { e.stopPropagation(); setCard({ username: m.user }); }} className="font-bold text-white hover:underline">{m.display || m.user}</button>
                           {rankPill(m.user)}
                           <span className="text-white/30 ml-2">{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          {m.edited ? <span className="text-white/25 ml-1.5 text-[10px]">(edited)</span> : null}
                         </p>
                       )}
                       {quote}
                       <p className="text-sm text-white/85 leading-relaxed whitespace-pre-wrap break-words">{renderText(m.text)}</p>
-                      {sel && <button onClick={(e) => { e.stopPropagation(); replyNow(m); }} className="mt-1 text-[11px] px-3 py-1 rounded-lg bg-orange-500/25 border border-orange-400/50 text-orange-200">reply to message</button>}
+                      {sel && (
+                        <span className="flex gap-1.5 mt-1.5">
+                          <button onClick={(e) => { e.stopPropagation(); replyNow(m); }} className="text-[11px] px-3 py-1 rounded-lg bg-orange-500/25 border border-orange-400/50 text-orange-200">reply</button>
+                          {m.user === me && m.id > 0 && <button onClick={(e) => { e.stopPropagation(); setEditing(m); setReplyTo(null); pendingCaret.current = m.text.length; setText(m.text); }} className="text-[11px] px-3 py-1 rounded-lg border text-white/80" style={{ background: 'rgba(var(--bp-glow), 0.18)', borderColor: 'rgba(var(--bp-glow), 0.45)' }}>edit</button>}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -657,7 +719,14 @@ export default function Chatting() {
                   <p className="px-3.5 py-1.5 text-[10px] text-white/25 border-t border-white/[0.06]">↑↓ to pick · enter to insert</p>
                 </div>
               )}
-              {replyTo && (
+              {editing && (
+                <div className="flex items-center gap-2 mx-1 mb-2 px-3.5 py-2 rounded-xl text-xs bp-editing" style={{ background: 'rgba(var(--bp-glow), 0.12)', border: '1px solid rgba(var(--bp-glow), 0.4)' }}>
+                  <svg className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--bp-accent)' }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  <span className="text-white/70 truncate flex-1">editing your message — enter to save, esc to cancel</span>
+                  <button type="button" onClick={cancelEdit} className="text-white/40 hover:text-white px-1">×</button>
+                </div>
+              )}
+              {replyTo && !editing && (
                 <div className="flex items-center gap-2 mx-1 mb-2 px-3.5 py-2 rounded-xl bg-orange-500/10 border border-orange-400/30 text-xs">
                   <span className="text-white/60 truncate flex-1">replying to: <span className="text-orange-200 font-semibold">{replyTo.user}</span> — {replyTo.text.slice(0, 80)}</span>
                   <button type="button" onClick={() => setReplyTo(null)} className="text-white/40 hover:text-white">×</button>
@@ -680,6 +749,8 @@ export default function Chatting() {
                         if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); applyMention(mentionList[mentionIdx].username); return; }
                         if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false); return; }
                       }
+                      if (e.key === 'ArrowUp' && !text && !editing) { e.preventDefault(); startEditLast(); return; }
+                      if (e.key === 'Escape' && editing) { e.preventDefault(); cancelEdit(); return; }
                       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
                     }}
                     placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`}
@@ -691,7 +762,7 @@ export default function Chatting() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" /></svg>
                 </button>
               </div>
-              <p className="text-center text-[10px] text-white/25 mt-1.5">if you double click in chatroom, that will reply to the person message automatically.</p>
+              <p className="text-center text-[10px] text-white/25 mt-1.5">double click a message to reply · press ↑ on an empty box to edit your last message</p>
             </form>
           </div>
           <div className="w-52 shrink-0 hidden lg:flex flex-col bg-black/55 border border-white/10 rounded-2xl backdrop-blur-md overflow-hidden">

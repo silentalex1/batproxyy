@@ -7,6 +7,17 @@ import { buildSearchUrl } from './engines';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
+const decodeUrlParam = (v: string | null): string | null => {
+  if (!v) return v;
+  try { const d = decodeURIComponent(v); if (/^https?:\/\//.test(d)) return d; } catch {}
+  try { const b = atob(v); const d = decodeURIComponent(escape(b)); if (/^https?:\/\//.test(d)) return d; } catch {}
+  try { const b = atob(decodeURIComponent(v)); const d = decodeURIComponent(escape(b)); if (/^https?:\/\//.test(d)) return d; } catch {}
+  return v;
+};
+const encodeUrlParam = (u: string): string => {
+  try { return btoa(unescape(encodeURIComponent(u))); } catch { return encodeURIComponent(u); }
+};
+
 export default function SearchEngine() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,6 +43,7 @@ export default function SearchEngine() {
   const skipNext = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stampRef = useRef(0);
+  const lastRealTarget = useRef('');
   const skipLoading = (() => {
     try { return JSON.parse(localStorage.getItem('batprox-settings') || '{}').skipLoading === true; } catch { return false; }
   })();
@@ -41,18 +53,58 @@ export default function SearchEngine() {
   }, []);
 
   const openTarget = useCallback((target: string, forceSandbox = false) => {
+    const resolved = (() => {
+      const t = String(target || '').trim();
+      if (!t) return t;
+      if (t.startsWith('/')) {
+        try { return new URL(t, window.location.origin).href; } catch { return t; }
+      }
+      return t;
+    })();
     try {
-      const u = new URL(target.includes('://') ? target : 'https://' + target);
-      if (u.hostname.includes('stealthybat.org') || u.hostname.includes('stealthlybat.it.com')) { navigate('/dashboard'); return; }
+      const u = new URL(resolved.includes('://') ? resolved : 'https://' + resolved);
+      const host = u.hostname.toLowerCase();
+      const own = host === window.location.hostname || host === 'stealthybat.org' || host.endsWith('.stealthybat.org') || host.endsWith('.stealthlybat.it.com') || host.endsWith('.pages.dev');
+      if (own && (u.pathname === '/api/search' || u.pathname.startsWith('/site/'))) {
+        setUrl(resolved);
+        setLoading(false);
+        setHasError(false);
+        setUseSandbox(false);
+        setSrc(u.pathname + u.search);
+        setKey(v => v + 1);
+        return;
+      }
+      if (own && host.includes('banned.stealthybat.org')) {
+        navigate('/dashboard');
+        return;
+      }
+      if (own && !u.pathname.startsWith('/proxy') && !u.pathname.startsWith('/uv') && !u.pathname.startsWith('/site') && u.pathname !== '/api/search') {
+        const base = lastRealTarget.current;
+        if (base) {
+          try {
+            const rebased = new URL(u.pathname + u.search + u.hash, base).href;
+            if (rebased !== resolved) { openTarget(rebased, forceSandbox); return; }
+          } catch {}
+        }
+        if (u.pathname === '/' || u.pathname === '/dashboard') { navigate('/dashboard'); return; }
+        setLoading(false);
+        setHasError(true);
+        return;
+      }
     } catch {}
-    if (target.includes('stealthybat.org') || target.includes('stealthlybat.it.com') || target.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
-    if (target.includes('triplethd') || target.includes('noordware')) forceSandbox = true;
-    setUrl(target);
+    if (resolved.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
+    if (resolved.includes('triplethd') || resolved.includes('noordware')) forceSandbox = true;
+    try {
+      const host = new URL(resolved.includes('://') ? resolved : 'https://' + resolved).hostname.toLowerCase();
+      if (host === 'www.bing.com' || host === 'bing.com' || host.endsWith('.yahoo.com') || host === 'search.yahoo.com') forceSandbox = true;
+    } catch {}
+    lastRealTarget.current = resolved;
+    setUrl(resolved);
     setLoading(!skipLoading);
     setHasError(false);
     if (forceSandbox) {
       setUseSandbox(true);
-      setSrc(getSandboxUrl(target));
+      setSrc(getSandboxUrl(resolved));
       setKey(v => v + 1);
       return;
     }
@@ -65,26 +117,26 @@ export default function SearchEngine() {
         timerRef.current = setTimeout(() => {
           if (stampRef.current === s) {
             setUseSandbox(true);
-            setSrc(getSandboxUrl(target));
+            setSrc(getSandboxUrl(resolved));
             setLoading(!skipLoading);
             setHasError(false);
             setKey(v => v + 1);
           }
-        }, 1800);
+        }, 5500);
       }
-      setSrc(getUvUrl(target));
+      setSrc(getUvUrl(resolved));
       setKey(v => v + 1);
     }).catch(() => {
       setUseSandbox(true);
-      setSrc(getSandboxUrl(target));
+      setSrc(getSandboxUrl(resolved));
       setKey(v => v + 1);
     });
-  }, [clearTimer, skipLoading]);
+  }, [clearTimer, skipLoading, navigate]);
 
   useEffect(() => { initUltraviolet().catch(() => {}); startPresence(); return () => clearTimer(); }, [clearTimer]);
 
   useEffect(() => {
-    const t = new URLSearchParams(location.search).get('url');
+    const t = decodeUrlParam(new URLSearchParams(location.search).get('url'));
     if (!t) return;
     if (skipNext.current) { skipNext.current = false; setUrl(t); return; }
     setHistory(prev => {
@@ -104,7 +156,7 @@ export default function SearchEngine() {
     const onMessage = (e: MessageEvent) => {
       if (!e.data || e.data.type !== 'batprox-nav' || !e.data.url) return;
       const next = e.data.url;
-      if (next.includes('stealthybat.org') || next.includes('stealthlybat.it.com')) return;
+      if (next.includes('banned.stealthybat.org')) return;
       skipNext.current = true;
       setUrl(next);
       setHistory(prev => {
@@ -113,7 +165,7 @@ export default function SearchEngine() {
         return [...trim, next];
       });
       setHistoryIndex(v => v + 1);
-      navigate(`/search-engine?url=${encodeURIComponent(next)}`);
+      navigate(`/search-engine?url=${encodeUrlParam(next)}`);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -162,19 +214,19 @@ export default function SearchEngine() {
     if (!url.trim()) return;
     const internal = resolveInternal(url);
     if (internal) {
-      if (internal.startsWith('/site/')) navigate(`/search-engine?url=${encodeURIComponent(window.location.origin + internal)}`);
+      if (internal.startsWith('/site/')) navigate(`/search-engine?url=${encodeUrlParam(window.location.origin + internal)}`);
       else navigate(internal);
       return;
     }
-    navigate(`/search-engine?url=${encodeURIComponent(buildSearchUrl(url))}`);
+    navigate(`/search-engine?url=${encodeUrlParam(buildSearchUrl(url))}`);
   };
 
   const handleBack = () => {
-    if (historyIndex > 0) { const n = historyIndex - 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeURIComponent(history[n])}`); }
+    if (historyIndex > 0) { const n = historyIndex - 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeUrlParam(history[n])}`); }
     else navigate('/dashboard');
   };
   const handleForward = () => {
-    if (historyIndex < history.length - 1) { const n = historyIndex + 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeURIComponent(history[n])}`); }
+    if (historyIndex < history.length - 1) { const n = historyIndex + 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeUrlParam(history[n])}`); }
   };
   const handleHome = () => navigate('/dashboard');
   const handleFullscreen = () => {
@@ -184,7 +236,7 @@ export default function SearchEngine() {
     else f.requestFullscreen();
   };
   const handleRefresh = () => {
-    const t = new URLSearchParams(location.search).get('url') || url;
+    const t = decodeUrlParam(new URLSearchParams(location.search).get('url')) || url;
     if (t) openTarget(t, useSandbox);
   };
   const handleLoad = () => {
@@ -194,36 +246,70 @@ export default function SearchEngine() {
       const title = f?.contentDocument?.title || '';
       if (html.includes('Error processing your request') || html.includes('Proxy failed to start') || html.includes('Failed to fetch') || title.includes('Error')) {
         if (!useSandbox) {
-          clearTimer(); setUseSandbox(true); setSrc(getSandboxUrl(new URLSearchParams(location.search).get('url') || url)); setKey(v => v + 1); return;
+          clearTimer(); setUseSandbox(true); setSrc(getSandboxUrl(decodeUrlParam(new URLSearchParams(location.search).get('url')) || url)); setKey(v => v + 1); return;
         }
       }
     } catch {}
     clearTimer(); setLoading(false); setHasError(false);
     try {
-      if (!useSandbox && f?.contentDocument) {
-        f.contentDocument.addEventListener('click', (e) => {
-          const a = (e.target as HTMLElement | null)?.closest('a');
-          if (!a?.href) return;
-          const d = decodeProxiedLocation(a.href);
-          if (!d) return;
-          e.preventDefault(); e.stopPropagation();
-          navigate(`/search-engine?url=${encodeURIComponent(d)}`);
-        }, true);
-        f.contentDocument.addEventListener('submit', (e) => {
-          const form = e.target as HTMLFormElement | null;
-          if (!form?.action) return;
-          const d = decodeProxiedLocation(form.action);
-          if (!d) return;
-          e.preventDefault(); e.stopPropagation();
-          navigate(`/search-engine?url=${encodeURIComponent(d)}`);
-        }, true);
+      if (f?.contentDocument) {
+        if (!useSandbox) {
+          f.contentDocument.addEventListener('click', (e) => {
+            const a = (e.target as HTMLElement | null)?.closest('a');
+            if (!a) return;
+            const go = a.getAttribute('data-go') || '';
+            let dest = go;
+            if (!dest && a.href) {
+              try {
+                const u = new URL(a.href, window.location.origin);
+                if (u.pathname === '/search-engine') dest = decodeUrlParam(u.searchParams.get('url')) || '';
+                else if (u.pathname === '/api/search') return;
+              } catch {}
+            }
+            if (dest) {
+              e.preventDefault(); e.stopPropagation();
+              navigate(`/search-engine?url=${encodeUrlParam(dest)}`);
+              return;
+            }
+            if (!a.href) return;
+            const d = decodeProxiedLocation(a.href);
+            if (!d) return;
+            e.preventDefault(); e.stopPropagation();
+            navigate(`/search-engine?url=${encodeUrlParam(d)}`);
+          }, true);
+          f.contentDocument.addEventListener('submit', (e) => {
+            const form = e.target as HTMLFormElement | null;
+            if (!form?.action) return;
+            const d = decodeProxiedLocation(form.action);
+            if (!d) return;
+            e.preventDefault(); e.stopPropagation();
+            navigate(`/search-engine?url=${encodeUrlParam(d)}`);
+          }, true);
+        }
+        const panicInside = (e: KeyboardEvent) => {
+          try {
+            const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}');
+            if (!s.panicKey) return;
+            const tag = (e.target as HTMLElement | null)?.tagName || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
+            if (['Control','Shift','Alt','Meta'].includes(e.key)) return;
+            const combo = `${e.ctrlKey?'Ctrl+':''}${e.altKey?'Alt+':''}${e.shiftKey?'Shift+':''}${e.key}`;
+            if (combo.toLowerCase() !== String(s.panicKey).toLowerCase() && e.key.toLowerCase() !== String(s.panicKey).toLowerCase()) return;
+            e.preventDefault(); e.stopPropagation();
+            const dest = s.panicUrl || 'https://www.google.com/';
+            try { window.parent.postMessage({type:'bp-parent', redirect:dest}, '*'); } catch {}
+            try { if (window.top) window.top.location.href = dest; else window.location.href = dest; } catch {}
+          } catch {}
+        };
+        f.contentDocument.addEventListener('keydown', panicInside, true);
+        f.contentWindow?.addEventListener('keydown', panicInside as any, true);
       }
       const href = f?.contentWindow?.location.href;
       if (href) {
-        if (href.includes('stealthybat.org') && !href.includes('/proxy?url=') && !href.includes('/__uv/') && !href.includes('/uv/')) { navigate('/dashboard'); return; }
-        const d = decodeProxiedLocation(href);
+        if (href.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
+        const d = decodeProxiedLocation(href) || decodeUrlParam(new URL(href).searchParams.get('url'));
         if (d) {
-          if (d.includes('stealthybat.org') || d.includes('stealthlybat.it.com')) { navigate('/dashboard'); return; }
+          if (d.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
           setUrl(d);
         }
       }
@@ -231,7 +317,7 @@ export default function SearchEngine() {
   };
   const handleError = () => {
     clearTimer();
-    if (!useSandbox) { setUseSandbox(true); setSrc(getSandboxUrl(new URLSearchParams(location.search).get('url') || url)); setLoading(!skipLoading); setHasError(false); setKey(v => v + 1); return; }
+    if (!useSandbox) { setUseSandbox(true); setSrc(getSandboxUrl(decodeUrlParam(new URLSearchParams(location.search).get('url')) || url)); setLoading(!skipLoading); setHasError(false); setKey(v => v + 1); return; }
     setLoading(false); setHasError(true);
   };
   const handleSuggestion = async (e: React.FormEvent) => {
@@ -243,7 +329,7 @@ export default function SearchEngine() {
     } catch { setSitesNotice('Network error'); }
   };
 
-  const targetUrl = new URLSearchParams(location.search).get('url');
+  const targetUrl = decodeUrlParam(new URLSearchParams(location.search).get('url'));
 
   return (
     <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
@@ -289,7 +375,7 @@ export default function SearchEngine() {
                     </div>
                   </div>
                 )}
-                <iframe key={key} ref={iframeRef} src={src || 'about:blank'} className="w-full h-full border-0" title="Proxy" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-pointer-lock allow-presentation allow-downloads allow-storage-access-by-user-activation" referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; camera; clipboard-read; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; microphone; midi; payment; picture-in-picture; pointer-lock; screen-wake-lock; web-share" loading="eager" onLoad={handleLoad} onError={handleError} />
+                <iframe key={key} ref={iframeRef} src={src || 'about:blank'} className="w-full h-full border-0" title="Proxy" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-presentation allow-downloads allow-storage-access-by-user-activation" referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; camera; clipboard-read; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; microphone; midi; payment; picture-in-picture; screen-wake-lock; web-share" loading="eager" onLoad={handleLoad} onError={handleError} />
               </div>
             )}
           </div>

@@ -6,7 +6,7 @@ import { switchDashboardToAboutBlank } from './cloak';
 import { getSavedTheme } from './theme';
 import Blossom from './Blossom';
 
-const NO_BLOSSOM_ROUTES = ['/search-engine', '/homework', '/ai-work'];
+const NO_BLOSSOM_ROUTES = ['/search-engine', '/homework', '/ai-work', '/advertisement'];
 
 export default function PageChrome() {
   const location = useLocation();
@@ -19,7 +19,13 @@ export default function PageChrome() {
   const [pingMsg, setPingMsg] = useState<{ id: number; room: string } | null>(null);
 
   useEffect(() => {
-    applyBackground();
+    if (location.pathname === '/advertisement') {
+      document.body.style.background = '#000000';
+      document.documentElement.style.background = '#000000';
+      (document.body as any).style.backgroundImage = 'none';
+    } else {
+      applyBackground();
+    }
     applyTabCloak();
 
     setShowBlossom(getSavedTheme() === 'Cherry Blossom' && !NO_BLOSSOM_ROUTES.includes(location.pathname));
@@ -33,12 +39,14 @@ export default function PageChrome() {
     const onTheme = () => {
       setShowBlossom(getSavedTheme() === 'Cherry Blossom' && !NO_BLOSSOM_ROUTES.includes(window.location.pathname));
     };
+    const onThemeBg = () => applyBackground();
     window.addEventListener('bp-theme', onTheme);
-    return () => window.removeEventListener('bp-theme', onTheme);
+    window.addEventListener('bp-theme', onThemeBg);
+    return () => { window.removeEventListener('bp-theme', onTheme); window.removeEventListener('bp-theme', onThemeBg); };
   }, []);
 
   useEffect(() => {
-    if (location.pathname === '/' || location.pathname === '/TOS') return;
+    if (location.pathname === '/' || location.pathname === '/TOS' || location.pathname === '/advertisement') return;
     const me = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
     if (!me) return;
     const check = async () => {
@@ -56,7 +64,7 @@ export default function PageChrome() {
   }, [location.pathname]);
 
   useEffect(() => {
-    if (location.pathname === '/' || location.pathname === '/TOS') return;
+    if (location.pathname === '/' || location.pathname === '/TOS' || location.pathname === '/advertisement' || location.pathname === '/chatting') return;
     let on = false;
     try { on = JSON.parse(localStorage.getItem('batprox-settings') || '{}').notifyMsgs === true; } catch {}
     if (!on) return;
@@ -168,8 +176,9 @@ export default function PageChrome() {
         if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
         const combo = `${e.ctrlKey ? 'Ctrl+' : ''}${e.altKey ? 'Alt+' : ''}${e.shiftKey ? 'Shift+' : ''}${e.key}`;
         if (combo.toLowerCase() !== String(s.panicKey).toLowerCase() && e.key.toLowerCase() !== String(s.panicKey).toLowerCase()) return;
-        e.preventDefault();
+        e.preventDefault(); e.stopPropagation();
         const dest = s.panicUrl || 'https://www.google.com/';
+        try { if (document.fullscreenElement) document.exitFullscreen().catch(()=>{}); } catch {}
         if (window.parent && window.parent !== window) {
           window.parent.postMessage({ type: 'bp-parent', redirect: dest }, '*');
         }
@@ -193,10 +202,30 @@ export default function PageChrome() {
     };
 
     window.addEventListener('keydown', onKey, true);
+    document.addEventListener('keydown', onKey, true);
     window.addEventListener('beforeunload', onBeforeUnload);
+    const attachToIframes = () => {
+      try {
+        if (document.documentElement.dataset.gaming === '1') return;
+        if (document.visibilityState !== 'visible') return;
+        const frames = document.querySelectorAll('iframe');
+        for (const f of Array.from(frames)) {
+          try {
+            const doc = (f as HTMLIFrameElement).contentDocument;
+            const win = (f as HTMLIFrameElement).contentWindow;
+            if (doc && !(doc as any).__bpPanic) { (doc as any).__bpPanic = true; doc.addEventListener('keydown', onKey as any, true); }
+            if (win && !(win as any).__bpPanic) { (win as any).__bpPanic = true; win.addEventListener('keydown', onKey as any, true); }
+          } catch {}
+        }
+      } catch {}
+    };
+    const id = setInterval(attachToIframes, 2500);
+    attachToIframes();
     return () => {
       window.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('beforeunload', onBeforeUnload);
+      clearInterval(id);
     };
   }, [navigate]);
 
@@ -207,8 +236,12 @@ export default function PageChrome() {
     <>
       {showBlossom && <Blossom />}
       {showPing && (
-        <button onClick={goChat} title="New message" className="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-400 text-black font-extrabold text-sm shadow-[0_0_24px_rgba(249,115,22,0.6)] transition-all animate-bounce">
-          [!]
+        <button onClick={goChat} title={`${unread} new message${unread === 1 ? '' : 's'}`} className="group fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full flex items-center justify-center text-white shadow-[0_10px_30px_-6px_rgba(0,0,0,0.8)] ring-1 ring-white/15 transition-transform duration-200 hover:scale-105 active:scale-95" style={{ background: 'linear-gradient(140deg, var(--bp-accent), var(--bp-accent-2))' }}>
+          <span className="absolute inset-0 rounded-full animate-bp-ripple pointer-events-none" style={{ boxShadow: '0 0 0 0 rgba(var(--bp-glow), 0.55)' }} />
+          <svg className="w-6 h-6 relative" fill="none" stroke="currentColor" strokeWidth={1.9} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a8 8 0 01-11.6 7.1L4 20l1-4.4A8 8 0 1121 12z" />
+          </svg>
+          <span className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#0b0b10] border border-white/20 text-[11px] font-bold flex items-center justify-center text-white shadow-lg">{unread > 99 ? '99+' : unread}</span>
         </button>
       )}
       {dmIncoming && (

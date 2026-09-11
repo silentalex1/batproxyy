@@ -773,10 +773,19 @@ function blockedHost(host){
       const nowMs=Date.now();
       const vis=visible!==false;
       const gm=String(game||'').slice(0,80);
-      const sameState=prev.ts&&prev.visible===vis&&prev.game===gm&&(nowMs-prev.ts)<45000;
+      const sameState=prev.ts&&prev.visible===vis&&prev.game===gm&&(nowMs-prev.ts)<20000;
       if(sameState) return new Response(JSON.stringify({success:true}),{headers:h});
       const delta=prev.ts?Math.min(60, Math.max(0, (nowMs-prev.ts)/1000)):0;
-      const addSec=(vis&&prev.visible!==false)?delta:0;
+      const addSec=(prev.ts&&prev.visible!==false)?delta:0;
+      try{
+        const rawT=kv?await kv.get('usertime'):null;
+        const tm=rawT?JSON.parse(rawT):{};
+        const cur=tm[cu]&&typeof tm[cu]==='object'?tm[cu]:{total:Number(tm[cu])||0, lastSeen:0};
+        cur.total=Math.round((cur.total||0)+addSec);
+        cur.lastSeen=nowMs;
+        tm[cu]=cur;
+        if(kv) await kv.put('usertime', JSON.stringify(tm));
+      }catch{}
       const entry={ts:nowMs, visible:vis?1:0, game:gm, sessionStart:Number(sessionStart)||prev.sessionStart||nowMs, total:Math.round((prev.total||0)+addSec)};
       if(env.batprox){
         try{
@@ -805,7 +814,17 @@ function blockedHost(host){
       const map=raw?JSON.parse(raw):{};
       rows=Object.keys(map).map(k=>({k, e:map[k]}));
     }
-    const users=rows.filter(({e})=>now-e.ts<300000).map(({k,e})=>{ const isLive=(now-e.ts<75000)&&!!e.visible; const live=isLive?Math.floor((now-(e.sessionStart||e.ts))/1000):0; return {username:k, active:isLive, game:e.game||'', lastSeen:e.ts, sessionStart:e.sessionStart||e.ts, total:Math.round((e.total||0)+(isLive?Math.min(60,(now-e.ts)/1000):0)), live}; });
+    let tm={};
+    try{ const rawT=kv?await kv.get('usertime'):null; tm=rawT?JSON.parse(rawT):{}; }catch{}
+    const timeOf=(k)=>{ const v=tm[k]; if(!v) return {total:0, lastSeen:0}; if(typeof v==='object') return {total:Number(v.total)||0, lastSeen:Number(v.lastSeen)||0}; return {total:Number(v)||0, lastSeen:0}; };
+    const users=rows.filter(({e})=>now-e.ts<300000).map(({k,e})=>{ const isLive=(now-e.ts<75000)&&!!e.visible; const live=isLive?Math.floor((now-(e.sessionStart||e.ts))/1000):0; const saved=timeOf(k); return {username:k, active:isLive, game:e.game||'', lastSeen:Math.max(e.ts, saved.lastSeen), sessionStart:e.sessionStart||e.ts, total:Math.round(Math.max(saved.total, e.total||0)+(isLive?Math.min(60,(now-e.ts)/1000):0)), live}; });
+    const present=new Set(users.map(u=>u.username));
+    for(const k of Object.keys(tm)){
+      if(present.has(k)) continue;
+      const saved=timeOf(k);
+      if(!saved.total&&!saved.lastSeen) continue;
+      users.push({username:k, active:false, game:'', lastSeen:saved.lastSeen, sessionStart:saved.lastSeen, total:saved.total, live:0});
+    }
     return new Response(JSON.stringify({users}),{headers:h});
   }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
@@ -945,6 +964,24 @@ function blockedHost(host){
     const mine=all.filter(m=>m.room===room);
     const limit=Math.max(1, Math.min(400, parseInt(url.searchParams.get('limit')||'250',10)||250));
     return new Response(JSON.stringify({messages:mine.slice(-limit), total:mine.length}),{headers:h});
+  }
+  if(url.pathname==='/api/chat/messages/edit' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {id,user,text}=await request.json();
+      const mid=Number(id);
+      const cu=String(user||'').trim();
+      const t=String(text||'').trim().slice(0,500);
+      if(!mid||!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const all=await chatGet('chat_messages',[]);
+      const m=all.find(x=>x.id===mid);
+      if(!m) return new Response(JSON.stringify({error:'Gone'}),{status:404, headers:h});
+      if(m.user!==cu) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      m.text=t;
+      m.edited=Date.now();
+      await chatPut('chat_messages',all);
+      return new Response(JSON.stringify({success:true, id:mid, text:t}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/messages/delete' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');

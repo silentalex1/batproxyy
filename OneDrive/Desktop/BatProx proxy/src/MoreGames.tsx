@@ -15,6 +15,8 @@ declare global {
 
 const FALLBACK_GENRES = ['Action', 'Adventure', 'Arcade', 'Puzzle', 'Racing', 'Shooting', 'Sports', 'Strategy', 'Retro', 'Multiplayer', 'Idle', '2 Player'];
 
+const normName = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
 export default function MoreGames() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,7 +59,7 @@ export default function MoreGames() {
       }
     };
     document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
+    return () => { document.removeEventListener('fullscreenchange', onFs); setPresenceGame(''); };
   }, []);
 
   const setSort = (s: 'last' | 'most') => {
@@ -198,6 +200,22 @@ export default function MoreGames() {
       if (!t) return;
       const tag = t.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return;
+      try {
+        const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}');
+        if (s.panicKey) {
+          if (!['Control','Shift','Alt','Meta'].includes(e.key)) {
+            const combo = `${e.ctrlKey?'Ctrl+':''}${e.altKey?'Alt+':''}${e.shiftKey?'Shift+':''}${e.key}`;
+            if (combo.toLowerCase() === String(s.panicKey).toLowerCase() || e.key.toLowerCase() === String(s.panicKey).toLowerCase()) {
+              e.preventDefault(); e.stopPropagation();
+              const dest = s.panicUrl || 'https://www.google.com/';
+              try { window.parent.postMessage({type:'bp-parent', redirect:dest}, '*'); } catch {}
+              try { if (document.fullscreenElement) document.exitFullscreen().catch(()=>{}); } catch {}
+              try { if (window.top) window.top.location.href = dest; else window.location.href = dest; } catch {}
+              return;
+            }
+          }
+        }
+      } catch {}
       if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         const inGames = t.closest && (t.closest('#games') || t.closest('iframe'));
         if (inGames || tag === 'BODY' || tag === 'HTML') {
@@ -207,7 +225,28 @@ export default function MoreGames() {
       }
     };
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    document.addEventListener('keydown', onKey, true);
+    const attachToIframes = () => {
+      try {
+        const container = document.getElementById(CONTAINER_ID);
+        const roots: Array<Document|ShadowRoot> = [document];
+        if (container && container.shadowRoot) roots.push(container.shadowRoot);
+        for (const r of roots) {
+          const frames = (r as Document).querySelectorAll ? (r as Document).querySelectorAll('iframe') : [];
+          for (const f of Array.from(frames)) {
+            try {
+              const doc = (f as HTMLIFrameElement).contentDocument;
+              const win = (f as HTMLIFrameElement).contentWindow;
+              if (doc && !(doc as any).__bpPanic) { (doc as any).__bpPanic = true; doc.addEventListener('keydown', onKey as any, true); }
+              if (win && !(win as any).__bpPanic) { (win as any).__bpPanic = true; win.addEventListener('keydown', onKey as any, true); }
+            } catch {}
+          }
+        }
+      } catch {}
+    };
+    const id = setInterval(attachToIframes, 800);
+    attachToIframes();
+    return () => { window.removeEventListener('keydown', onKey, true); document.removeEventListener('keydown', onKey, true); clearInterval(id); };
   }, []);
 
   useEffect(() => {
@@ -316,7 +355,7 @@ export default function MoreGames() {
       window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
         const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (href && /https?:\/\/([a-z0-9.-]+\.)?luminsdk\.com/i.test(href)) {
-          return nativeFetch('/proxy?url=' + encodeURIComponent(href), init);
+          try { return nativeFetch('/proxy?url=' + encodeURIComponent(btoa(unescape(encodeURIComponent(href)))), init); } catch { return nativeFetch('/proxy?url=' + encodeURIComponent(href), init); }
         }
         return nativeFetch(input as RequestInfo, init);
       }) as typeof fetch;
@@ -535,7 +574,75 @@ export default function MoreGames() {
     if (!q) return [];
     const last = q.includes('/') ? q.split('/').filter(Boolean).pop() || q : q;
     const spaced = q.replace(/[/_-]+/g, ' ').trim();
-    return Array.from(new Set([q, last, spaced, last.replace(/[-_]+/g, ' ')].filter(Boolean)));
+    const camel = last.replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim();
+    const out = [q, last, spaced, last.replace(/[-_]+/g, ' '), camel];
+    const squashed = last.replace(/[^a-zA-Z0-9]/g, '');
+    if (squashed.length > 7) {
+      out.push(squashed.slice(0, Math.ceil(squashed.length / 2)));
+      out.push(squashed.slice(0, 6));
+      out.push(squashed.slice(0, 5));
+    }
+    return Array.from(new Set(out.map(s => String(s || '').trim()).filter(Boolean)));
+  };
+
+  const catalogRef = useRef<Map<string, any> | null>(null);
+  const catalogAt = useRef(0);
+
+  const addToCatalog = (games: any[]) => {
+    if (!catalogRef.current) catalogRef.current = new Map();
+    const map = catalogRef.current;
+    for (const g of games || []) {
+      const title = String((g && (g.title || g.name)) || '').trim();
+      if (!title) continue;
+      const key = normName(title);
+      if (key && !map.has(key)) map.set(key, g);
+      const gid = String((g && (g.id || g.slug)) || '').trim();
+      if (gid) {
+        const gk = normName(gid);
+        if (gk && !map.has(gk)) map.set(gk, g);
+      }
+    }
+  };
+
+  const buildCatalog = async () => {
+    if (!window.Lumin) return null;
+    if (catalogRef.current && Date.now() - catalogAt.current < 600000) return catalogRef.current;
+    const seeds: string[] = [];
+    try {
+      const cats = await window.Lumin.getCategories();
+      for (const c of (Array.isArray(cats) ? cats : [])) {
+        const n = String((c && (c.name || c.title || c)) || '').trim();
+        if (n) seeds.push(n);
+      }
+    } catch {}
+    for (const c of FALLBACK_GENRES) if (!seeds.includes(c)) seeds.push(c);
+    for (const c of 'abcdefghijklmnopqrstuvwxyz') seeds.push(c);
+    catalogRef.current = catalogRef.current || new Map();
+    for (const s of seeds) {
+      try {
+        const r = await window.Lumin.search(s);
+        if (r && Array.isArray(r.games)) addToCatalog(r.games);
+      } catch {}
+    }
+    catalogAt.current = Date.now();
+    return catalogRef.current;
+  };
+
+  const catalogMatch = (map: Map<string, any> | null, raw: string) => {
+    if (!map || map.size === 0) return null;
+    const nq = normName(raw);
+    if (!nq) return null;
+    const direct = map.get(nq);
+    if (direct) return direct;
+    let best: any = null;
+    let bestLen = Infinity;
+    for (const [k, v] of map) {
+      if (k === nq) return v;
+      if (k.startsWith(nq) || nq.startsWith(k) || k.includes(nq) || nq.includes(k)) {
+        if (k.length < bestLen) { best = v; bestLen = k.length; }
+      }
+    }
+    return best;
   };
 
   const searchLumin = async (raw: string) => {
@@ -544,7 +651,22 @@ export default function MoreGames() {
     for (const term of searchTerms(raw)) {
       const result = await window.Lumin.search(term);
       last = result;
-      if (result && Array.isArray(result.games) && result.games.length > 0) return result;
+      if (result && Array.isArray(result.games) && result.games.length > 0) {
+        addToCatalog(result.games);
+        return result;
+      }
+    }
+    const map = await buildCatalog();
+    const hit = catalogMatch(map, raw);
+    if (hit) {
+      const title = String(hit.title || hit.name || '').trim();
+      if (title) {
+        try {
+          const r = await window.Lumin.search(title);
+          if (r && Array.isArray(r.games) && r.games.length > 0) return r;
+        } catch {}
+      }
+      return { games: [hit] };
     }
     return last;
   };
@@ -573,7 +695,12 @@ export default function MoreGames() {
         if (!q) continue;
         const result = await searchLumin(q);
         if (result && result.games && result.games.length > 0) {
-          const exact = result.games.find((x: any) => String(x.title || x.name || '').toLowerCase() === g.title.toLowerCase());
+          const want = normName(g.title);
+          const wantId = normName(g.id);
+          const exact = result.games.find((x: any) => {
+            const n = normName(String(x.title || x.name || ''));
+            return n === want || n === wantId;
+          });
           syncRecentIcons(result.games);
           setRecentGames(getRecentGames());
           found = exact || result.games[0];
@@ -581,6 +708,13 @@ export default function MoreGames() {
         }
       }
       if (!found) {
+        const map = await buildCatalog();
+        found = catalogMatch(map, g.title) || catalogMatch(map, g.id);
+      }
+      if (found) {
+        const realTitle = String(found.title || found.name || '').trim();
+        if (realTitle) setSearchQuery(realTitle);
+      } else {
         markRecentUnavailable(g.id);
         setRecentGames(getRecentGames());
         setError('"' + g.title + '" is unavailable right now.');
