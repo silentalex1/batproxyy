@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "concurrently \"node server.js\" \"vite\"",
     "build": "tsc && vite build",
+    "deploy": "npm run build && node -e \"require('fs').rmSync('dist/_redirects',{force:true})\" && wrangler deploy",
     "preview": "vite preview",
     "server": "node server.js",
     "bridge": "node bridge/batprox-bridge.js",
