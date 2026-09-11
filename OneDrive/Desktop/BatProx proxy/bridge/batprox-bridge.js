@@ -50,10 +50,10 @@ function run(cmd, args, input, useShell) {
 }
 
 async function publish(job) {
-  const status = await run('git', ['status', '--porcelain']);
+  const status = await run('git', ['status', '--porcelain', '--', '.']);
   if (status.code !== 0) return 'git status failed: ' + (status.err || '').trim();
   if (!status.out.trim()) return 'No file changes, nothing to push.';
-  const add = await run('git', ['add', '-A']);
+  const add = await run('git', ['add', '-A', '--', '.']);
   if (add.code !== 0) return 'git add failed: ' + (add.err || '').trim();
   const msg = 'code request: ' + job.prompt.replace(/\s+/g, ' ').slice(0, 60);
   const commit = await run('git', ['commit', '-m', msg]);
