@@ -4,6 +4,7 @@ import { THEMES, applyTheme } from './theme';
 import { BACKGROUNDS, applyBackground, type BackgroundId } from './background';
 import { TAB_CLOAKS, applyTabCloak } from './tabcloak';
 import { SEARCH_ENGINES } from './engines';
+import { getDisplayName, saveDisplayName, fetchDisplayName, currentUser } from './displayname';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -212,6 +213,27 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   const [shareErr, setShareErr] = useState('');
   const [shareBusy, setShareBusy] = useState(false);
   const [granted, setGranted] = useState<Array<{ to: string; ts: number }>>([]);
+  const [dispName, setDispName] = useState('');
+  const [dispSaved, setDispSaved] = useState(false);
+  const [dispBusy, setDispBusy] = useState(false);
+  const meUser = currentUser();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const local = getDisplayName();
+    if (local) { setDispName(local); return; }
+    fetchDisplayName().then(v => setDispName(v || ''));
+  }, [isOpen]);
+
+  const commitDisplayName = async () => {
+    const v = dispName.trim().slice(0, 24);
+    if (!v || dispBusy) return;
+    setDispBusy(true);
+    await saveDisplayName(v);
+    setDispBusy(false);
+    setDispSaved(true);
+    setTimeout(() => setDispSaved(false), 1800);
+  };
 
   const loadGranted = async () => {
     const token = localStorage.getItem('batprox-token');
@@ -285,7 +307,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
       if (me) {
         if (profileTimerRef.current) clearTimeout(profileTimerRef.current);
         profileTimerRef.current = setTimeout(() => {
-          fetch('/api/chat/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: me, display: localStorage.getItem('batprox-display') || me, bio: next.bio || '', pfp: next.pfp || '' }) }).catch(() => {});
+          fetch('/api/chat/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: me, display: getDisplayName(me) || me, bio: next.bio || '', pfp: next.pfp || '' }) }).catch(() => {});
         }, 2000);
       }
     } catch {}
@@ -457,6 +479,22 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     </div>
                     <input ref={pfpRef} type="file" accept="image/*" className="hidden" onChange={onPfp} />
                   </div>
+                </div>
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-5 py-4">
+                  <p className="text-sm font-medium text-white/90 mb-1">Display name</p>
+                  <p className="text-xs text-white/40 mb-3">The name people see in the chatroom. Your login username stays <span className="text-white/70 font-medium">{meUser || 'unknown'}</span> and never changes.</p>
+                  <div className="flex gap-2">
+                    <input
+                      value={dispName}
+                      onChange={(e) => { setDispName(e.target.value.slice(0, 24)); setDispSaved(false); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitDisplayName(); } }}
+                      placeholder="display names"
+                      maxLength={24}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/60 text-sm"
+                    />
+                    <button type="button" onClick={commitDisplayName} disabled={!dispName.trim() || dispBusy} className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors">{dispBusy ? 'saving' : 'save'}</button>
+                  </div>
+                  {dispSaved && <p className="text-[11px] text-green-300 mt-2">Saved. Chat will show this name.</p>}
                 </div>
                 <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-5 py-4">
                   <p className="text-sm font-medium text-white/90 mb-1">Bio</p>

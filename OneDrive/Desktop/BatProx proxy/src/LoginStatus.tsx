@@ -40,11 +40,14 @@ export default function LoginStatus() {
       }
     } catch {}
     const API_BASES = ['', 'https://api.stealthybat.org', 'https://batproxyy.asdwwas233.workers.dev', 'https://authlogin.stealthlybat.it.com'];
-    const BLOCKED = 'Your wifi or filter is sending back a web page instead of the login server. The login itself is fine - try a phone hotspot or a different network.';
+    const BLOCKED = 'Your wifi or filter is returning its own page instead of the login server. The login itself is fine - try a phone hotspot or a different network.';
+    let sawHtml = false;
     const readJson = async (r: Response) => {
       let txt = '';
       try { txt = await r.text(); } catch { return null; }
-      if (!txt || !/^\s*[\{\[]/.test(txt)) return null;
+      txt = txt.trim();
+      if (!txt) return null;
+      if (!/^[\{\[]/.test(txt)) { if (/^<|<!doctype|<html/i.test(txt)) sawHtml = true; return null; }
       try { return JSON.parse(txt); } catch { return null; }
     };
     const unwrapAuth = (data: any) => {
@@ -71,7 +74,7 @@ export default function LoginStatus() {
           }
           const data = await readJson(r);
           if (!data) {
-            lastErr = BLOCKED;
+            lastErr = sawHtml ? BLOCKED : 'The login server answered with something unreadable. Please try again.';
             continue;
           }
           const payload = unwrapAuth(data);

@@ -5,6 +5,7 @@ import { applyTabCloak } from './tabcloak';
 import { switchDashboardToAboutBlank } from './cloak';
 import { getSavedTheme } from './theme';
 import Blossom from './Blossom';
+import { startReminderLoop } from './reminders';
 
 const NO_BLOSSOM_ROUTES = ['/search-engine', '/homework', '/ai-work', '/advertisement'];
 
@@ -83,6 +84,7 @@ export default function PageChrome() {
     const onTheme = () => {
       setShowBlossom(getSavedTheme() === 'Cherry Blossom' && !NO_BLOSSOM_ROUTES.includes(window.location.pathname));
     };
+    startReminderLoop();
     const onThemeBg = () => applyBackground();
     window.addEventListener('bp-theme', onTheme);
     window.addEventListener('bp-theme', onThemeBg);

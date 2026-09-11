@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Settings from './Settings';
 import { AmbientBg, SideRail, TopBar, NavBtn, BatteryIndicator } from './Chrome';
 import { startPresence } from './presence';
+import { getDisplayName, setDisplayName, fetchDisplayName, currentUser } from './displayname';
 import { useLowPower } from './power';
 
 interface Msg { id: number; room: string; user: string; display: string; text: string; ts: number; sys?: boolean; edited?: number; replyTo?: { user: string; text: string } | null }
@@ -27,9 +28,9 @@ export default function Chatting() {
   const location = useLocation();
   const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
   const [isStaff, setIsStaff] = useState(false);
-  const [gate, setGate] = useState(() => { try { return !localStorage.getItem('batprox-display'); } catch { return true; } });
+  const [gate, setGate] = useState(() => !getDisplayName(currentUser()));
   const [displayInput, setDisplayInput] = useState('');
-  const [, setDisplay] = useState(() => { try { return localStorage.getItem('batprox-display') || ''; } catch { return ''; } });
+  const [, setDisplay] = useState(() => getDisplayName(currentUser()));
   const [names, setNames] = useState<Record<string, string>>({});
   const [room, setRoom] = useState<Room>({ kind: 'community', id: 'community', label: 'Community' });
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -300,16 +301,12 @@ export default function Chatting() {
 
   useEffect(() => {
     if (!me) return;
-    try {
-      if (localStorage.getItem('batprox-display')) return;
-    } catch {}
-    fetch('/api/chat/name?user=' + encodeURIComponent(me)).then(r => r.json()).then(d => {
-      if (d.display && d.display !== me) {
-        try { localStorage.setItem('batprox-display', d.display); } catch {}
-        setDisplay(d.display);
-        setGate(false);
-      }
-    }).catch(() => {});
+    if (getDisplayName(me)) { setGate(false); return; }
+    fetchDisplayName(me).then(v => {
+      if (!v) return;
+      setDisplay(v);
+      setGate(false);
+    });
   }, [me]);
 
   const deleteMsg = async (id: number) => {
@@ -328,9 +325,11 @@ export default function Chatting() {
     try {
       await fetch('/api/chat/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: me, display: v }) });
     } catch {}
-    try { localStorage.setItem('batprox-display', v); } catch {}
+    setDisplayName(v, me);
     setDisplay(v);
     setGate(false);
+    loadNames();
+    loadProfiles();
   };
 
   const send = async (e?: React.FormEvent) => {

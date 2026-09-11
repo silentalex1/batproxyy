@@ -90,53 +90,53 @@ export default function Login() {
     } catch {}
   };
 
-  const tryBases = async (path: string, init: RequestInit) => {
-    let lastErr = 'Network error. Please make sure the backend server is running.';
-    let sawPage = false;
-    const trace: string[] = [];
-    for (const base of API_BASES) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const label = `${base || 'same-origin'} #${attempt + 1}`;
-        try {
-          const sep = path.indexOf('?') === -1 ? '?' : '&';
-          const r = await fetchWithTimeout(`${base}${path}${sep}_=${Date.now()}${attempt}`, {
-            ...init,
-            cache: 'no-store',
-            headers: { ...(init.headers as Record<string, string> || {}), 'Accept': 'application/json' }
-          });
-          const ct = (r.headers.get('content-type') || 'none').split(';')[0];
-          if (r.status >= 500 || r.status === 404) {
-            trace.push(`${label}: http ${r.status} ${ct}`);
-            lastErr = `Server error (${r.status}). Please try again.`;
-            await sleep(300 * (attempt + 1));
-            continue;
-          }
-          const raw = await r.text().catch(() => '');
-          let data: any = null;
-          if (raw && /^\s*[\{\[]/.test(raw)) { try { data = JSON.parse(raw); } catch { data = null; } }
-          if (!data) {
-            sawPage = true;
-            trace.push(`${label}: http ${r.status} ${ct} body="${raw.slice(0, 120).replace(/\s+/g, ' ')}"`);
-            lastErr = 'Your network sent back a web page instead of the login server.';
-            await sleep(300 * (attempt + 1));
-            continue;
-          }
-          const payload = unwrapAuth(data);
-          const hasToken = payload && typeof payload.token === 'string' && payload.token.length > 0 && payload.user && typeof payload.user.username === 'string';
-          const hasErr = payload && (payload.success === false || typeof payload.error === 'string');
-          if (hasToken || hasErr) return payload;
-          trace.push(`${label}: http ${r.status} json keys=${Object.keys(data).join(',') || 'none'}`);
-          lastErr = 'Login backend returned an incomplete response. Please try again.';
-          await sleep(300 * (attempt + 1));
-        } catch (err: any) {
-          trace.push(`${label}: threw ${err?.name || 'Error'} ${err?.message || ''}`.trim());
-          lastErr = 'Network error. Please make sure the backend server is running.';
-          await sleep(300 * (attempt + 1));
-        }
+  const attemptBase = async (base: string, path: string, init: RequestInit, round: number): Promise<{ ok: boolean; payload?: any; kind: string; note: string }> => {
+    const label = `${base || 'same-origin'} r${round + 1}`;
+    try {
+      const sep = path.indexOf('?') === -1 ? '?' : '&';
+      const r = await fetchWithTimeout(`${base}${path}${sep}_=${Date.now()}${round}`, {
+        ...init,
+        cache: 'no-store',
+        headers: { ...(init.headers as Record<string, string> || {}), 'Accept': 'application/json' }
+      }, 9000);
+      const ct = (r.headers.get('content-type') || 'none').split(';')[0];
+      if (r.status >= 500 || r.status === 404) return { ok: false, kind: 'server', note: `${label}: http ${r.status} ${ct}` };
+      const raw = (await r.text().catch(() => '')).trim();
+      if (!raw) return { ok: false, kind: 'empty', note: `${label}: http ${r.status} ${ct} empty body` };
+      if (!/^[\{\[]/.test(raw)) {
+        const html = /^<|<!doctype|<html/i.test(raw);
+        return { ok: false, kind: html ? 'html' : 'nonjson', note: `${label}: http ${r.status} ${ct} body="${raw.slice(0, 120).replace(/\s+/g, ' ')}"` };
       }
+      let data: any = null;
+      try { data = JSON.parse(raw); } catch { return { ok: false, kind: 'badjson', note: `${label}: unparseable json` }; }
+      const payload = unwrapAuth(data);
+      const hasToken = payload && typeof payload.token === 'string' && payload.token.length > 0 && payload.user && typeof payload.user.username === 'string';
+      const hasErr = payload && (payload.success === false || typeof payload.error === 'string');
+      if (hasToken || hasErr) return { ok: true, payload, kind: 'ok', note: '' };
+      return { ok: false, kind: 'incomplete', note: `${label}: json keys=${Object.keys(data).join(',') || 'none'}` };
+    } catch (err: any) {
+      const aborted = err?.name === 'AbortError';
+      return { ok: false, kind: aborted ? 'timeout' : 'threw', note: `${label}: ${aborted ? 'timed out' : (err?.name || 'Error') + ' ' + (err?.message || '')}`.trim() };
+    }
+  };
+
+  const tryBases = async (path: string, init: RequestInit) => {
+    const trace: string[] = [];
+    const kinds: string[] = [];
+    for (let round = 0; round < 2; round++) {
+      const results = await Promise.all(API_BASES.map(b => attemptBase(b, path, init, round)));
+      const win = results.find(r => r.ok);
+      if (win) return win.payload;
+      for (const r of results) { if (r.note) trace.push(r.note); kinds.push(r.kind); }
+      if (round === 0) await sleep(500);
     }
     reportTrace(path, trace);
-    throw new Error(sawPage ? 'Your wifi or school filter is blocking the login server - it sent back a web page instead of your account data. Try a phone hotspot, or open the about:blank link at the top of this page and log in from there.' : lastErr);
+    const has = (k: string) => kinds.includes(k);
+    if (has('html')) throw new Error('Your wifi or school filter is returning its own page instead of the login server. Try a phone hotspot, or open the about:blank link at the top of this page.');
+    if (has('server')) throw new Error('The login server is having a moment. Wait a few seconds and press Login again.');
+    if (has('incomplete') || has('badjson') || has('empty')) throw new Error('The login server answered without your account data. Press Login once more - if it keeps happening, report it from the orange link above.');
+    if (has('timeout')) throw new Error('The login server took too long to answer. Your connection may be slow - press Login again.');
+    throw new Error('Could not reach the login server. Check your connection and press Login again.');
   };
 
   const [forgotUser, setForgotUser] = useState('');

@@ -21,6 +21,7 @@ import { initUltraviolet } from './uv';
 import UserActivity from './UserActivity';
 import StaffPanel from './StaffPanel';
 import Movies from './Movies';
+import DailyReminder from './DailyReminder';
 import LoginStatus from './LoginStatus';
 import Advertisement from './Advertisement';
 import MyScripts from './MyScripts';
@@ -54,7 +55,7 @@ function Dashboard() {
   const [reminderTime, setReminderTime] = useState('');
   const [reminderText, setReminderText] = useState('');
   const [announceTime, setAnnounceTime] = useState(() => { try { return localStorage.getItem('batprox-reminder-announce') === '1'; } catch { return false; } });
-  void showReminder; void setShowReminder; void reminderTime; void setReminderTime; void reminderText; void setReminderText; void announceTime; void setAnnounceTime;
+  void reminderTime; void setReminderTime; void reminderText; void setReminderText; void announceTime; void setAnnounceTime;
 
   useEffect(() => {
     fetch('/api/check-blacklist').then(r=>{ if(!r.ok) throw new Error(); return r.json();}).then(d=>{ if(d.banned) location.href='https://banned.stealthybat.org'; }).catch(()=>{});
@@ -218,6 +219,9 @@ function Dashboard() {
       case 'My scripts':
         navigate('/my-scripts');
         return;
+      case 'Daily Reminder':
+        setShowReminder(true);
+        return;
       default:
         return;
     }
@@ -266,7 +270,8 @@ function Dashboard() {
     { label: 'Music', image: '/assets/musiclogo2.png', tint: 'bg-[#7c3aed]' },
     { label: 'Movies', image: null, tint: 'bg-[#ef4444]' },
     { label: 'AI', image: null, tint: 'bg-[#8b5cf6]' },
-    { label: 'Games', image: null, tint: 'bg-[#10b981]' }
+    { label: 'Games', image: null, tint: 'bg-[#10b981]' },
+    { label: 'Daily Reminder', image: null, tint: 'bg-[#f59e0b]' }
   ];
 
   return (
@@ -355,6 +360,10 @@ function Dashboard() {
                         e.currentTarget.style.display = 'none';
                       }}
                     />
+                  ) : item.label === 'Daily Reminder' ? (
+                    <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
+                    </svg>
                   ) : item.label === 'Movies' ? (
                     <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                       <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -534,6 +543,7 @@ function Dashboard() {
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
       />
+      <DailyReminder isOpen={showReminder} onClose={() => setShowReminder(false)} />
     </div>
   );
 }
