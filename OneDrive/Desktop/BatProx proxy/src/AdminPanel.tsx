@@ -47,7 +47,7 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest'>('feedbacks');
+  const [tab, setTab] = useState<'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest'>('feedbacks');
   const [problems, setProblems] = useState<{ votes: Array<{ user: string; working: boolean; ts: number }>; reports: Array<{ user: string; error: string; ts: number }>; resets: Array<{ user: string; ts: number }> }>({ votes: [], reports: [], resets: [] });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
@@ -146,13 +146,13 @@ export default function AdminPanel() {
   };
 
   useEffect(() => {
-    if (isAuthed && tab === 'feedbacks') loadFeedbacks();
+    if (isAuthed && (tab === 'feedbacks' || tab === 'fnadfeedback')) loadFeedbacks();
     if (isAuthed && (tab === 'accounts' || tab === 'paylater' || tab === 'commands' || tab === 'ranks')) loadUsers();
     if (isAuthed && tab === 'status') loadStatusOverrides();
   }, [isAuthed, tab]);
 
   useEffect(() => {
-    if (!isAuthed || tab !== 'feedbacks') return;
+    if (!isAuthed || (tab !== 'feedbacks' && tab !== 'fnadfeedback')) return;
     const id = setInterval(() => loadFeedbacks(true), 5000);
     return () => clearInterval(id);
   }, [isAuthed, tab]);
@@ -435,7 +435,9 @@ export default function AdminPanel() {
     );
   }
 
-  const pendingFeedbacks = feedbacks.filter(f => f.status === 'pending');
+  const FNAD_GENRE = 'Five Nights game';
+  const pendingFeedbacks = feedbacks.filter(f => f.status === 'pending' && f.genre !== FNAD_GENRE);
+  const fnadFeedbacks = feedbacks.filter(f => f.status === 'pending' && f.genre === FNAD_GENRE);
   const filteredUsers = users.filter(u => u.username.toLowerCase().includes(userSearch.toLowerCase()));
 
   return (
@@ -459,6 +461,11 @@ export default function AdminPanel() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
               Feedback Suggestions
               {pendingFeedbacks.length > 0 && <span className="ml-auto text-[10px] bg-purple-600/40 text-purple-200 px-1.5 py-0.5 rounded-full">{pendingFeedbacks.length}</span>}
+            </button>
+            <button onClick={() => setTab('fnadfeedback')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'fnadfeedback' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10h.01M9 10h.01M7 16h10a4 4 0 004-4V9a4 4 0 00-4-4H7a4 4 0 00-4 4v3a4 4 0 004 4zm-2 5l2-5m12 5l-2-5" /></svg>
+              Five nights game, suggestions
+              {fnadFeedbacks.length > 0 && <span className="ml-auto text-[10px] bg-amber-600/40 text-amber-200 px-1.5 py-0.5 rounded-full">{fnadFeedbacks.length}</span>}
             </button>
             <button onClick={() => setTab('accounts')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'accounts' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3" /></svg>
@@ -540,6 +547,36 @@ export default function AdminPanel() {
                       ))}
                     </div>
                   </div>
+                </div>
+              </div>
+            )}
+            {tab === 'fnadfeedback' && (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">Five nights game, suggestions</h2>
+                <p className="text-xs text-white/35 mb-5">Feedback sent from inside Five Nights at Detention.</p>
+                <div className="space-y-2.5">
+                  {fnadFeedbacks.length === 0 ? (
+                    <div className="bg-black/40 border border-white/10 rounded-xl p-10 text-center">
+                      <p className="text-gray-400 text-sm">No game suggestions yet.</p>
+                      <p className="text-gray-600 text-xs mt-1">Feedback sent from the game lands here.</p>
+                    </div>
+                  ) : (
+                    fnadFeedbacks.map((feedback) => (
+                      <div key={feedback.id} className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md hover:border-white/20 transition-colors">
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-gray-500 mb-1">feedback from <span className="text-amber-300 font-medium">{feedback.user_identifier || 'unknown'}</span><span className="text-gray-600"> · {new Date(feedback.submitted_at).toLocaleString()}</span><span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border align-middle text-amber-300 border-amber-500/25 bg-amber-500/10">{FNAD_GENRE}</span></p>
+                            {feedback.title && <p className="text-[13px] text-white font-semibold mb-0.5 break-words">{feedback.title}</p>}
+                            <p className="text-gray-200 text-[13px] break-words whitespace-pre-wrap">{feedback.content}</p>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            <button onClick={() => handleDecline(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>
+                            <button onClick={() => handleApprove(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 transition-all font-medium">Approve</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

@@ -541,7 +541,7 @@ function blockedHost(host){
   }
   if(url.pathname==='/api/my-games' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
-    return new Response(JSON.stringify({games:[]}),{headers:h});
+    return new Response(JSON.stringify({games:[{name:'Five Nights At Detention', filename:'five-nights-at-detention', url:'/my-games/five-nights-at-detention/'}]}),{headers:h});
   }
   if(url.pathname==='/api/suggestions' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');

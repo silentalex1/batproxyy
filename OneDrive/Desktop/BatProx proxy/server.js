@@ -241,27 +241,54 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+const SUGGESTION_GENRES = ['Feedback suggestions', 'Website bug', 'Five Nights game'];
+
+function titleFromSlug(slug) {
+  return slug
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function listMyGames(gamesDir) {
+  const games = [];
+
+  for (const entry of fs.readdirSync(gamesDir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      const indexPath = path.join(gamesDir, entry.name, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        games.push({
+          name: titleFromSlug(entry.name),
+          filename: entry.name,
+          url: `/my-games/${entry.name}/`
+        });
+      }
+      continue;
+    }
+
+    const ext = path.extname(entry.name).toLowerCase();
+    if (['.html', '.htm', '.swf', '.zip'].includes(ext)) {
+      games.push({
+        name: path.basename(entry.name, path.extname(entry.name)),
+        filename: entry.name,
+        url: `/my-games/${entry.name}`
+      });
+    }
+  }
+
+  return games.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 app.get('/api/my-games', (req, res) => {
   const gamesDir = path.join(__dirname, 'public', 'my-games');
-  
+
   try {
     if (!fs.existsSync(gamesDir)) {
       return res.json({ games: [] });
     }
-    
-    const files = fs.readdirSync(gamesDir);
-    const games = files
-      .filter(file => {
-        const ext = path.extname(file).toLowerCase();
-        return ['.html', '.htm', '.swf', '.zip'].includes(ext);
-      })
-      .map(file => ({
-        name: path.basename(file, path.extname(file)),
-        filename: file,
-        url: `/my-games/${file}`
-      }));
-    
-    res.json({ games });
+
+    res.json({ games: listMyGames(gamesDir) });
   } catch (error) {
     console.error('Error reading my-games directory:', error);
     res.status(500).json({ error: 'Failed to read games directory' });
@@ -285,7 +312,7 @@ app.post('/api/suggestions', async (req, res) => {
 
     db.run(
       'INSERT INTO user_suggestions (content, user_identifier, genre) VALUES (?, ?, ?)',
-      [sanitizedContent, identifier, genre === 'Website bug' ? 'Website bug' : 'Feedback suggestions'],
+      [sanitizedContent, identifier, SUGGESTION_GENRES.includes(genre) ? genre : 'Feedback suggestions'],
       function(err) {
         if (err) {
           console.error('Database error:', err);
@@ -522,7 +549,7 @@ app.all('/proxy', async (req, res) => {
   }
 });
 
-app.options('*', (req, res) => {
+app.options(/.*/, (req, res) => {
   const requestOrigin = req.headers['origin'];
   if (requestOrigin) {
     res.set('Access-Control-Allow-Origin', requestOrigin);
@@ -703,7 +730,7 @@ async function proxyRequest(targetUrl, req, res) {
   }
 }
 
-app.all('/ajax/*', async (req, res, next) => {
+app.all(/^\/ajax\//, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   if (!originalUrl) {
     return next();
@@ -711,7 +738,7 @@ app.all('/ajax/*', async (req, res, next) => {
   return proxyRequest(originalUrl, req, res);
 });
 
-app.all('/api/*', async (req, res, next) => {
+app.all(/^\/api\//, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   if (!originalUrl) {
     return next();
@@ -719,7 +746,7 @@ app.all('/api/*', async (req, res, next) => {
   return proxyRequest(originalUrl, req, res);
 });
 
-app.all('/ig_xsite_user_info*', async (req, res, next) => {
+app.all(/^\/ig_xsite_user_info/, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   if (!originalUrl) {
     return next();
@@ -727,7 +754,7 @@ app.all('/ig_xsite_user_info*', async (req, res, next) => {
   return proxyRequest(originalUrl, req, res);
 });
 
-app.all('/v1/*', async (req, res, next) => {
+app.all(/^\/v1\//, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   if (!originalUrl) {
     return next();
@@ -735,7 +762,7 @@ app.all('/v1/*', async (req, res, next) => {
   return proxyRequest(originalUrl, req, res);
 });
 
-app.all('/v2/*', async (req, res, next) => {
+app.all(/^\/v2\//, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   if (!originalUrl) {
     return next();
@@ -745,7 +772,7 @@ app.all('/v2/*', async (req, res, next) => {
 
 let lastProxyOrigin = '';
 
-app.all('/cdn-cgi/*', async (req, res, next) => {
+app.all(/^\/cdn-cgi\//, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   if (originalUrl) {
     return proxyRequest(originalUrl, req, res);
@@ -756,7 +783,7 @@ app.all('/cdn-cgi/*', async (req, res, next) => {
   return next();
 });
 
-app.all('*', async (req, res, next) => {
+app.all(/.*/, async (req, res, next) => {
   const originalUrl = req.headers['x-original-url'];
   
   if (!originalUrl) {
@@ -1557,28 +1584,14 @@ app.get('/ai/status/api', (req, res) => {
 });
 
 app.get('/api/my-games', (req, res) => {
-  const fs = require('fs');
-  const path = require('path');
   const gamesDir = path.join(__dirname, 'public', 'my-games');
-  
+
   try {
     if (!fs.existsSync(gamesDir)) {
       return res.json({ games: [] });
     }
-    
-    const files = fs.readdirSync(gamesDir);
-    const games = files
-      .filter(file => {
-        const ext = path.extname(file).toLowerCase();
-        return ['.html', '.htm', '.swf', '.zip'].includes(ext);
-      })
-      .map(file => ({
-        name: path.basename(file, path.extname(file)),
-        filename: file,
-        url: `/my-games/${file}`
-      }));
-    
-    res.json({ games });
+
+    res.json({ games: listMyGames(gamesDir) });
   } catch (error) {
     console.error('Error reading my-games directory:', error);
     res.status(500).json({ error: 'Failed to read games directory' });
@@ -1630,6 +1643,31 @@ app.post('/api/admin/status', authenticateToken, requireAdmin, (req, res) => {
       res.json({ success: true, name: cleanName, color: cleanColor });
     }
   );
+});
+
+const recentGamesMem = new Map();
+
+app.post('/api/recentgames', (req, res) => {
+  const username = String((req.body && req.body.username) || '').trim().slice(0, 20);
+  const games = req.body && req.body.games;
+  if (!username || !Array.isArray(games)) {
+    return res.status(400).json({ error: 'Invalid' });
+  }
+  const clean = games.filter((g) => g && g.name).map((g) => ({
+    name: String(g.name).slice(0, 80),
+    plays: Math.max(0, parseInt(g.plays, 10) || 0),
+    ts: Number(g.ts) || Date.now(),
+    icon: String(g.icon || '').slice(0, 500),
+    url: String(g.url || '').slice(0, 500),
+    id: String(g.id || '').slice(0, 80)
+  })).slice(0, 12);
+  recentGamesMem.set(username, clean);
+  res.json({ success: true });
+});
+
+app.get('/api/recentgames', (req, res) => {
+  const user = String(req.query.user || '').trim();
+  res.json({ games: (user && recentGamesMem.get(user)) || [] });
 });
 
 app.get('/health', (req, res) => {
@@ -1735,7 +1773,19 @@ app.get('/site/:name', (req, res) => {
 
 const distDir = path.join(__dirname, 'dist');
 app.use(express.static(distDir));
-app.get('*', (req, res, next) => {
+
+app.get(/^\/my-games\/([^/]+)\//, (req, res, next) => {
+  const slug = req.params[0];
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) return next();
+  const roots = [path.join(__dirname, 'public', 'my-games'), path.join(distDir, 'my-games')];
+  for (const root of roots) {
+    const indexPath = path.join(root, slug, 'index.html');
+    if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+  }
+  next();
+});
+
+app.get(/.*/, (req, res, next) => {
   if (req.headers['x-original-url']) return next();
   const p = req.path;
   if (p === '/api' || p.startsWith('/api/') || p.startsWith('/proxy') || p.startsWith('/uv') || p.startsWith('/epoxy') || p.startsWith('/baremux') || p.startsWith('/wisp') || p.startsWith('/site') || p === '/health' || p === '/sw.js' || p === '/uv-sw.js' || p === '/lumin.js' || p === '/lumin.worker.js' || p.startsWith('/my-games') || p.startsWith('/cdn-cgi')) {
