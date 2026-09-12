@@ -12,16 +12,31 @@ function batproxPlugin(): Plugin {
         const pathname = (req.url || '').split('?')[0]
         if (pathname === '/api/my-games') {
           const dir = path.resolve(process.cwd(), 'public', 'my-games')
-          let games: Array<{ name: string; filename: string; url: string }> = []
+          const covers = ['cover.jpg', 'cover.png', 'cover.webp', 'thumbnail.jpg', 'thumbnail.png']
+          let games: Array<{ name: string; filename: string; url: string; thumbnail: string | null }> = []
           try {
             if (fs.existsSync(dir)) {
-              games = fs.readdirSync(dir)
-                .filter((file) => ['.html', '.htm', '.swf', '.zip'].includes(path.extname(file).toLowerCase()))
-                .map((file) => ({
-                  name: path.basename(file, path.extname(file)),
-                  filename: file,
-                  url: `/my-games/${file}`
-                }))
+              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (entry.isDirectory()) {
+                  if (!fs.existsSync(path.join(dir, entry.name, 'index.html'))) continue
+                  const cover = covers.find((c) => fs.existsSync(path.join(dir, entry.name, c)))
+                  games.push({
+                    name: entry.name.replace(/[-_]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()),
+                    filename: entry.name,
+                    url: `/my-games/${entry.name}/`,
+                    thumbnail: cover ? `/my-games/${entry.name}/${cover}` : null
+                  })
+                  continue
+                }
+                if (!['.html', '.htm', '.swf', '.zip'].includes(path.extname(entry.name).toLowerCase())) continue
+                games.push({
+                  name: path.basename(entry.name, path.extname(entry.name)),
+                  filename: entry.name,
+                  url: `/my-games/${entry.name}`,
+                  thumbnail: null
+                })
+              }
+              games.sort((a, b) => a.name.localeCompare(b.name))
             }
           } catch {
             games = []
