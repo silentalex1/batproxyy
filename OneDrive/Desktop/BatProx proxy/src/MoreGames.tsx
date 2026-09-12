@@ -21,7 +21,7 @@ export default function MoreGames() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [myGamesSearch, setMyGamesSearch] = useState('');
-  const [myGames, setMyGames] = useState<Array<{ name: string; filename: string; url: string }>>([]);
+  const [myGames, setMyGames] = useState<Array<{ name: string; filename: string; url: string; thumbnail?: string | null }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const CONTAINER_ID = 'games';
@@ -278,21 +278,25 @@ export default function MoreGames() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     
-    try {
-      const response = await fetch('/api/my-games', {
-        signal: controller.signal
-      });
-      
+    const readGames = async (url: string) => {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) return [];
       const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        setMyGames([]);
-        return;
+      if (!contentType.includes('application/json')) return [];
+      const data = await response.json();
+      return Array.isArray(data.games) ? data.games : [];
+    };
+
+    try {
+      let games = await readGames('/api/my-games');
+      if (games.length === 0) {
+        try {
+          games = await readGames('/my-games/games.json');
+        } catch {
+          games = [];
+        }
       }
-      
-      if (response.ok) {
-        const data = await response.json();
-        setMyGames(data.games || []);
-      }
+      setMyGames(games);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         return;
@@ -1064,15 +1068,26 @@ export default function MoreGames() {
                       href={game.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group flex flex-col items-center gap-2 px-4 py-5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/50 transition-all cursor-pointer text-center hover:scale-105 shadow-lg"
+                      title={game.name}
+                      className="group relative block w-full aspect-[3/2] overflow-hidden rounded-xl bg-black/60 border border-white/10 hover:border-purple-500/50 transition-all cursor-pointer hover:scale-105 shadow-lg"
                     >
-                      <div className="w-10 h-10 rounded-lg bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 group-hover:text-white group-hover:bg-purple-600/40 transition-all">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <span className="text-sm text-gray-200 group-hover:text-white font-medium break-words w-full">{game.name}</span>
+                      {game.thumbnail ? (
+                        <img
+                          src={game.thumbnail}
+                          alt=""
+                          loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                        />
+                      ) : (
+                        <span className="absolute inset-0 flex items-center justify-center bg-purple-600/15 text-purple-200 text-2xl font-bold">
+                          {game.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      <span className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/35 to-transparent opacity-60 group-hover:opacity-95 transition-opacity duration-300" />
+                      <span className="absolute inset-x-0 bottom-0 p-2.5 translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
+                        <span className="block text-[13px] leading-tight text-white font-semibold drop-shadow-lg break-words">{game.name}</span>
+                      </span>
                     </a>
                   ))}
               </div>

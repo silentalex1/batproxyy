@@ -251,6 +251,15 @@ function titleFromSlug(slug) {
     .replace(/\b\w/g, c => c.toUpperCase());
 }
 
+const COVER_NAMES = ['cover.jpg', 'cover.png', 'cover.webp', 'thumbnail.jpg', 'thumbnail.png'];
+
+function findCover(gamesDir, slug) {
+  for (const name of COVER_NAMES) {
+    if (fs.existsSync(path.join(gamesDir, slug, name))) return `/my-games/${slug}/${name}`;
+  }
+  return null;
+}
+
 function listMyGames(gamesDir) {
   const games = [];
 
@@ -261,7 +270,8 @@ function listMyGames(gamesDir) {
         games.push({
           name: titleFromSlug(entry.name),
           filename: entry.name,
-          url: `/my-games/${entry.name}/`
+          url: `/my-games/${entry.name}/`,
+          thumbnail: findCover(gamesDir, entry.name)
         });
       }
       continue;
@@ -272,7 +282,8 @@ function listMyGames(gamesDir) {
       games.push({
         name: path.basename(entry.name, path.extname(entry.name)),
         filename: entry.name,
-        url: `/my-games/${entry.name}`
+        url: `/my-games/${entry.name}`,
+        thumbnail: null
       });
     }
   }
