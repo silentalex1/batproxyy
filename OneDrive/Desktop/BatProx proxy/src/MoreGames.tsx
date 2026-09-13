@@ -6,6 +6,7 @@ import { AmbientBg, BatteryIndicator, SideRail, TopBar, NavBtn } from './Chrome'
 import { startPresence, setPresenceGame, trackGameSeconds, commitRecent, bumpRecentSecs, markRecentUnavailable, removeRecent, clearRecents, getRecentGames, syncRecentIcons, loadServerRecents, extractGameMedia } from './presence';
 import type { RecentGame } from './presence';
 import { useLowPower } from './power';
+import { openAboutBlankPage } from './cloak';
 
 declare global {
   interface Window {
@@ -21,6 +22,13 @@ export default function MoreGames() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [myGamesSearch, setMyGamesSearch] = useState('');
+
+  const matchesMyGame = (game: { name: string; filename: string }, query: string) => {
+    const q = query.trim().toLowerCase().replace(/[-_]+/g, ' ');
+    if (!q) return true;
+    const haystack = `${game.name} ${game.filename}`.toLowerCase().replace(/[-_]+/g, ' ');
+    return q.split(/\s+/).every(part => haystack.includes(part));
+  };
   const [myGames, setMyGames] = useState<Array<{ name: string; filename: string; url: string; thumbnail?: string | null }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1054,14 +1062,14 @@ export default function MoreGames() {
               <div className="text-center text-gray-500 text-sm py-10">
                 No games added yet. Add games to the public/my-games folder.
               </div>
-            ) : myGames.filter(game => game.name.toLowerCase().includes(myGamesSearch.toLowerCase())).length === 0 ? (
+            ) : myGames.filter(game => matchesMyGame(game, myGamesSearch)).length === 0 ? (
               <div className="text-center text-gray-500 text-sm py-10">
                 No games found matching "{myGamesSearch}"
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {myGames
-                  .filter(game => game.name.toLowerCase().includes(myGamesSearch.toLowerCase()))
+                  .filter(game => matchesMyGame(game, myGamesSearch))
                   .map((game) => (
                     <a
                       key={game.filename}
@@ -1069,6 +1077,10 @@ export default function MoreGames() {
                       target="_blank"
                       rel="noopener noreferrer"
                       title={game.name}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openAboutBlankPage(new URL(game.url, window.location.origin).href);
+                      }}
                       className="group relative block w-full aspect-[3/2] overflow-hidden rounded-xl bg-black/60 border border-white/10 hover:border-purple-500/50 transition-all cursor-pointer hover:scale-105 shadow-lg"
                     >
                       {game.thumbnail ? (
