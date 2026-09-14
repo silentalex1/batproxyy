@@ -50,7 +50,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                 loungeHas(state, id) ? (
                   <img
                     key={id}
-                    className={`seat-fig ${id}`}
+                    className={`seat-fig ${id} ${state.teachers[id].notice > 0 ? "noticed" : ""}`}
                     src={asset(`assets/cameras/lounge-${id}.png`)}
                     style={LOUNGE_SEATS[id]}
                     alt=""
@@ -67,7 +67,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                 return (
                   <img
                     key={id}
-                    className={`teacher-move ${id}`}
+                    className={`teacher-move ${id} ${state.teachers[id].notice > 0 ? "noticed" : ""}`}
                     src={state.teachers[id].body}
                     style={{ left: spot.left, bottom: spot.bottom, height: spot.height }}
                     alt=""

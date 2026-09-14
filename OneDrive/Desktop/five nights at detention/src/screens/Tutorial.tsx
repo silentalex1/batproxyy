@@ -48,7 +48,10 @@ export function Tutorial({ onClose }: Props) {
 
   return (
     <div className="veil">
-      <div className="slip tutorial">
+      <div className="slip tutorial" style={{ position: "relative" }}>
+        <button type="button" className="tutorial-x" onClick={onClose} aria-label="Close tutorial">
+          ×
+        </button>
         <p className="slip-stamp">[ TUTORIAL - HOW TO PLAY. ]</p>
         <p className="tutorial-body">{current.body}</p>
         {current.image && <img className="tutorial-shot" src={current.image} alt="" />}

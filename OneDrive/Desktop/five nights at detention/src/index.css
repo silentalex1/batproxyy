@@ -1417,3 +1417,45 @@ button:disabled {
   color: #8d8370;
   animation: blink 1.6s steps(2) infinite;
 }
+
+.tutorial-x {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid rgba(60, 40, 20, 0.35);
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0;
+}
+
+.tutorial-x:hover {
+  background: rgba(122, 29, 29, 0.14);
+  border-color: var(--blood);
+  color: var(--blood);
+}
+
+.gen.surge .gen-bar div {
+  background: linear-gradient(90deg, #6a1d1d, #e05040);
+}
+
+.gen.surge .usage small {
+  color: #e59a4a;
+  animation: blink 0.9s steps(2) infinite;
+}
+
+.seat-fig.noticed,
+.teacher-move.noticed {
+  filter: contrast(1.5) saturate(0.35) brightness(1.35);
+  animation: noticed-jitter 0.18s steps(2) infinite;
+}
+
+@keyframes noticed-jitter {
+  0%, 100% { transform: translate(0, 0) scale(1.03); }
+  50% { transform: translate(-2px, 1px) scale(1.045); }
+}

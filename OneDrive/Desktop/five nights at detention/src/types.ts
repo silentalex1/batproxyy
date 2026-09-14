@@ -44,6 +44,9 @@ export interface Teacher {
   scare: string;
   wakeAt: number;
   stallAcc: number;
+  mood: number;
+  moodAcc: number;
+  notice: number;
 }
 
 export interface PlayerModel {

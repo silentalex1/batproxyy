@@ -89,11 +89,17 @@ export const HOUR_SECONDS = 66;
 
 export const SCARE_SECONDS = 2.4;
 
+export const BOTH_DOOR_DRAIN = 1.28;
+
+export function bothDoorsShut(state: NightState): boolean {
+  return state.leftDoor && state.rightDoor && !state.powerOut;
+}
+
 const AI_TABLE: Record<TeacherId, number[]> = {
-  math: [2, 4, 5, 8, 11, 15],
-  gym: [1, 3, 4, 7, 10, 14],
-  principal: [0, 1, 3, 6, 9, 13],
-  history: [1, 3, 5, 8, 12, 16]
+  math: [2, 5, 7, 10, 13, 16],
+  gym: [1, 4, 6, 9, 12, 15],
+  principal: [0, 2, 4, 7, 11, 14],
+  history: [1, 4, 6, 9, 13, 17]
 };
 
 const SPOTS: Record<string, { left: string; bottom: string; height: string }[]> = {
@@ -163,7 +169,10 @@ export function createNight(night: number): NightState {
     body,
     scare: asset(`assets/teachers/scare-${id}.png`),
     wakeAt,
-    stallAcc: 0
+    stallAcc: 0,
+    mood: 0,
+    moodAcc: 6 + Math.random() * 14,
+    notice: 0
   });
 
   return {
@@ -365,6 +374,7 @@ function effAi(state: NightState, t: Teacher): number {
   a += isWatched(state, t.room) ? starePin(state) : 0.85;
   a += Math.min(3.5, t.stallAcc / 9);
   a += pincer(state, t);
+  a += t.mood * 1.55;
   if (state.camerasOpen) a += t.id === "principal" ? 1.3 : 0.7;
   if (state.generator < 30) a += 1.2;
   if (t.id === "principal" && state.minutes >= 240) a += 1.2;
@@ -377,8 +387,37 @@ function stallLimit(state: NightState, t: Teacher): number {
 
 function doorPatience(state: NightState, t: Teacher): number {
   const side = t.room === "leftDoor" ? "left" : "right";
-  const base = Math.max(3, 7.6 - state.night * 0.45 - currentHour(state) * 0.32);
+  const base = Math.max(2.6, 7.0 - state.night * 0.5 - currentHour(state) * 0.36);
   return base * (0.66 + vigilance(state, side) * 0.55);
+}
+
+function runMoods(state: NightState, dt: number): void {
+  (Object.keys(state.teachers) as TeacherId[]).forEach((id) => {
+    const t = state.teachers[id];
+    t.moodAcc -= dt;
+    if (t.moodAcc > 0) return;
+    const wasSurging = t.mood > 0;
+    t.mood = wasSurging ? 0 : 1;
+    t.moodAcc = wasSurging ? 15 + Math.random() * 20 : 7 + Math.random() * 9;
+  });
+}
+
+function runNotice(state: NightState, dt: number, sfx: Sfx): void {
+  (Object.keys(state.teachers) as TeacherId[]).forEach((id) => {
+    const t = state.teachers[id];
+    if (t.notice > 0) {
+      t.notice = Math.max(0, t.notice - dt);
+      if (t.notice === 0) state.dirty = true;
+      return;
+    }
+    if (!isWatched(state, t.room)) return;
+    if (state.player.sameCamTime < 1.4) return;
+    if (Math.random() > dt * 0.13) return;
+    t.notice = 1.7;
+    state.staticBurst = Math.max(state.staticBurst, 0.28);
+    sfx.camera();
+    state.dirty = true;
+  });
 }
 
 function retreatDelay(state: NightState, t: Teacher): number {
@@ -443,6 +482,8 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
   if (checkOffice(state, sfx)) return;
   runAmbient(state, sfx);
   runScare(state, dt, sfx);
+  runMoods(state, dt);
+  runNotice(state, dt, sfx);
 
   if (state.mathLook !== "idle") return;
   runSprint(state, dt, sfx);
@@ -524,7 +565,7 @@ function drainPower(state: NightState, dt: number, sfx: Sfx): void {
     (state.rightDoor ? 1 : 0) +
     (state.leftLight ? 1 : 0) +
     (state.rightLight ? 1 : 0);
-  const rate = usage * (0.105 + state.night * 0.006);
+  const rate = usage * (0.105 + state.night * 0.006) * (bothDoorsShut(state) ? BOTH_DOOR_DRAIN : 1);
   state.generator = Math.max(0, state.generator - rate * dt);
   if (state.generator > 0) return;
 
@@ -721,6 +762,10 @@ function resolveDoor(state: NightState, t: Teacher, sfx: Sfx): void {
     t.room = route[t.routeIndex];
     t.atDoorSince = null;
     t.stallAcc = 0;
+    if (Math.random() < 0.34 + state.night * 0.04) {
+      t.mood = 1;
+      t.moodAcc = 5 + Math.random() * 6;
+    }
     state.staticBurst = 0.25;
     sfx.step();
     state.dirty = true;

@@ -1,5 +1,5 @@
 import type { NightState } from "../types";
-import { formatClock } from "./systems/ai";
+import { bothDoorsShut, formatClock } from "./systems/ai";
 
 type Props = {
   state: NightState;
@@ -20,6 +20,7 @@ export function Hud({ state, username, onToggleDoor, onLight, onOpenCams, onFeed
     (state.leftLight ? 1 : 0) +
     (state.rightLight ? 1 : 0);
   const bars = Math.min(5, usage);
+  const bothShut = bothDoorsShut(state);
   const dead = state.powerOut;
 
   const panel = (side: "left" | "right") => {
@@ -77,13 +78,13 @@ export function Hud({ state, username, onToggleDoor, onLight, onOpenCams, onFeed
       </button>
 
       <div className="hud-bottom">
-        <div className="gen">
+        <div className={`gen ${bothShut ? "surge" : ""}`}>
           <span>POWER LEFT: {Math.round(state.generator)}%</span>
           <div className="gen-bar">
             <div style={{ width: `${state.generator}%` }} />
           </div>
           <div className="usage">
-            <small>USAGE</small>
+            <small>{bothShut ? "USAGE ↑↑" : "USAGE"}</small>
             {Array.from({ length: 5 }).map((_, i) => (
               <b key={i} className={i < bars ? `on u${bars}` : ""} />
             ))}
