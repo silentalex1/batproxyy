@@ -52,6 +52,8 @@ export interface PlayerModel {
   lightChecks: { left: number; right: number };
   monitorUp: number;
   monitorDown: number;
+  sameCamTime: number;
+  lastCam: CamId | null;
   wasLeftDoor: boolean;
   wasRightDoor: boolean;
   wasLeftLight: boolean;
@@ -99,6 +101,7 @@ export interface NightState {
   scareHold: boolean;
   scareCharge: number;
   scareCooldown: number;
+  grudge: number;
 }
 
 export interface ScoreRow {

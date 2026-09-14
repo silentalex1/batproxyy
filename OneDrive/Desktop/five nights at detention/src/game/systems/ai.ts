@@ -243,6 +243,7 @@ export function createNight(night: number): NightState {
     scareHold: false,
     scareCharge: 0,
     scareCooldown: 0,
+    grudge: 0,
     player: {
       camTime: {
         lounge: 0,
@@ -256,6 +257,8 @@ export function createNight(night: number): NightState {
       lightChecks: { left: 0, right: 0 },
       monitorUp: 0,
       monitorDown: 0,
+      sameCamTime: 0,
+      lastCam: null,
       wasLeftDoor: false,
       wasRightDoor: false,
       wasLeftLight: false,
@@ -344,11 +347,25 @@ function hourPressure(state: NightState): number {
   return currentHour(state) * (0.58 + state.night * 0.04);
 }
 
+function starePin(state: NightState): number {
+  return -3.2 + Math.min(2.9, state.player.sameCamTime * 0.17);
+}
+
+function pincer(state: NightState, t: Teacher): number {
+  const route = ROUTES[t.id];
+  const door = route[route.length - 1];
+  if (door !== "leftDoor" && door !== "rightDoor") return 0;
+  const other: RoomId = door === "leftDoor" ? "rightDoor" : "leftDoor";
+  return teachersIn(state, other).length > 0 ? 1.3 : 0;
+}
+
 function effAi(state: NightState, t: Teacher): number {
   let a = t.ai + hourPressure(state);
   a += neglect(state, t.room) * 2.1;
-  a += isWatched(state, t.room) ? -3.2 : 0.85;
+  a += isWatched(state, t.room) ? starePin(state) : 0.85;
   a += Math.min(3.5, t.stallAcc / 9);
+  a += pincer(state, t);
+  if (state.camerasOpen) a += t.id === "principal" ? 1.3 : 0.7;
   if (state.generator < 30) a += 1.2;
   if (t.id === "principal" && state.minutes >= 240) a += 1.2;
   return Math.max(0.4, Math.min(18, a));
@@ -371,11 +388,20 @@ function retreatDelay(state: NightState, t: Teacher): number {
 
 function trackPlayer(state: NightState, dt: number): void {
   const p = state.player;
+  if (state.grudge > 0) state.grudge = Math.max(0, state.grudge - dt / 45);
   if (state.camerasOpen) {
     p.camTime[state.currentCam] += dt;
     p.monitorUp += dt;
+    if (p.lastCam === state.currentCam) {
+      p.sameCamTime += dt;
+    } else {
+      p.lastCam = state.currentCam;
+      p.sameCamTime = 0;
+    }
   } else {
     p.monitorDown += dt;
+    p.lastCam = null;
+    p.sameCamTime = 0;
   }
   if (state.leftDoor && !p.wasLeftDoor) p.doorShuts.left += 1;
   if (state.rightDoor && !p.wasRightDoor) p.doorShuts.right += 1;
@@ -598,6 +624,7 @@ function runScare(state: NightState, dt: number, sfx: Sfx): void {
   const t = state.teachers[target];
   state.scareCharge = 0;
   state.scareCooldown = 26 + state.night * 4;
+  state.grudge = 1;
   state.scareHold = false;
   state.sprintCharge = 0;
   t.room = "basementHall";
@@ -640,7 +667,7 @@ function runSprint(state: NightState, dt: number, sfx: Sfx): void {
     state.sprintCharge = Math.max(0, state.sprintCharge - dt * 2.5);
     return;
   }
-  state.sprintCharge += dt * (0.34 + state.night * 0.09 + effAi(state, t) * 0.02);
+  state.sprintCharge += dt * (0.34 + state.night * 0.09 + effAi(state, t) * 0.02) * (1 + state.grudge * 0.7);
   if (state.sprintCharge < 30) return;
 
   state.sprintCharge = 0;

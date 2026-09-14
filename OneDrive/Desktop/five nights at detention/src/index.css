@@ -1388,3 +1388,32 @@ button:disabled {
   border-color: #4a4438;
   color: #8a8474;
 }
+
+.halt {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.halt-title {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 42px);
+  letter-spacing: 0.16em;
+  color: #e8dcc0;
+  text-shadow: 0 2px 18px #000;
+}
+
+.halt-sub {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  color: #8d8370;
+  animation: blink 1.6s steps(2) infinite;
+}

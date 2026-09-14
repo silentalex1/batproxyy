@@ -32,8 +32,9 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
   const panScale = useRef(settings.pan);
   panScale.current = settings.pan;
   const [intro, setIntro] = useState(true);
+  const [halted, setHalted] = useState(false);
   const state = stateRef.current;
-  state.paused = paused || intro;
+  state.paused = paused || intro || halted;
   const left = threatOn(state, "left");
   const right = threatOn(state, "right");
   const showLeft = Boolean(left) && state.leftLight && !state.powerOut;
@@ -193,8 +194,27 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
     bump();
   };
 
-  const actions = useRef({ toggleDoor, setLight, openCams, closeCams, switchCam, stepCam });
-  actions.current = { toggleDoor, setLight, openCams, closeCams, switchCam, stepCam };
+  const togglePause = () => {
+    const s = stateRef.current;
+    if (intro || s.won || s.lost) return;
+    setHalted((was) => {
+      const next = !was;
+      if (next) {
+        s.leftLight = false;
+        s.rightLight = false;
+        s.scareHold = false;
+        s.refillHold = false;
+        audio.stopBuzz();
+        audio.stopBreath();
+      }
+      return next;
+    });
+    audio.click();
+    s.dirty = true;
+  };
+
+  const actions = useRef({ toggleDoor, setLight, openCams, closeCams, switchCam, stepCam, togglePause });
+  actions.current = { toggleDoor, setLight, openCams, closeCams, switchCam, stepCam, togglePause };
 
   useEffect(() => {
     const move = (e: PointerEvent) => {
@@ -204,6 +224,12 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
       const s = stateRef.current;
       const a = actions.current;
       const k = e.key.toLowerCase();
+      if (k === "p") {
+        if (e.repeat) return;
+        e.preventDefault();
+        return a.togglePause();
+      }
+      if (s.paused) return;
       if (k === "a") return a.setLight("left", true);
       if (k === "d") return a.setLight("right", true);
       if (e.repeat) return;
@@ -291,6 +317,13 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
             state.dirty = true;
           }}
         />
+      )}
+
+      {halted && !state.jumpscare && !state.won && (
+        <div className="halt">
+          <p className="halt-title">Game has been paused.</p>
+          <p className="halt-sub">Press P to resume.</p>
+        </div>
       )}
 
       {intro && (

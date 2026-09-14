@@ -12,7 +12,7 @@ let ahoogaCount = 0;
 const IDS: TeacherId[] = ["math", "gym", "principal", "history"];
 const CAMS: CamId[] = ["lounge", "hallway", "cafeteria", "principal", "basementHall", "basement"];
 
-type Policy = "blind" | "tunnel" | "balanced" | "pro";
+type Policy = "blind" | "tunnel" | "balanced" | "pro" | "camper";
 
 function eligible(st: NightState, id: TeacherId): boolean {
   const t = st.teachers[id];
@@ -49,11 +49,13 @@ function runNight(night: number, policy: Policy, seed: number) {
       camTimer = 0;
       st.camerasOpen = true;
       if (policy === "tunnel") st.currentCam = "lounge";
+      else if (policy === "camper") st.currentCam = "hallway";
       else if (policy === "pro") st.currentCam = st.sprintCharge > 14 ? "basement" : CAMS[Math.floor(rnd() * CAMS.length)];
       else st.currentCam = CAMS[Math.floor(rnd() * CAMS.length)];
-    } else if (camTimer > 1.2) {
+    } else if (camTimer > 1.2 && policy !== "camper") {
       st.camerasOpen = false;
     }
+    if (policy === "camper") { st.camerasOpen = true; st.currentCam = "hallway"; }
     if (policy === "pro" && st.teachers.history.room === "basement" && st.sprintRun === 0 && st.scareCooldown <= 0) {
       st.camerasOpen = true;
       st.currentCam = "basement";
@@ -99,7 +101,7 @@ function runNight(night: number, policy: Policy, seed: number) {
 
 function avg(xs: number[]) { return xs.reduce((a, b) => a + b, 0) / xs.length; }
 
-for (const policy of ["blind", "tunnel", "balanced", "pro"] as Policy[]) {
+for (const policy of ["blind", "tunnel", "balanced", "camper", "pro"] as Policy[]) {
   for (const night of [1, 3, 5]) {
     const runs = [1, 2, 3, 4, 5, 6, 7, 8].map(i => runNight(night, policy, i * 7919));
     const camp = Math.max(...runs.map(r => Math.max(...IDS.map(id => r.maxDwell[id]))));

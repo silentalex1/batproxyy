@@ -26,6 +26,10 @@ const PAGES: Page[] = [
     next: "Next Page"
   },
   {
+    body: 'If you press "P", you can pause the game, incase if you need to do something or anything.',
+    next: "Next Page"
+  },
+  {
     body:
       "Other then that, that is pretty much it for the tutorial. Survive till it reaches 6am, and yeah you win and escape detention. This game will be planning on to get even more scarier, and even more better. So expect more better things.",
     next: "Close."
