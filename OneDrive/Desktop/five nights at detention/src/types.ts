@@ -42,6 +42,19 @@ export interface Teacher {
   body: string;
   scare: string;
   wakeAt: number;
+  stallAcc: number;
+}
+
+export interface PlayerModel {
+  camTime: Record<CamId, number>;
+  doorShuts: { left: number; right: number };
+  lightChecks: { left: number; right: number };
+  monitorUp: number;
+  monitorDown: number;
+  wasLeftDoor: boolean;
+  wasRightDoor: boolean;
+  wasLeftLight: boolean;
+  wasRightLight: boolean;
 }
 
 export interface NightState {
@@ -81,6 +94,7 @@ export interface NightState {
   breath: number;
   hint: string;
   hintAcc: number;
+  player: PlayerModel;
 }
 
 export interface ScoreRow {

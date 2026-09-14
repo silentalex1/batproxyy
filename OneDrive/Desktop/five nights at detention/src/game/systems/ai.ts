@@ -152,7 +152,8 @@ export function createNight(night: number): NightState {
     portrait,
     body,
     scare: asset(`assets/teachers/scare-${id}.png`),
-    wakeAt
+    wakeAt,
+    stallAcc: 0
   });
 
   return {
@@ -228,7 +229,25 @@ export function createNight(night: number): NightState {
     ambientAt: 18 + Math.random() * 20,
     breath: 0,
     hint: "",
-    hintAcc: 0
+    hintAcc: 0,
+    player: {
+      camTime: {
+        lounge: 0,
+        hallway: 0,
+        cafeteria: 0,
+        principal: 0,
+        basementHall: 0,
+        basement: 0
+      },
+      doorShuts: { left: 0, right: 0 },
+      lightChecks: { left: 0, right: 0 },
+      monitorUp: 0,
+      monitorDown: 0,
+      wasLeftDoor: false,
+      wasRightDoor: false,
+      wasLeftLight: false,
+      wasRightLight: false
+    }
   };
 }
 
@@ -270,17 +289,89 @@ export function overlaySpot(room: RoomId, index: number) {
   return list[index % list.length];
 }
 
-function effAi(state: NightState, t: Teacher): number {
-  const m = state.minutes;
-  let a = t.ai;
-  if (m >= 180) a += 1;
-  if (m >= 240 && t.id === "principal") a += 2;
-  if (m >= 300) a += 1;
-  return Math.min(20, a);
+const ROOM_CAM: Partial<Record<RoomId, CamId>> = {
+  lounge: "lounge",
+  hallway: "hallway",
+  cafeteria: "cafeteria",
+  principal: "principal",
+  basementHall: "basementHall",
+  basement: "basement"
+};
+
+function currentHour(state: NightState): number {
+  return Math.floor(state.minutes / 60);
 }
 
-function doorPatience(state: NightState): number {
-  return Math.max(3.8, 7.6 - state.night * 0.45);
+function isWatched(state: NightState, room: RoomId): boolean {
+  const cam = ROOM_CAM[room];
+  return Boolean(cam) && state.camerasOpen && state.currentCam === cam;
+}
+
+function neglect(state: NightState, room: RoomId): number {
+  const cam = ROOM_CAM[room];
+  if (!cam) return 0;
+  let total = 0;
+  for (const c of CAM_ROOMS) total += state.player.camTime[c.id];
+  const blindness = state.elapsed > 20 ? Math.max(0, 1 - total / (state.elapsed * 0.2)) : 0;
+  let bias = 0;
+  if (total >= 8) {
+    const fair = 1 / CAM_ROOMS.length;
+    bias = (fair - state.player.camTime[cam] / total) / fair;
+  }
+  return Math.max(-1, Math.min(1, bias + blindness));
+}
+
+function vigilance(state: NightState, side: "left" | "right"): number {
+  const p = state.player;
+  const looks = p.lightChecks[side] + p.doorShuts[side];
+  return Math.min(1, looks / 9);
+}
+
+function hourPressure(state: NightState): number {
+  return currentHour(state) * (0.58 + state.night * 0.04);
+}
+
+function effAi(state: NightState, t: Teacher): number {
+  let a = t.ai + hourPressure(state);
+  a += neglect(state, t.room) * 2.1;
+  a += isWatched(state, t.room) ? -3.2 : 0.85;
+  a += Math.min(3.5, t.stallAcc / 9);
+  if (state.generator < 30) a += 1.2;
+  if (t.id === "principal" && state.minutes >= 240) a += 1.2;
+  return Math.max(0.4, Math.min(18, a));
+}
+
+function stallLimit(state: NightState, t: Teacher): number {
+  return Math.max(9, 33 - currentHour(state) * 3.1 - state.night * 1.5 - t.ai * 0.4);
+}
+
+function doorPatience(state: NightState, t: Teacher): number {
+  const side = t.room === "leftDoor" ? "left" : "right";
+  const base = Math.max(3, 7.6 - state.night * 0.45 - currentHour(state) * 0.32);
+  return base * (0.66 + vigilance(state, side) * 0.55);
+}
+
+function retreatDelay(state: NightState, t: Teacher): number {
+  const side = t.room === "leftDoor" ? "left" : "right";
+  return 1.8 + vigilance(state, side) * 2.6;
+}
+
+function trackPlayer(state: NightState, dt: number): void {
+  const p = state.player;
+  if (state.camerasOpen) {
+    p.camTime[state.currentCam] += dt;
+    p.monitorUp += dt;
+  } else {
+    p.monitorDown += dt;
+  }
+  if (state.leftDoor && !p.wasLeftDoor) p.doorShuts.left += 1;
+  if (state.rightDoor && !p.wasRightDoor) p.doorShuts.right += 1;
+  if (state.leftLight && !p.wasLeftLight) p.lightChecks.left += 1;
+  if (state.rightLight && !p.wasRightLight) p.lightChecks.right += 1;
+  p.wasLeftDoor = state.leftDoor;
+  p.wasRightDoor = state.rightDoor;
+  p.wasLeftLight = state.leftLight;
+  p.wasRightLight = state.rightLight;
 }
 
 function say(state: NightState, text: string): void {
@@ -303,6 +394,7 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
     }
   }
 
+  trackPlayer(state, dt);
   advanceClock(state, dt, sfx);
   if (state.won) return;
 
@@ -520,16 +612,20 @@ function stepTeachers(state: NightState, dt: number, sfx: Sfx): void {
     }
     if (state.minutes < t.wakeAt) return;
 
+    const atDoor = t.room === "leftDoor" || t.room === "rightDoor";
     t.moveAcc += dt;
-    if (t.moveAcc < t.moveEvery) return;
+    if (!atDoor) t.stallAcc += dt;
+
+    const forced = !atDoor && t.stallAcc >= stallLimit(state, t);
+    if (!forced && t.moveAcc < t.moveEvery) return;
     t.moveAcc = 0;
 
-    if (t.room === "leftDoor" || t.room === "rightDoor") {
+    if (atDoor) {
       resolveDoor(state, t, sfx);
       return;
     }
-    if (Math.floor(Math.random() * 20) + 1 > effAi(state, t)) return;
-    advance(state, t, sfx);
+    if (!forced && Math.random() * 20 >= effAi(state, t)) return;
+    advance(state, t, sfx, forced);
   });
 }
 
@@ -537,27 +633,32 @@ function resolveDoor(state: NightState, t: Teacher, sfx: Sfx): void {
   const closed = t.room === "leftDoor" ? state.leftDoor : state.rightDoor;
   if (t.atDoorSince === null) t.atDoorSince = state.elapsed;
   if (closed) {
-    if (state.elapsed - t.atDoorSince < 2) return;
+    if (state.elapsed - t.atDoorSince < retreatDelay(state, t)) return;
     const route = ROUTES[t.id];
     t.routeIndex = Math.max(0, t.routeIndex - 1);
     t.room = route[t.routeIndex];
     t.atDoorSince = null;
+    t.stallAcc = 0;
     state.staticBurst = 0.25;
     sfx.step();
     state.dirty = true;
     return;
   }
-  if (state.elapsed - t.atDoorSince < doorPatience(state)) return;
+  if (state.elapsed - t.atDoorSince < doorPatience(state, t)) return;
   t.room = "office";
   t.officeSince = state.elapsed;
   state.dirty = true;
 }
 
-function advance(state: NightState, t: Teacher, sfx: Sfx): void {
+function advance(state: NightState, t: Teacher, sfx: Sfx, forced: boolean): void {
   const route = ROUTES[t.id];
-  const back = Math.random() < 0.16 && t.routeIndex > 0;
+  const back = !forced && Math.random() < 0.13 && t.routeIndex > 0;
   const next = back ? t.routeIndex - 1 : Math.min(route.length - 1, t.routeIndex + 1);
-  if (next === t.routeIndex) return;
+  if (next === t.routeIndex) {
+    t.stallAcc = 0;
+    return;
+  }
+  t.stallAcc = 0;
 
   const prev = t.room;
   t.routeIndex = next;
