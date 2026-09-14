@@ -48,7 +48,6 @@ function Dashboard() {
   useLowPower();
   const [showThanks, setShowThanks] = useState(false);
   const [thanksFading, setThanksFading] = useState(false);
-  const [showGamesNotice, setShowGamesNotice] = useState(false);
   const [updateNotice, setUpdateNotice] = useState(false);
   const [updateId, setUpdateId] = useState(0);
   const [showReminder, setShowReminder] = useState(false);
@@ -210,10 +209,6 @@ function Dashboard() {
         navigate('/ai-work');
         return;
       case 'Games':
-        if (!localStorage.getItem('batprox-games-seen')) {
-          setShowGamesNotice(true);
-          return;
-        }
         navigate('/homework');
         return;
       case 'My scripts':
@@ -527,15 +522,6 @@ function Dashboard() {
             <p className="text-white text-base font-semibold mb-2">the website has been updated..</p>
             <p className="text-sm text-white/60 mb-6">check the changelog to see what has been changed!</p>
             <button onClick={() => { try { localStorage.setItem('batprox-last-announce', String(updateId)); } catch {} setUpdateNotice(false); navigate('/changelog'); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay :)</button>
-          </div>
-        </div>
-      )}
-      {showGamesNotice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
-            <p className="text-xs tracking-[0.3em] uppercase text-white/40 mb-3">[attention]</p>
-            <p className="text-sm text-white/90 leading-relaxed mb-6">few of you might be waiting on five nights at detention game, my game thats being worked on. That game is still being worked on currently, so please understand that it will take awhile for that game to finish.</p>
-            <button onClick={() => { localStorage.setItem('batprox-games-seen','1'); setShowGamesNotice(false); navigate('/homework'); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay i understand.</button>
           </div>
         </div>
       )}

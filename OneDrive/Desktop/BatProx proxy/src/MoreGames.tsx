@@ -41,7 +41,6 @@ export default function MoreGames() {
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [suggestionText, setSuggestionText] = useState('');
   const [notice, setNotice] = useState('');
-  const [showGamesNotice, setShowGamesNotice] = useState(() => !localStorage.getItem('batprox-games-seen'));
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [userIdentifier] = useState(() => localStorage.getItem('batprox-user') || 'anonymous');
@@ -1180,16 +1179,7 @@ export default function MoreGames() {
         </div>
       )}
 
-      {showGamesNotice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0b0b10] border border-white/15 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
-            <p className="text-xs tracking-[0.3em] uppercase text-white/40 mb-3">[attention]</p>
-            <p className="text-sm text-white/90 leading-relaxed mb-6">few of you might be waiting on five nights at detention game, my game thats being worked on. That game is still being worked on currently, so please understand that it will take awhile for that game to finish.</p>
-            <button onClick={() => { localStorage.setItem('batprox-games-seen','1'); setShowGamesNotice(false); }} className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold">Okay i understand.</button>
-          </div>
-        </div>
-      )}
-      <Settings 
+      <Settings
         isOpen={showSettingsModal} 
         onClose={() => setShowSettingsModal(false)} 
       />
