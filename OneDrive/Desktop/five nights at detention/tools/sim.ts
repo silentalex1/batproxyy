@@ -4,12 +4,12 @@ import type { CamId, NightState, TeacherId } from "../src/types";
 const NO_SFX = {
   camera: () => {}, glitch: () => {}, scare: () => {}, win: () => {}, knock: () => {},
   powerDown: () => {}, step: () => {}, bang: () => {}, dash: () => {}, clang: () => {},
-  jingle: () => {}, stopJingle: () => {}, chime: () => {}, ahooga: () => { ahoogaCount += 1; }
+  jingle: () => {}, stopJingle: () => {}, chime: () => {}, ahooga: () => { ahoogaCount += 1; }, job: () => {}
 };
 
 let ahoogaCount = 0;
 
-const IDS: TeacherId[] = ["math", "gym", "principal", "history"];
+const IDS: TeacherId[] = ["math", "gym", "principal", "history", "huff"];
 const CAMS: CamId[] = ["lounge", "hallway", "cafeteria", "principal", "basementHall", "basement"];
 
 type Policy = "blind" | "tunnel" | "balanced" | "pro" | "camper";
@@ -19,6 +19,7 @@ function eligible(st: NightState, id: TeacherId): boolean {
   if (t.room === "office") return false;
   if (id === "history" && (t.room === "basement" || st.sprintRun > 0)) return false;
   if (id === "math" && !st.mathLookDone) return false;
+  if (id === "huff") return false;
   if (st.minutes < t.wakeAt) return false;
   return t.room !== "leftDoor" && t.room !== "rightDoor";
 }

@@ -22,10 +22,39 @@ class AudioEngine {
     this.jingleTimer = null;
     this.volume = 0.72;
     this.ahoogaSrc = "";
+    this.jobSrc = "";
+    this.jobEl = null;
   }
 
   setAhoogaSrc(src) {
     this.ahoogaSrc = src;
+  }
+
+  setJobSrc(src) {
+    this.jobSrc = src;
+  }
+
+  job() {
+    try {
+      if (!this.jobEl) {
+        const el = document.createElement("video");
+        el.src = this.jobSrc;
+        el.playsInline = true;
+        el.preload = "auto";
+        el.style.position = "fixed";
+        el.style.width = "1px";
+        el.style.height = "1px";
+        el.style.opacity = "0";
+        el.style.pointerEvents = "none";
+        el.style.left = "-10px";
+        document.body.appendChild(el);
+        this.jobEl = el;
+      }
+      this.jobEl.volume = Math.max(0, Math.min(1, this.volume));
+      this.jobEl.currentTime = 0;
+      const played = this.jobEl.play();
+      if (played && typeof played.catch === "function") played.catch(() => {});
+    } catch {}
   }
 
   ensure() {

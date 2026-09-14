@@ -72,12 +72,12 @@ export const ROUTES: Record<TeacherId, RoomId[]> = {
   math: ["lounge", "hallway", "leftDoor"],
   gym: ["lounge", "cafeteria", "hallway", "rightDoor"],
   principal: ["lounge", "principal", "hallway", "leftDoor"],
-  history: ["lounge", "basementHall", "basement"]
+  history: ["lounge", "basementHall", "basement"],
+  huff: ["hallway"]
 };
 
-export const LOUNGE_SEATS: Record<
-  TeacherId,
-  { left: string; top: string; width: string; height: string }
+export const LOUNGE_SEATS: Partial<
+  Record<TeacherId, { left: string; top: string; width: string; height: string }>
 > = {
   history: { left: "12.26%", top: "18.92%", width: "11.66%", height: "72.69%" },
   math: { left: "22.25%", top: "31.88%", width: "19.26%", height: "40.17%" },
@@ -99,8 +99,15 @@ const AI_TABLE: Record<TeacherId, number[]> = {
   math: [2, 5, 7, 10, 13, 16],
   gym: [1, 4, 6, 9, 12, 15],
   principal: [0, 2, 4, 7, 11, 14],
-  history: [1, 4, 6, 9, 13, 17]
+  history: [1, 4, 6, 9, 13, 17],
+  huff: [1, 1, 2, 3, 4, 6]
 };
+
+export const HUFF_PACE_SPEED = 0.16;
+
+export const ELLIOT_CHANCE = 0.001;
+
+export const ELLIOT_POWER = 25;
 
 const SPOTS: Record<string, { left: string; bottom: string; height: string }[]> = {
   hallway: [
@@ -137,6 +144,7 @@ export type Sfx = {
   stopJingle: () => void;
   chime: () => void;
   ahooga: () => void;
+  job: () => void;
 };
 
 function aiFor(id: TeacherId, night: number): number {
@@ -172,7 +180,10 @@ export function createNight(night: number): NightState {
     stallAcc: 0,
     mood: 0,
     moodAcc: 6 + Math.random() * 14,
-    notice: 0
+    notice: 0,
+    paceX: Math.random(),
+    paceDir: Math.random() < 0.5 ? -1 : 1,
+    stepAcc: 0
   });
 
   return {
@@ -214,7 +225,7 @@ export function createNight(night: number): NightState {
         "Principal Hollis",
         "ADMINISTRATION",
         asset("/assets/teachers/principal-portrait.png"),
-        asset("/assets/teachers/staff-cut.png"),
+        asset("/assets/teachers/principal-cut.png"),
         7.0,
         120
       ),
@@ -226,7 +237,20 @@ export function createNight(night: number): NightState {
         asset("/assets/teachers/history-cut.png"),
         5.0,
         0
-      )
+      ),
+      huff: {
+        ...mk(
+          "huff",
+          "Mrs. Huff",
+          "HALL MONITOR",
+          asset("/assets/teachers/huff-portrait.png"),
+          asset("/assets/teachers/huff-cut.png"),
+          9.5,
+          0
+        ),
+        room: "hallway",
+        stepAcc: 1.5 + Math.random() * 2
+      }
     },
     jumpscare: null,
     won: false,
@@ -253,6 +277,11 @@ export function createNight(night: number): NightState {
     scareCharge: 0,
     scareCooldown: 0,
     grudge: 0,
+    camShake: 0,
+    elliotOn: false,
+    elliotCorner: 0,
+    elliotRoll: 0,
+    elliotFound: 0,
     player: {
       camTime: {
         lounge: 0,
@@ -452,6 +481,69 @@ function trackPlayer(state: NightState, dt: number): void {
   p.wasRightLight = state.rightLight;
 }
 
+export function huffWalking(state: NightState): boolean {
+  const t = state.teachers.huff;
+  return t.room === "hallway" && t.paceDir !== 0;
+}
+
+function runPace(state: NightState, dt: number, sfx: Sfx): void {
+  const t = state.teachers.huff;
+  if (state.camShake > 0) state.camShake = Math.max(0, state.camShake - dt * 2.2);
+  if (t.room !== "hallway") {
+    t.paceDir = 0;
+    return;
+  }
+
+  t.stepAcc -= dt;
+  if (t.stepAcc <= 0) {
+    if (t.paceDir === 0) {
+      t.paceDir = t.paceX > 0.5 ? -1 : 1;
+      t.stepAcc = 2.4 + Math.random() * 3.4;
+    } else {
+      t.paceDir = 0;
+      t.stepAcc = 1.6 + Math.random() * 2.8;
+    }
+    state.dirty = true;
+  }
+  if (t.paceDir === 0) return;
+
+  t.paceX += t.paceDir * HUFF_PACE_SPEED * dt;
+  if (t.paceX <= 0) {
+    t.paceX = 0;
+    t.paceDir = 1;
+  } else if (t.paceX >= 1) {
+    t.paceX = 1;
+    t.paceDir = -1;
+  }
+  state.dirty = true;
+
+  if (!isWatched(state, "hallway")) return;
+  state.camShake = 1;
+  t.stepAcc -= dt * 0.15;
+  if (Math.random() < dt * 1.7) sfx.step();
+}
+
+function runElliot(state: NightState, dt: number): void {
+  if (state.elliotOn || state.powerOut || state.blackout !== "none") return;
+  state.elliotRoll += dt;
+  if (state.elliotRoll < 1) return;
+  state.elliotRoll = 0;
+  if (Math.random() >= ELLIOT_CHANCE) return;
+  state.elliotOn = true;
+  state.elliotCorner = Math.floor(Math.random() * 4);
+  state.dirty = true;
+}
+
+export function grabElliot(state: NightState): boolean {
+  if (!state.elliotOn) return false;
+  state.elliotOn = false;
+  state.elliotRoll = 0;
+  state.elliotFound += 1;
+  state.generator = Math.min(100, state.generator + ELLIOT_POWER);
+  state.dirty = true;
+  return true;
+}
+
 function say(state: NightState, text: string): void {
   state.hint = text;
   state.hintAcc = 0;
@@ -484,6 +576,8 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
   runScare(state, dt, sfx);
   runMoods(state, dt);
   runNotice(state, dt, sfx);
+  runPace(state, dt, sfx);
+  runElliot(state, dt);
 
   if (state.mathLook !== "idle") return;
   runSprint(state, dt, sfx);
@@ -721,6 +815,7 @@ function runSprint(state: NightState, dt: number, sfx: Sfx): void {
 function stepTeachers(state: NightState, dt: number, sfx: Sfx): void {
   (Object.keys(state.teachers) as TeacherId[]).forEach((id) => {
     const t = state.teachers[id];
+    if (id === "huff") return;
     if (t.room === "office") return;
     if (id === "history" && (t.room === "basement" || state.sprintRun > 0)) return;
     if (id === "math" && !state.mathLookDone) {
@@ -739,7 +834,7 @@ function stepTeachers(state: NightState, dt: number, sfx: Sfx): void {
     t.moveAcc += dt;
     if (!atDoor) t.stallAcc += dt;
 
-    const forced = !atDoor && t.stallAcc >= stallLimit(state, t);
+    const forced = !atDoor && t.id !== "huff" && t.stallAcc >= stallLimit(state, t);
     if (!forced && t.moveAcc < t.moveEvery) return;
     t.moveAcc = 0;
 
@@ -779,7 +874,8 @@ function resolveDoor(state: NightState, t: Teacher, sfx: Sfx): void {
 
 function advance(state: NightState, t: Teacher, sfx: Sfx, forced: boolean): void {
   const route = ROUTES[t.id];
-  const back = !forced && Math.random() < 0.13 && t.routeIndex > 0;
+  const backChance = t.id === "huff" ? 0.55 : 0.13;
+  const back = !forced && Math.random() < backChance && t.routeIndex > 0;
   const next = back ? t.routeIndex - 1 : Math.min(route.length - 1, t.routeIndex + 1);
   if (next === t.routeIndex) {
     t.stallAcc = 0;

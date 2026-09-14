@@ -22,7 +22,7 @@ export type RoomId =
 
 export type CamId = "lounge" | "hallway" | "cafeteria" | "principal" | "basementHall" | "basement";
 
-export type TeacherId = "math" | "gym" | "principal" | "history";
+export type TeacherId = "math" | "gym" | "principal" | "history" | "huff";
 
 export type MathLook = "idle" | "staring" | "glitch";
 
@@ -47,6 +47,9 @@ export interface Teacher {
   mood: number;
   moodAcc: number;
   notice: number;
+  paceX: number;
+  paceDir: number;
+  stepAcc: number;
 }
 
 export interface PlayerModel {
@@ -105,6 +108,11 @@ export interface NightState {
   scareCharge: number;
   scareCooldown: number;
   grudge: number;
+  camShake: number;
+  elliotOn: boolean;
+  elliotCorner: number;
+  elliotRoll: number;
+  elliotFound: number;
 }
 
 export interface ScoreRow {

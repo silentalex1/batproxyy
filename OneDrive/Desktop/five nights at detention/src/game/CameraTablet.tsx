@@ -7,6 +7,7 @@ import {
   LOUNGE_SEATS,
   loungeHas,
   overlaySpot,
+  huffWalking,
   scareReady,
   scareTarget,
   SCARE_SECONDS,
@@ -37,12 +38,18 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
   const target = scareTarget(state);
   const canScare = scareReady(state);
   const scarePct = Math.min(100, (state.scareCharge / SCARE_SECONDS) * 100);
+  const huff = state.teachers.huff;
+  const huffHere = huff.room === state.currentCam;
+  const shake = state.camShake > 0.02 && huffWalking(state) ? state.camShake : 0;
 
   return (
     <div className="tablet">
       <div className="tablet-bezel">
         <div className="feed">
-          <div className="stage" style={{ "--ar": cam.ratio } as React.CSSProperties}>
+          <div
+            className={`stage ${shake > 0 ? "rattle" : ""}`}
+            style={{ "--ar": cam.ratio, "--shake": shake } as React.CSSProperties}
+          >
             <img className="feed-bg" src={cam.file} alt="" />
 
             {isLounge &&
@@ -63,6 +70,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
             {!isLounge &&
               present.map((id, i) => {
                 if (id === "history" && sprinting) return null;
+                if (id === "huff") return null;
                 const spot = overlaySpot(state.currentCam, i);
                 return (
                   <img
@@ -74,6 +82,20 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                   />
                 );
               })}
+
+            {huffHere && (
+              <img
+                className={`huff-walk ${huff.paceDir !== 0 ? "stepping" : ""} ${huff.notice > 0 ? "noticed" : ""}`}
+                src={huff.body}
+                style={{
+                  left: `${14 + huff.paceX * 56}%`,
+                  bottom: `${24 - huff.paceX * 5}%`,
+                  height: `${44 + huff.paceX * 13}%`,
+                  transform: `scaleX(${huff.paceDir < 0 ? -1 : 1})`
+                }}
+                alt=""
+              />
+            )}
 
             {isLounge && state.mathLook === "staring" && (
               <img className="look-slam" src={state.teachers.math.scare} alt="" />

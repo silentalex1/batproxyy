@@ -5,7 +5,8 @@ import { PhaserRoot } from "./PhaserRoot";
 import { setBridge } from "./bridge";
 import { CameraTablet } from "./CameraTablet";
 import { Hud } from "./Hud";
-import { CAM_ROOMS, createNight, threatOn, tickNight } from "./systems/ai";
+import { CAM_ROOMS, createNight, grabElliot, threatOn, tickNight } from "./systems/ai";
+import { asset } from "../paths";
 
 type Props = {
   username: string;
@@ -70,7 +71,8 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
         jingle: () => audio.jingle(),
         stopJingle: () => audio.stopJingle(),
         chime: () => audio.chime(),
-        ahooga: () => audio.ahooga()
+        ahooga: () => audio.ahooga(),
+        job: () => audio.job()
       });
       const snap = stateRef.current;
       setBridge({
@@ -184,6 +186,13 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
     const i = CAM_ROOMS.findIndex((c) => c.id === s.currentCam);
     const next = (i + dir + CAM_ROOMS.length) % CAM_ROOMS.length;
     switchCam(CAM_ROOMS[next].id);
+  };
+
+  const catchElliot = () => {
+    const s = stateRef.current;
+    if (!grabElliot(s)) return;
+    audio.job();
+    bump();
   };
 
   const holdScare = (held: boolean) => {
@@ -317,6 +326,17 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
             state.dirty = true;
           }}
         />
+      )}
+
+      {state.elliotOn && !state.jumpscare && !state.won && !halted && (
+        <button
+          type="button"
+          className={`elliot c${state.elliotCorner}`}
+          onClick={catchElliot}
+          aria-label="Elliot"
+        >
+          <img src={asset("assets/easter egg-hut assets/elliot face.jpg")} alt="" />
+        </button>
       )}
 
       {halted && !state.jumpscare && !state.won && (
