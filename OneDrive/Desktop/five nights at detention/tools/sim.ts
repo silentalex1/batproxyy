@@ -4,8 +4,10 @@ import type { CamId, NightState, TeacherId } from "../src/types";
 const NO_SFX = {
   camera: () => {}, glitch: () => {}, scare: () => {}, win: () => {}, knock: () => {},
   powerDown: () => {}, step: () => {}, bang: () => {}, dash: () => {}, clang: () => {},
-  jingle: () => {}, stopJingle: () => {}, chime: () => {}
+  jingle: () => {}, stopJingle: () => {}, chime: () => {}, ahooga: () => { ahoogaCount += 1; }
 };
+
+let ahoogaCount = 0;
 
 const IDS: TeacherId[] = ["math", "gym", "principal", "history"];
 const CAMS: CamId[] = ["lounge", "hallway", "cafeteria", "principal", "basementHall", "basement"];
@@ -27,6 +29,7 @@ function runNight(night: number, policy: Policy, seed: number) {
   const orig = Math.random;
   Math.random = rnd;
 
+  ahoogaCount = 0;
   const st: NightState = createNight(night);
   const dt = 1 / 30;
   const dwell: Record<string, number> = {};
@@ -51,12 +54,19 @@ function runNight(night: number, policy: Policy, seed: number) {
     } else if (camTimer > 1.2) {
       st.camerasOpen = false;
     }
-    if (policy === "pro" && st.generator < 60 && st.teachers.history.room !== "basement" && st.sprintRun === 0) {
+    if (policy === "pro" && st.teachers.history.room === "basement" && st.sprintRun === 0 && st.scareCooldown <= 0) {
+      st.camerasOpen = true;
+      st.currentCam = "basement";
+      st.scareHold = true;
+      st.refillHold = false;
+    } else if (policy === "pro" && st.generator < 60 && st.teachers.history.room !== "basement" && st.sprintRun === 0) {
+      st.scareHold = false;
       st.camerasOpen = true;
       st.currentCam = "basement";
       st.refillHold = true;
     } else {
       st.refillHold = false;
+      st.scareHold = false;
       if (st.generator < 35) st.camerasOpen = false;
     }
 
@@ -82,8 +92,9 @@ function runNight(night: number, policy: Policy, seed: number) {
     });
   }
   Math.random = orig;
+  const scares = ahoogaCount;
   const cause = st.won ? "6am" : st.blackout !== "none" ? "blackout" : st.jumpscare || "?";
-  return { won: st.won, minutes: st.minutes, maxDwell, movesPerHour, power: st.generator, cause };
+  return { won: st.won, minutes: st.minutes, maxDwell, movesPerHour, power: st.generator, cause, scares };
 }
 
 function avg(xs: number[]) { return xs.reduce((a, b) => a + b, 0) / xs.length; }
@@ -95,7 +106,7 @@ for (const policy of ["blind", "tunnel", "balanced", "pro"] as Policy[]) {
     const perHour = [0, 1, 2, 3, 4, 5].map(h => avg(runs.map(r => r.movesPerHour[h])).toFixed(1));
     const causes = runs.map(r => r.cause).join(",");
     console.log(
-      `${policy.padEnd(9)} n${night}  camp=${camp.toFixed(1)}s  moves/hr=[${perHour.join(", ")}]  6am=${runs.filter(r => r.won).length}/8  ${causes}`
+      `${policy.padEnd(9)} n${night}  camp=${camp.toFixed(1)}s  moves/hr=[${perHour.join(", ")}]  6am=${runs.filter(r => r.won).length}/8  scares=${avg(runs.map(r => r.scares)).toFixed(1)}  ${causes}`
     );
   }
 }

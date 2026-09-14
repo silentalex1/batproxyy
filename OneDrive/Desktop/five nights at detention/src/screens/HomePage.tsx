@@ -3,10 +3,11 @@ type Props = {
   onCredits: () => void;
   onLeaderboard: () => void;
   onSettings: () => void;
+  onTutorial: () => void;
   onFeedback: () => void;
 };
 
-export function HomePage({ onPlay, onCredits, onLeaderboard, onSettings, onFeedback }: Props) {
+export function HomePage({ onPlay, onCredits, onLeaderboard, onSettings, onTutorial, onFeedback }: Props) {
   return (
     <div className="home">
       <div className="home-wash" />
@@ -20,6 +21,9 @@ export function HomePage({ onPlay, onCredits, onLeaderboard, onSettings, onFeedb
         <div className="home-btns">
           <button className="ghost-btn" onClick={onPlay}>
             Play
+          </button>
+          <button className="ghost-btn" onClick={onTutorial}>
+            Tutorial
           </button>
           <button className="ghost-btn" onClick={onCredits}>
             Credits

@@ -8,8 +8,9 @@ import { HomePage } from "./screens/HomePage";
 import { Leaderboard } from "./screens/Leaderboard";
 import { Settings } from "./screens/Settings";
 import { WarningNote } from "./screens/WarningNote";
+import { Tutorial } from "./screens/Tutorial";
 import { loadSave, writeSave } from "./store/save";
-import { reportSuggestion } from "./suggestions";
+import { postScore, reportSuggestion } from "./suggestions";
 import type { SaveData, SettingsData, View } from "./types";
 
 export default function App() {
@@ -50,6 +51,7 @@ export default function App() {
       nightsCleared: result === "win" ? save.nightsCleared + 1 : save.nightsCleared,
       leaderboard: [row, ...save.leaderboard].slice(0, 40)
     });
+    void postScore(row);
     setView("home");
   };
 
@@ -78,6 +80,7 @@ export default function App() {
           onCredits={() => setView("credits")}
           onLeaderboard={() => setView("leaderboard")}
           onSettings={() => setView("settings")}
+          onTutorial={() => setView("tutorial")}
           onFeedback={() => {
             setFromGame(false);
             setView("feedback");
@@ -88,6 +91,7 @@ export default function App() {
       {view === "warning" && (
         <WarningNote onOk={() => setView("night")} onBack={() => setView("home")} />
       )}
+      {view === "tutorial" && <Tutorial onClose={() => setView("home")} />}
       {view === "credits" && <Credits onClose={() => setView("home")} />}
       {view === "leaderboard" && (
         <Leaderboard rows={save.leaderboard} onClose={() => setView("home")} />

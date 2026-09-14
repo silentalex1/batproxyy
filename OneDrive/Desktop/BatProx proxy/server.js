@@ -111,6 +111,15 @@ function initializeDatabase() {
       approved_at DATETIME
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS fnad_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      night INTEGER NOT NULL,
+      minutes INTEGER NOT NULL,
+      result TEXT NOT NULL,
+      at INTEGER NOT NULL
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS proxy_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       url TEXT NOT NULL,
@@ -304,6 +313,50 @@ app.get('/api/my-games', (req, res) => {
     console.error('Error reading my-games directory:', error);
     res.status(500).json({ error: 'Failed to read games directory' });
   }
+});
+
+app.post('/api/fnad-scores', (req, res) => {
+  const { name, night, minutes, result } = req.body || {};
+  const cleanName = String(name || '').trim().slice(0, 20);
+  const n = Math.max(1, Math.min(99, parseInt(night, 10) || 1));
+  const m = Math.max(0, Math.min(360, parseInt(minutes, 10) || 0));
+  const res2 = result === 'survived' ? 'survived' : 'caught';
+  if (!cleanName) return res.status(400).json({ error: 'Name is required' });
+
+  db.run(
+    'INSERT INTO fnad_scores (name, night, minutes, result, at) VALUES (?, ?, ?, ?, ?)',
+    [cleanName, n, m, res2, Date.now()],
+    (err) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to save score' });
+      }
+      res.json({ success: true });
+    }
+  );
+});
+
+app.get('/api/fnad-scores', (req, res) => {
+  db.all('SELECT name, night, minutes, result, at FROM fnad_scores ORDER BY at DESC LIMIT 400', [], (err, rows) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to load scores' });
+    }
+    const best = new Map();
+    for (const row of rows || []) {
+      const cur = best.get(row.name);
+      const better =
+        !cur ||
+        row.night > cur.night ||
+        (row.night === cur.night && row.minutes > cur.minutes) ||
+        (row.night === cur.night && row.minutes === cur.minutes && row.result === 'survived' && cur.result !== 'survived');
+      if (better) best.set(row.name, row);
+    }
+    const scores = [...best.values()]
+      .sort((a, b) => b.night - a.night || b.minutes - a.minutes || a.at - b.at)
+      .slice(0, 40);
+    res.json({ scores });
+  });
 });
 
 app.post('/api/suggestions', async (req, res) => {

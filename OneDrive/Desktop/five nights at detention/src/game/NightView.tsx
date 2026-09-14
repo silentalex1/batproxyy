@@ -68,7 +68,8 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
         clang: () => audio.clang(),
         jingle: () => audio.jingle(),
         stopJingle: () => audio.stopJingle(),
-        chime: () => audio.chime()
+        chime: () => audio.chime(),
+        ahooga: () => audio.ahooga()
       });
       const snap = stateRef.current;
       setBridge({
@@ -156,6 +157,8 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
     const s = stateRef.current;
     s.camerasOpen = false;
     s.refillHold = false;
+    s.scareHold = false;
+    s.scareCharge = 0;
     audio.camera();
     s.dirty = true;
     bump();
@@ -166,14 +169,32 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
     if (s.currentCam === id) return;
     s.currentCam = id;
     s.refillHold = false;
+    s.scareHold = false;
+    s.scareCharge = 0;
     s.staticBurst = 0.4;
     audio.camera();
     s.dirty = true;
     bump();
   };
 
-  const actions = useRef({ toggleDoor, setLight, openCams, closeCams, switchCam });
-  actions.current = { toggleDoor, setLight, openCams, closeCams, switchCam };
+  const stepCam = (dir: -1 | 1) => {
+    const s = stateRef.current;
+    if (!s.camerasOpen || s.powerOut) return;
+    const i = CAM_ROOMS.findIndex((c) => c.id === s.currentCam);
+    const next = (i + dir + CAM_ROOMS.length) % CAM_ROOMS.length;
+    switchCam(CAM_ROOMS[next].id);
+  };
+
+  const holdScare = (held: boolean) => {
+    const s = stateRef.current;
+    if (held && (s.powerOut || s.won || s.lost)) return;
+    s.scareHold = held;
+    s.dirty = true;
+    bump();
+  };
+
+  const actions = useRef({ toggleDoor, setLight, openCams, closeCams, switchCam, stepCam });
+  actions.current = { toggleDoor, setLight, openCams, closeCams, switchCam, stepCam };
 
   useEffect(() => {
     const move = (e: PointerEvent) => {
@@ -195,6 +216,10 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
       }
       if (k === "q") return a.toggleDoor("left");
       if (k === "e") return a.toggleDoor("right");
+      if (s.camerasOpen && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        return a.stepCam(e.key === "ArrowLeft" ? -1 : 1);
+      }
       const idx = ["1", "2", "3", "4", "5", "6"].indexOf(e.key);
       if (idx >= 0 && s.camerasOpen && !s.powerOut) a.switchCam(CAM_ROOMS[idx].id);
     };
@@ -258,7 +283,9 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
         <CameraTablet
           state={state}
           onCam={switchCam}
+          onStep={stepCam}
           onClose={closeCams}
+          onScare={holdScare}
           onRefill={(held) => {
             state.refillHold = held;
             state.dirty = true;

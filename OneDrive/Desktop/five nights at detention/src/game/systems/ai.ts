@@ -8,6 +8,7 @@ export type CamRoom = {
   file: string;
   short: string;
   ratio: number;
+  links: CamId[];
 };
 
 export const CAM_ROOMS: CamRoom[] = [
@@ -17,6 +18,7 @@ export const CAM_ROOMS: CamRoom[] = [
     place: "WEST WING",
     file: asset("/assets/cameras/lounge-empty.jpg"),
     short: "1A",
+    links: ["hallway", "basementHall"],
     ratio: 1672 / 941
   },
   {
@@ -25,6 +27,7 @@ export const CAM_ROOMS: CamRoom[] = [
     place: "OUTSIDE DETENTION",
     file: asset("/assets/cameras/cam-hallway.jpg"),
     short: "1B",
+    links: ["lounge", "cafeteria", "principal", "basementHall"],
     ratio: 1168 / 784
   },
   {
@@ -33,6 +36,7 @@ export const CAM_ROOMS: CamRoom[] = [
     place: "EAST WING",
     file: asset("/assets/cameras/cam-cafeteria.jpg"),
     short: "2A",
+    links: ["hallway"],
     ratio: 1168 / 784
   },
   {
@@ -41,6 +45,7 @@ export const CAM_ROOMS: CamRoom[] = [
     place: "ADMIN",
     file: asset("/assets/cameras/cam-principal.jpg"),
     short: "3",
+    links: ["hallway"],
     ratio: 1168 / 676
   },
   {
@@ -49,6 +54,7 @@ export const CAM_ROOMS: CamRoom[] = [
     place: "B1",
     file: asset("/assets/cameras/cam-basementHall.jpg"),
     short: "4",
+    links: ["lounge", "hallway", "basement"],
     ratio: 1168 / 784
   },
   {
@@ -57,6 +63,7 @@ export const CAM_ROOMS: CamRoom[] = [
     place: "B1",
     file: asset("/assets/cameras/cam-basement.jpg"),
     short: "5",
+    links: ["basementHall"],
     ratio: 1168 / 632
   }
 ];
@@ -79,6 +86,8 @@ export const LOUNGE_SEATS: Record<
 };
 
 export const HOUR_SECONDS = 66;
+
+export const SCARE_SECONDS = 2.4;
 
 const AI_TABLE: Record<TeacherId, number[]> = {
   math: [2, 4, 5, 8, 11, 15],
@@ -121,6 +130,7 @@ export type Sfx = {
   jingle: () => void;
   stopJingle: () => void;
   chime: () => void;
+  ahooga: () => void;
 };
 
 function aiFor(id: TeacherId, night: number): number {
@@ -230,6 +240,9 @@ export function createNight(night: number): NightState {
     breath: 0,
     hint: "",
     hintAcc: 0,
+    scareHold: false,
+    scareCharge: 0,
+    scareCooldown: 0,
     player: {
       camTime: {
         lounge: 0,
@@ -403,6 +416,7 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
   if (runBlackout(state, dt, sfx)) return;
   if (checkOffice(state, sfx)) return;
   runAmbient(state, sfx);
+  runScare(state, dt, sfx);
 
   if (state.mathLook !== "idle") return;
   runSprint(state, dt, sfx);
@@ -552,6 +566,47 @@ function runAmbient(state: NightState, sfx: Sfx): void {
 function updateBreath(state: NightState): void {
   const near = Boolean(threatOn(state, "left")) || Boolean(threatOn(state, "right"));
   state.breath = near && !state.camerasOpen ? 1 : 0;
+}
+
+export function scareTarget(state: NightState): TeacherId | null {
+  if (state.currentCam !== "basement" || !state.camerasOpen) return null;
+  if (state.sprintRun > 0) return null;
+  const id = teachersIn(state, "basement")[0];
+  return id || null;
+}
+
+export function scareReady(state: NightState): boolean {
+  return state.scareCooldown <= 0 && scareTarget(state) !== null;
+}
+
+function runScare(state: NightState, dt: number, sfx: Sfx): void {
+  if (state.scareCooldown > 0) state.scareCooldown = Math.max(0, state.scareCooldown - dt);
+
+  const target = scareTarget(state);
+  if (!target || !state.scareHold || state.scareCooldown > 0) {
+    if (state.scareCharge > 0) {
+      state.scareCharge = Math.max(0, state.scareCharge - dt * 1.6);
+      state.dirty = true;
+    }
+    return;
+  }
+
+  state.scareCharge += dt;
+  state.dirty = true;
+  if (state.scareCharge < SCARE_SECONDS) return;
+
+  const t = state.teachers[target];
+  state.scareCharge = 0;
+  state.scareCooldown = 26 + state.night * 4;
+  state.scareHold = false;
+  state.sprintCharge = 0;
+  t.room = "basementHall";
+  t.routeIndex = Math.max(0, ROUTES[target].indexOf("basementHall"));
+  t.moveAcc = 0;
+  t.stallAcc = 0;
+  state.staticBurst = 0.4;
+  sfx.ahooga();
+  say(state, "THAT GOT HIM OUT OF THE GENERATOR ROOM");
 }
 
 function runSprint(state: NightState, dt: number, sfx: Sfx): void {

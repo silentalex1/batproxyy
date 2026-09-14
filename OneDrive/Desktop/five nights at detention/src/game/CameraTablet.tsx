@@ -7,6 +7,9 @@ import {
   LOUNGE_SEATS,
   loungeHas,
   overlaySpot,
+  scareReady,
+  scareTarget,
+  SCARE_SECONDS,
   sprintStage,
   teachersIn
 } from "./systems/ai";
@@ -14,20 +17,26 @@ import {
 type Props = {
   state: NightState;
   onCam: (id: CamId) => void;
+  onStep: (dir: -1 | 1) => void;
   onClose: () => void;
   onRefill: (held: boolean) => void;
+  onScare: (held: boolean) => void;
 };
 
 const LOUNGE_ORDER: TeacherId[] = ["history", "math", "gym", "principal"];
 
-export function CameraTablet({ state, onCam, onClose, onRefill }: Props) {
-  const cam = CAM_ROOMS.find((c) => c.id === state.currentCam)!;
+export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare }: Props) {
+  const index = CAM_ROOMS.findIndex((c) => c.id === state.currentCam);
+  const cam = CAM_ROOMS[index];
   const present = teachersIn(state, state.currentCam);
   const isLounge = state.currentCam === "lounge";
   const sprinting = state.sprintRun > 0;
   const stage = sprintStage(state);
   const dead = state.signalLoss > 0.05;
-  const blocked = state.currentCam === "basement" && (state.teachers.history.room === "basement" || sprinting);
+  const inBasement = state.currentCam === "basement";
+  const target = scareTarget(state);
+  const canScare = scareReady(state);
+  const scarePct = Math.min(100, (state.scareCharge / SCARE_SECONDS) * 100);
 
   return (
     <div className="tablet">
@@ -102,6 +111,25 @@ export function CameraTablet({ state, onCam, onClose, onRefill }: Props) {
               <span /> REC
             </p>
           </div>
+
+          <button className="cam-step prev" onClick={() => onStep(-1)} aria-label="Previous camera">
+            ‹
+          </button>
+          <button className="cam-step next" onClick={() => onStep(1)} aria-label="Next camera">
+            ›
+          </button>
+
+          <div className="cam-strip">
+            <span className="strip-label">LEADS TO</span>
+            {cam.links.map((id) => {
+              const room = CAM_ROOMS.find((c) => c.id === id)!;
+              return (
+                <button key={id} className="strip-chip" onClick={() => onCam(id)}>
+                  {room.short} · {room.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="map">
@@ -136,23 +164,45 @@ export function CameraTablet({ state, onCam, onClose, onRefill }: Props) {
           </div>
         </div>
 
-        {state.currentCam === "basement" && (
-          <button
-            className={`refill ${blocked ? "blocked" : ""}`}
-            onMouseDown={() => onRefill(true)}
-            onMouseUp={() => onRefill(false)}
-            onMouseLeave={() => onRefill(false)}
-            onTouchStart={() => onRefill(true)}
-            onTouchEnd={() => onRefill(false)}
-          >
-            {sprinting
-              ? "ROOM EMPTY — FEED UNSTABLE"
-              : blocked
-                ? "SOMEONE IS IN THERE"
-                : state.refillHold
-                  ? "REFUELLING…"
-                  : "HOLD TO REFUEL GENERATOR"}
-          </button>
+        {inBasement && (
+          <div className="basement-tools">
+            {target && (
+              <button
+                className={`go-away ${state.scareHold ? "armed" : ""} ${canScare ? "" : "cooling"}`}
+                disabled={!canScare}
+                onMouseDown={() => onScare(true)}
+                onMouseUp={() => onScare(false)}
+                onMouseLeave={() => onScare(false)}
+                onTouchStart={() => onScare(true)}
+                onTouchEnd={() => onScare(false)}
+              >
+                <span className="go-away-fill" style={{ width: `${scarePct}%` }} />
+                <em>
+                  {canScare
+                    ? state.scareHold
+                      ? "KEEP HOLDING…"
+                      : "GO AWAY — HOLD IT"
+                    : `RECHARGING ${Math.ceil(state.scareCooldown)}s`}
+                </em>
+              </button>
+            )}
+            <button
+              className={`refill ${target ? "blocked" : ""}`}
+              onMouseDown={() => onRefill(true)}
+              onMouseUp={() => onRefill(false)}
+              onMouseLeave={() => onRefill(false)}
+              onTouchStart={() => onRefill(true)}
+              onTouchEnd={() => onRefill(false)}
+            >
+              {sprinting
+                ? "ROOM EMPTY — FEED UNSTABLE"
+                : target
+                  ? "SOMEONE IS IN THERE"
+                  : state.refillHold
+                    ? "REFUELLING…"
+                    : "HOLD TO REFUEL GENERATOR"}
+            </button>
+          </div>
         )}
 
         <button className="close-cams" onClick={onClose}>

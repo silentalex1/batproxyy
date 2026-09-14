@@ -6,6 +6,7 @@ export type View =
   | "credits"
   | "leaderboard"
   | "settings"
+  | "tutorial"
   | "feedback";
 
 export type RoomId =
@@ -95,6 +96,9 @@ export interface NightState {
   hint: string;
   hintAcc: number;
   player: PlayerModel;
+  scareHold: boolean;
+  scareCharge: number;
+  scareCooldown: number;
 }
 
 export interface ScoreRow {
@@ -104,6 +108,8 @@ export interface ScoreRow {
   result: "survived" | "caught";
   at: number;
 }
+
+export type ScoreScope = "global" | "local";
 
 export interface SettingsData {
   volume: number;

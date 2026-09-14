@@ -1195,3 +1195,196 @@ button:disabled {
 .night.blackout .flip-bar {
   opacity: 0.14;
 }
+
+.tutorial {
+  width: min(660px, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tutorial-body {
+  flex: 0 0 auto;
+  min-height: 74px;
+  margin: 0 0 16px;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.tutorial-shot {
+  display: block;
+  width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
+  margin: 0 0 18px;
+  border: 2px solid #3d2c1b;
+  background: #0b0b0b;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+.tutorial-foot {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.tutorial-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.tutorial-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(60, 40, 20, 0.28);
+}
+
+.tutorial-dots i.on {
+  background: var(--blood);
+}
+
+.tutorial-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.board-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.board-tab {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid rgba(60, 40, 20, 0.35);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.board-tab.on {
+  background: rgba(122, 29, 29, 0.14);
+  border-color: var(--blood);
+  color: var(--blood);
+}
+
+.board-note {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #6a5640;
+}
+
+.cam-step {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 76px;
+  z-index: 6;
+  background: rgba(8, 10, 8, 0.62);
+  border: 1px solid #333d2f;
+  color: #cfe0c4;
+  font-size: 26px;
+  line-height: 1;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.cam-step:hover {
+  background: rgba(90, 24, 28, 0.75);
+  border-color: #d24a4a;
+}
+
+.cam-step.prev { left: 10px; }
+.cam-step.next { right: 10px; }
+
+.cam-strip {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.strip-label {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: #7e8a76;
+}
+
+.strip-chip {
+  padding: 4px 8px;
+  background: rgba(8, 10, 8, 0.78);
+  border: 1px solid #333d2f;
+  color: #a8b79e;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.strip-chip:hover {
+  border-color: #c9a24a;
+  color: #e8d39a;
+}
+
+.basement-tools {
+  position: absolute;
+  right: 14px;
+  bottom: 58px;
+  width: 244px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.basement-tools .refill {
+  position: static;
+  width: 100%;
+}
+
+.go-away {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  padding: 12px 10px;
+  background: #1a1208;
+  border: 1px solid #c9772a;
+  color: #ffd9a8;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+}
+
+.go-away em {
+  position: relative;
+  z-index: 2;
+  font-style: normal;
+}
+
+.go-away-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  background: linear-gradient(90deg, #8a4a12, #e0932f);
+  transition: width 0.06s linear;
+}
+
+.go-away.armed {
+  box-shadow: 0 0 18px rgba(224, 147, 47, 0.45);
+}
+
+.go-away.cooling {
+  border-color: #4a4438;
+  color: #8a8474;
+}

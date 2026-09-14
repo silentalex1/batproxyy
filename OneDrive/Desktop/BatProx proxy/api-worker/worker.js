@@ -913,6 +913,36 @@ function blockedHost(host){
     }
     return new Response(JSON.stringify({users}),{headers:h});
   }
+  if(url.pathname==='/api/fnad-scores' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {name,night,minutes,result}=await request.json();
+      const cu=String(name||'').trim().slice(0,20);
+      const n=Math.max(1, Math.min(99, parseInt(night,10)||1));
+      const m=Math.max(0, Math.min(360, parseInt(minutes,10)||0));
+      const res=result==='survived'?'survived':'caught';
+      if(!cu) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('fnad_scores'):null;
+      let arr=raw?JSON.parse(raw):[];
+      arr.push({name:cu, night:n, minutes:m, result:res, at:Date.now()});
+      arr=arr.slice(-400);
+      if(kv) await kv.put('fnad_scores', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/fnad-scores' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('fnad_scores'):null;
+    const arr=raw?JSON.parse(raw):[];
+    const best=new Map();
+    for(const row of arr){
+      const cur=best.get(row.name);
+      const better=!cur||row.night>cur.night||(row.night===cur.night&&row.minutes>cur.minutes)||(row.night===cur.night&&row.minutes===cur.minutes&&row.result==='survived'&&cur.result!=='survived');
+      if(better) best.set(row.name, row);
+    }
+    const scores=[...best.values()].sort((a,b)=>b.night-a.night||b.minutes-a.minutes||a.at-b.at).slice(0,40);
+    return new Response(JSON.stringify({scores}),{headers:h});
+  }
   if(url.pathname==='/api/gamestats' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{

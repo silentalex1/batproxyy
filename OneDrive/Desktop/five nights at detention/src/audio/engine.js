@@ -21,6 +21,11 @@ class AudioEngine {
     this.breathNodes = null;
     this.jingleTimer = null;
     this.volume = 0.72;
+    this.ahoogaSrc = "";
+  }
+
+  setAhoogaSrc(src) {
+    this.ahoogaSrc = src;
   }
 
   ensure() {
@@ -297,6 +302,15 @@ class AudioEngine {
     const d = Math.random() * 0.05;
     this.burst(0.11, 0.075, 200 + Math.random() * 120, d, 2.4);
     this.burst(0.11, 0.06, 240 + Math.random() * 120, d + 0.28, 2.4);
+  }
+
+  ahooga() {
+    try {
+      const el = new Audio(this.ahoogaSrc);
+      el.volume = Math.max(0, Math.min(1, this.volume));
+      const played = el.play();
+      if (played && typeof played.catch === "function") played.catch(() => {});
+    } catch {}
   }
 
   clang() {
