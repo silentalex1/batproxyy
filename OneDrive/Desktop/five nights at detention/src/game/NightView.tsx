@@ -5,7 +5,7 @@ import { PhaserRoot } from "./PhaserRoot";
 import { setBridge } from "./bridge";
 import { CameraTablet } from "./CameraTablet";
 import { Hud } from "./Hud";
-import { CAM_ROOMS, createNight, grabElliot, threatOn, tickNight } from "./systems/ai";
+import { CAM_ROOMS, createNight, grabElliot, huffLoudness, threatOn, tickNight } from "./systems/ai";
 import { asset } from "../paths";
 
 type Props = {
@@ -93,6 +93,9 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
       });
       if (snap.breath > 0) audio.startBreath();
       else audio.stopBreath();
+      const steps = huffLoudness(snap);
+      if (steps > 0) audio.startSteps(steps);
+      else audio.stopSteps();
       ui += dt;
       if (ui > 0.07 || snap.dirty) {
         ui = 0;
@@ -107,6 +110,7 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
       audio.stopHum();
       audio.stopBuzz();
       audio.stopBreath();
+      audio.stopSteps();
       audio.stopJingle();
     };
   }, [settings.flicker, settings.volume]);
@@ -215,6 +219,7 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
         s.refillHold = false;
         audio.stopBuzz();
         audio.stopBreath();
+        audio.stopSteps();
       }
       return next;
     });

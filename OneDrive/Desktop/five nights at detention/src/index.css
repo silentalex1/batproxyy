@@ -1470,18 +1470,38 @@ button:disabled {
   100% { transform: translate(calc(var(--shake) * 4px), calc(var(--shake) * -3px)); }
 }
 
-.huff-walk {
+.huff-rig {
   position: absolute;
-  width: auto;
-  object-fit: contain;
   pointer-events: none;
-  transform-origin: 50% 100%;
-  filter: contrast(1.16) saturate(0.5) brightness(0.82);
-  transition: left 0.14s linear, bottom 0.14s linear, height 0.14s linear;
+  transition: left 0.09s linear, bottom 0.09s linear, height 0.09s linear;
 }
 
-.huff-walk.stepping {
-  animation: huff-step 0.52s ease-in-out infinite;
+.huff-rig::after {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: -1.5%;
+  height: 5%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6), transparent 72%);
+}
+
+.huff-rig.stepping::after {
+  animation: huff-shadow 0.68s ease-in-out infinite;
+}
+
+.huff-walk {
+  display: block;
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+  transform-origin: 50% 100%;
+  filter: contrast(1.16) saturate(0.5) brightness(0.82);
+}
+
+.huff-rig.stepping .huff-walk {
+  animation: huff-step 0.68s ease-in-out infinite;
 }
 
 .huff-walk.noticed {
@@ -1489,10 +1509,16 @@ button:disabled {
 }
 
 @keyframes huff-step {
-  0%, 100% { translate: 0 0; rotate: -1.2deg; }
-  25% { translate: 0 -0.9%; rotate: 0deg; }
-  50% { translate: 0 0; rotate: 1.2deg; }
-  75% { translate: 0 -0.9%; rotate: 0deg; }
+  0% { translate: 0 0; rotate: -1.5deg; scale: 1 1; }
+  25% { translate: 0 -1.3%; rotate: 0deg; scale: 0.99 1.014; }
+  50% { translate: 0 0; rotate: 1.5deg; scale: 1.01 0.99; }
+  75% { translate: 0 -1.3%; rotate: 0deg; scale: 0.99 1.014; }
+  100% { translate: 0 0; rotate: -1.5deg; scale: 1 1; }
+}
+
+@keyframes huff-shadow {
+  0%, 50%, 100% { opacity: 0.95; scale: 1 1; }
+  25%, 75% { opacity: 0.6; scale: 0.88 1; }
 }
 
 .elliot {

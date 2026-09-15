@@ -105,7 +105,9 @@ const AI_TABLE: Record<TeacherId, number[]> = {
 
 export const HUFF_PACE_SPEED = 0.16;
 
-export const ELLIOT_CHANCE = 0.001;
+export const ELLIOT_CHANCE = 0.0006;
+
+export const ELLIOT_MIN_POWER = 45;
 
 export const ELLIOT_POWER = 25;
 
@@ -486,7 +488,12 @@ export function huffWalking(state: NightState): boolean {
   return t.room === "hallway" && t.paceDir !== 0;
 }
 
-function runPace(state: NightState, dt: number, sfx: Sfx): void {
+export function huffLoudness(state: NightState): number {
+  if (!huffWalking(state) || state.paused || state.powerOut) return 0;
+  return state.camerasOpen && state.currentCam === "hallway" ? 1 : 0.32;
+}
+
+function runPace(state: NightState, dt: number): void {
   const t = state.teachers.huff;
   if (state.camShake > 0) state.camShake = Math.max(0, state.camShake - dt * 2.2);
   if (t.room !== "hallway") {
@@ -520,11 +527,11 @@ function runPace(state: NightState, dt: number, sfx: Sfx): void {
   if (!isWatched(state, "hallway")) return;
   state.camShake = 1;
   t.stepAcc -= dt * 0.15;
-  if (Math.random() < dt * 1.7) sfx.step();
 }
 
 function runElliot(state: NightState, dt: number): void {
   if (state.elliotOn || state.powerOut || state.blackout !== "none") return;
+  if (state.generator > ELLIOT_MIN_POWER) return;
   state.elliotRoll += dt;
   if (state.elliotRoll < 1) return;
   state.elliotRoll = 0;
@@ -576,7 +583,7 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
   runScare(state, dt, sfx);
   runMoods(state, dt);
   runNotice(state, dt, sfx);
-  runPace(state, dt, sfx);
+  runPace(state, dt);
   runElliot(state, dt);
 
   if (state.mathLook !== "idle") return;

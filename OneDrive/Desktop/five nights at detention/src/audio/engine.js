@@ -24,6 +24,39 @@ class AudioEngine {
     this.ahoogaSrc = "";
     this.jobSrc = "";
     this.jobEl = null;
+    this.stepsSrc = "";
+    this.stepsEl = null;
+  }
+
+  setStepsSrc(src) {
+    this.stepsSrc = src;
+  }
+
+  startSteps(scale) {
+    try {
+      if (!this.stepsEl) {
+        const el = document.createElement("audio");
+        el.src = this.stepsSrc;
+        el.loop = true;
+        el.preload = "auto";
+        el.dataset.role = "huff-steps";
+        document.body.appendChild(el);
+        this.stepsEl = el;
+      }
+      this.stepsEl.volume = Math.max(0, Math.min(1, this.volume * scale));
+      if (this.stepsEl.paused) {
+        const played = this.stepsEl.play();
+        if (played && typeof played.catch === "function") played.catch(() => {});
+      }
+    } catch {}
+  }
+
+  stopSteps() {
+    if (!this.stepsEl || this.stepsEl.paused) return;
+    try {
+      this.stepsEl.pause();
+      this.stepsEl.currentTime = 0;
+    } catch {}
   }
 
   setAhoogaSrc(src) {

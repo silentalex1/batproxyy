@@ -84,17 +84,21 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
               })}
 
             {huffHere && (
-              <img
-                className={`huff-walk ${huff.paceDir !== 0 ? "stepping" : ""} ${huff.notice > 0 ? "noticed" : ""}`}
-                src={huff.body}
+              <div
+                className={`huff-rig ${huff.paceDir !== 0 ? "stepping" : ""}`}
                 style={{
-                  left: `${14 + huff.paceX * 56}%`,
-                  bottom: `${24 - huff.paceX * 5}%`,
-                  height: `${44 + huff.paceX * 13}%`,
-                  transform: `scaleX(${huff.paceDir < 0 ? -1 : 1})`
+                  left: `${15 + huff.paceX * 54}%`,
+                  bottom: `${25 - huff.paceX * 6}%`,
+                  height: `${42 + huff.paceX * 14}%`
                 }}
-                alt=""
-              />
+              >
+                <img
+                  className={`huff-walk ${huff.notice > 0 ? "noticed" : ""}`}
+                  src={huff.body}
+                  style={{ transform: `scaleX(${huff.paceX > 0.5 ? -1 : 1})` }}
+                  alt=""
+                />
+              </div>
             )}
 
             {isLounge && state.mathLook === "staring" && (
