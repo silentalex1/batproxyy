@@ -157,7 +157,7 @@ function blockedHost(host){
   return false;
 }
  export default {
-  async fetch(request, env){
+  async fetch(request, env, ctx){
    const url=new URL(request.url);
    const rawKv=env.batprox_data;
    const kv=rawKv?{
@@ -1140,6 +1140,35 @@ function blockedHost(host){
       const rt=replyTo&&typeof replyTo==='object'?{user:String(replyTo.user||'').slice(0,20), text:String(replyTo.text||'').slice(0,200)}:null;
       all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt});
       await chatPut('chat_messages',trimRooms(all));
+      if(cu!=='MochaAI' && /@mochaai\b/i.test(t)){
+        const work=(async()=>{
+          const cleaned=t.replace(/@mochaai\b/ig,'').replace(/\s+/g,' ').trim();
+          const prompt=cleaned
+            ? 'You are MochaAI, a member of the Bat Prox chatroom. '+cu+' said to you: "'+cleaned+'". Reply in the chat, under 45 words, no markdown.'
+            : 'You are MochaAI, a member of the Bat Prox chatroom. '+cu+' pinged you with no message. Greet them and ask what they need, under 25 words, no markdown.';
+          let out='';
+          const gk=env.GEMINI_API_KEY||'';
+          if(gk){
+            for(let a=0;a<2&&!out;a++){
+              try{
+                const ctl=new AbortController();
+                const tmr=setTimeout(()=>ctl.abort(),20000);
+                const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(gk),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:'You are MochaAI, a friendly member of the Bat Prox chatroom built by MicahG. Keep replies short and conversational. Never use markdown.'}]},contents:[{parts:[{text:prompt}]}]}),signal:ctl.signal});
+                clearTimeout(tmr);
+                if(!gr.ok) continue;
+                const gd=await gr.json().catch(()=>null);
+                out=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
+              }catch{}
+            }
+          }
+          if(!out) out='@'+cu+' I am here, but my brain is offline right now. Try me again in a bit.';
+          const after=await chatGet('chat_messages',[]);
+          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+          after.push({id:nid, room:rm, user:'MochaAI', display:'MochaAI', text:out.replace(/\s+/g,' ').trim().slice(0,480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});
+          await chatPut('chat_messages',trimRooms(after));
+        })();
+        if(ctx&&ctx.waitUntil) ctx.waitUntil(work); else await work;
+      }
       return new Response(JSON.stringify({success:true, id}),{headers:h});
     }catch(e){ return new Response(JSON.stringify({error:'DBG:'+((e&&e.message)||e)}),{status:400, headers:h});}
   }

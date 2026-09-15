@@ -18,7 +18,7 @@ const dmId = (a: string, b: string) => 'dm:' + [a, b].sort().join(':');
 const cacheKey = (roomId: string) => 'bp-chat-cache:' + roomId;
 const MENTION = /@[\w$%.-]+/g;
 const AI_BOT = 'MochaAI';
-const AI_MENTION = /@mochaai/i;
+const AI_MENTION = /@mochaai\b/i;
 const avatarColor = (name: string) => {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
@@ -339,37 +339,6 @@ export default function Chatting() {
     loadProfiles();
   };
 
-  const askMocha = async (roomId: string, asked: string, from: string) => {
-    const cleaned = asked.replace(AI_MENTION, '').replace(/\s+/g, ' ').trim();
-    const prompt = cleaned
-      ? `You are MochaAI, a member of the Bat Prox chatroom. ${from} said to you: "${cleaned}". Reply in the chat, under 45 words, no markdown.`
-      : `You are MochaAI, a member of the Bat Prox chatroom. ${from} pinged you with no message. Greet them and ask what they need, under 25 words, no markdown.`;
-    let reply = '';
-    try {
-      const r = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
-      if (r.ok) {
-        const d = await r.json();
-        reply = String(d.response || '').trim();
-      }
-    } catch {}
-    if (!reply || /configure OPENROUTER_API_KEY|temporarily unavailable/i.test(reply)) {
-      reply = `@${from} I am here, but my brain is offline right now. Try me again in a bit.`;
-    }
-    reply = reply.slice(0, 480);
-    try {
-      await fetch('/api/chat/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: roomId, user: AI_BOT, text: reply })
-      });
-      loadMessages(roomId);
-    } catch {}
-  };
-
   const send = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const t = text.trim();
@@ -400,8 +369,13 @@ export default function Chatting() {
       if (AI_MENTION.test(t)) {
         const target = room.id;
         setAiThinking(true);
-        fetch('/api/chat/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: target, user: AI_BOT }) }).catch(() => {});
-        askMocha(target, t, me).finally(() => setAiThinking(false));
+        let tries = 0;
+        const poll = setInterval(async () => {
+          tries += 1;
+          await loadMessages(target);
+          if (tries >= 12) { clearInterval(poll); setAiThinking(false); }
+        }, 1800);
+        setTimeout(() => { clearInterval(poll); setAiThinking(false); }, 24000);
       }
     } catch {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id));
