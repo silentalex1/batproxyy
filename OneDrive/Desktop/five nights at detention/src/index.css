@@ -1824,3 +1824,16 @@ button:disabled {
   transform: translateY(105%) scale(0.82);
   opacity: 0;
 }
+
+.hud-time {
+  text-align: right;
+}
+
+.hud-stamp {
+  margin: 2px 0 0;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: #9a8f76;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px #000;
+}

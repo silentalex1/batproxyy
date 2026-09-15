@@ -1,5 +1,5 @@
 import type { NightState } from "../types";
-import { bothDoorsShut, formatClock } from "./systems/ai";
+import { bothDoorsShut, formatClock, formatStamp } from "./systems/ai";
 
 type Props = {
   state: NightState;
@@ -69,7 +69,10 @@ export function Hud({ state, username, onToggleDoor, onLight, onOpenCams, onFeed
           <p className="hud-name">{username || "DETAINEE"}</p>
           <p className="hud-night">NIGHT {state.night}</p>
         </div>
-        <p className="hud-clock">{formatClock(state.minutes)}</p>
+        <div className="hud-time">
+          <p className="hud-clock">{formatClock(state.minutes)}</p>
+          <p className="hud-stamp">{formatStamp(state)}</p>
+        </div>
       </div>
 
       {panel("left")}
