@@ -374,6 +374,19 @@ export function threatOn(state: NightState, side: "left" | "right"): Teacher | n
   return id ? state.teachers[id] : null;
 }
 
+export function approachOn(state: NightState, side: "left" | "right"): Teacher | null {
+  const door: RoomId = side === "left" ? "leftDoor" : "rightDoor";
+  const ids = (Object.keys(state.teachers) as TeacherId[]).filter((id) => {
+    const t = state.teachers[id];
+    if (t.room !== "hallway") return false;
+    if (id === "huff") return side === "left" ? t.paceX < 0.34 : t.paceX > 0.66;
+    const route = ROUTES[id];
+    return route[Math.min(route.length - 1, t.routeIndex + 1)] === door;
+  });
+  const pick = ids.find((id) => id !== "huff") || ids[0];
+  return pick ? state.teachers[pick] : null;
+}
+
 export function loungeHas(state: NightState, id: TeacherId): boolean {
   return state.teachers[id].room === "lounge";
 }

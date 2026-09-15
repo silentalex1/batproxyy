@@ -14,6 +14,7 @@ import {
   huffLoudness,
   huffWalking,
   huffWatched,
+  approachOn,
   requestDoor,
   threatOn,
   tickNight
@@ -50,8 +51,12 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
   state.paused = paused || intro || halted;
   const left = threatOn(state, "left");
   const right = threatOn(state, "right");
-  const showLeft = Boolean(left) && state.leftLight && !state.powerOut;
-  const showRight = Boolean(right) && state.rightLight && !state.powerOut;
+  const litLeft = state.leftLight && !state.powerOut;
+  const litRight = state.rightLight && !state.powerOut;
+  const showLeft = Boolean(left) && litLeft;
+  const showRight = Boolean(right) && litRight;
+  const farLeft = !left && litLeft ? approachOn(state, "left") : null;
+  const farRight = !right && litRight ? approachOn(state, "right") : null;
   const hidden = state.camerasOpen || Boolean(state.jumpscare) || state.won;
 
   useEffect(() => {
@@ -314,6 +319,8 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
       {!hidden && showRight && (
         <img className={`door-fig right ${state.rightDoor ? "peek" : ""}`} src={right!.body} alt="" />
       )}
+      {!hidden && farLeft && <img className="door-fig left far" src={farLeft.body} alt="" />}
+      {!hidden && farRight && <img className="door-fig right far" src={farRight.body} alt="" />}
 
       {!hidden && state.blackout === "stare" && (
         <div className="stare">
