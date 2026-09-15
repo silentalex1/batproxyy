@@ -1724,3 +1724,103 @@ button:disabled {
   background: rgba(70, 18, 18, 0.8);
   color: #e6a0a0;
 }
+
+.breaker {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  background: #000;
+  animation: breakerfade 1.15s ease-in forwards;
+}
+
+@keyframes breakerfade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.breaker-in {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.75s ease, transform 0.75s ease;
+}
+
+.breaker-in.lit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.breaker-line {
+  margin: 0 0 26px;
+  font-family: "Special Elite", "Courier New", serif;
+  font-size: clamp(34px, 5.4vw, 62px);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  color: #e8dcc0;
+}
+
+.breaker-line span {
+  color: #4fd67f;
+  text-shadow: 0 0 34px rgba(79, 214, 127, 0.45);
+}
+
+.breaker-night {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.34em;
+  line-height: 1.25;
+  font-size: clamp(22px, 3.4vw, 38px);
+  letter-spacing: 0.3em;
+  color: #b6a889;
+  text-transform: uppercase;
+}
+
+.breaker-night em {
+  font-style: normal;
+}
+
+.roll {
+  position: relative;
+  display: inline-block;
+  width: 1.1em;
+  height: 1.25em;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.digit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 400;
+  color: #fff6d8;
+  letter-spacing: 0;
+  transition:
+    transform 0.62s cubic-bezier(0.22, 1.4, 0.36, 1),
+    opacity 0.45s ease;
+}
+
+.digit.here {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.digit.gone {
+  transform: translateY(-105%) scale(0.82);
+  opacity: 0;
+}
+
+.digit.waiting {
+  transform: translateY(105%) scale(0.82);
+  opacity: 0;
+}

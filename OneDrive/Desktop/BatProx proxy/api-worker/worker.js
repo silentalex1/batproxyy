@@ -102,13 +102,22 @@ function rl(key, limit, winMs){
   RL_MAP.set(key, arr);
   return true;
 }
+const CHAT_MAX=4000;
+
+const CHAT_BUDGET=6000000;
+
 function trimRooms(all){
   const perRoom={};
   const keep=[];
+  let load=0;
   for(let i=all.length-1;i>=0;i--){
-    const r=all[i]&&all[i].room?all[i].room:'community';
+    const m=all[i];
+    const r=m&&m.room?m.room:'community';
     perRoom[r]=(perRoom[r]||0)+1;
-    if(perRoom[r]<=400) keep.push(all[i]);
+    if(perRoom[r]>400) continue;
+    load+=(m&&m.text?m.text.length:0)+220;
+    if(load>CHAT_BUDGET) break;
+    keep.push(m);
   }
   keep.reverse();
   return keep.slice(-6000);
@@ -1106,7 +1115,7 @@ function blockedHost(host){
       const {id,user,text}=await request.json();
       const mid=Number(id);
       const cu=String(user||'').trim();
-      const t=String(text||'').trim().slice(0,500);
+      const t=String(text||'').trim().slice(0,CHAT_MAX);
       if(!mid||!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
       const all=await chatGet('chat_messages',[]);
       const m=all.find(x=>x.id===mid);
@@ -1142,7 +1151,7 @@ function blockedHost(host){
     try{
       const {room,user,text,replyTo}=await request.json();
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
-      const t=String(text||'').trim().slice(0,500);
+      const t=String(text||'').trim().slice(0,CHAT_MAX);
       if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
       if(rm!=='community' && cu!=='MochaAI'){
         const rooms=await chatGet('chat_rooms',{});

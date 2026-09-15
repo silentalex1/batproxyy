@@ -75,6 +75,22 @@ export default function Chatting() {
   const stickBottom = useRef(true);
   const highlightOnce = useRef('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const ghostRef = useRef<HTMLDivElement>(null);
+
+  const grow = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 208)}px`;
+    if (ghostRef.current) ghostRef.current.scrollTop = el.scrollTop;
+  };
+
+  const shrink = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    if (ghostRef.current) ghostRef.current.scrollTop = 0;
+  };
   const typingAt = useRef(0);
   const roomRef = useRef('community');
   const pendingCaret = useRef<number | null>(null);
@@ -346,6 +362,7 @@ export default function Chatting() {
     if (editing) {
       const target = editing;
       setText('');
+    shrink();
       setEditing(null);
       setMentionOpen(false);
       setMentionStart(-1);
@@ -357,6 +374,7 @@ export default function Chatting() {
       return;
     }
     setText('');
+    shrink();
     setReplyTo(null);
     setMentionOpen(false);
     setMentionStart(-1);
@@ -402,6 +420,7 @@ export default function Chatting() {
   const cancelEdit = () => {
     setEditing(null);
     setText('');
+    shrink();
     setSelected(null);
     setMentionOpen(false);
   };
@@ -666,7 +685,7 @@ export default function Chatting() {
                 if (room.kind === 'dm') {
                   return (
                     <div key={m.id} data-mid={m.id} onMouseEnter={(e) => { if (e.shiftKey) setHoverMsg(m.id); }} onMouseLeave={() => setHoverMsg(h => h === m.id ? null : h)} className={`flex ${mine ? 'justify-end' : 'justify-start'} transition-opacity duration-300 ${deleting === m.id ? 'opacity-0' : 'opacity-100'}`}>
-                      <div onClick={() => setSelected(sel ? null : m.id)} onDoubleClick={() => replyNow(m)} className={`relative max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap cursor-pointer transition-shadow duration-200 ${fresh ? 'bp-msg-in' : ''} ${mine ? 'text-white' : 'bg-white/[0.07] text-white/85'} ${isEditing ? 'bp-editing ring-2 ring-offset-2 ring-offset-black' : sel ? 'ring-2 ring-orange-400 shadow-[0_0_20px_rgba(251,146,60,0.35)]' : ''}`} style={mine ? { background: 'var(--bp-accent)', ...(isEditing ? { outline: '2px solid var(--bp-accent)' } : {}) } : isEditing ? { outline: '2px solid var(--bp-accent)' } : undefined}>
+                      <div onClick={() => setSelected(sel ? null : m.id)} onDoubleClick={() => replyNow(m)} className={`relative max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words cursor-pointer transition-shadow duration-200 ${fresh ? 'bp-msg-in' : ''} ${mine ? 'text-white' : 'bg-white/[0.07] text-white/85'} ${isEditing ? 'bp-editing ring-2 ring-offset-2 ring-offset-black' : sel ? 'ring-2 ring-orange-400 shadow-[0_0_20px_rgba(251,146,60,0.35)]' : ''}`} style={mine ? { background: 'var(--bp-accent)', ...(isEditing ? { outline: '2px solid var(--bp-accent)' } : {}) } : isEditing ? { outline: '2px solid var(--bp-accent)' } : undefined}>
                         {shiftDown && hoverMsg === m.id && (
                           <button onClick={(e) => { e.stopPropagation(); deleteMsg(m.id); }} title="Delete message" className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-xs flex items-center justify-center shadow-lg">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.87 12.14A2 2 0 0116.15 21H7.85a2 2 0 01-2-1.86L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" /></svg>
@@ -756,12 +775,13 @@ export default function Chatting() {
               )}
               <div className="flex items-end gap-2 bg-white/[0.05] border border-white/10 rounded-3xl pl-5 pr-1.5 py-1.5 focus-within:border-purple-500/50 transition-all">
                 <div className="relative flex-1 min-w-0">
-                  <div aria-hidden className="absolute inset-0 py-2 text-sm leading-6 whitespace-pre-wrap break-words pointer-events-none overflow-hidden select-none">{highlightParts(text)}</div>
+                  <div ref={ghostRef} aria-hidden className="absolute inset-0 py-2 text-sm leading-6 whitespace-pre-wrap break-words pointer-events-none overflow-hidden select-none">{highlightParts(text)}</div>
                   <textarea
                     ref={inputRef}
+                    onScroll={e => { if (ghostRef.current) ghostRef.current.scrollTop = (e.target as HTMLTextAreaElement).scrollTop; }}
                     value={text}
                     rows={1}
-                    onChange={e => { setText(e.target.value); beatTyping(); syncMention(e.target.value, e.target.selectionStart); }}
+                    onChange={e => { setText(e.target.value); beatTyping(); syncMention(e.target.value, e.target.selectionStart); grow(e.target); }}
                     onClick={e => syncMention(text, (e.target as HTMLTextAreaElement).selectionStart)}
                     onBlur={() => setTimeout(() => setMentionOpen(false), 120)}
                     onKeyDown={e => {
@@ -776,8 +796,8 @@ export default function Chatting() {
                       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
                     }}
                     placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`}
-                    className="relative w-full bg-transparent text-transparent caret-white placeholder-white/30 focus:outline-none text-sm leading-6 resize-none py-2"
-                    maxLength={500}
+                    className="relative w-full bg-transparent text-transparent caret-white placeholder-white/30 focus:outline-none text-sm leading-6 resize-none py-2 max-h-52 overflow-y-auto"
+                    maxLength={4000}
                   />
                 </div>
                 <button type="submit" className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 transition-all" style={{ background: 'var(--bp-accent)' }}>

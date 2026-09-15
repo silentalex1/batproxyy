@@ -110,13 +110,15 @@ export default function App() {
       result: result === "win" ? ("survived" as const) : ("caught" as const),
       at: Date.now()
     };
+    const cleared =
+      result === "win" ? Math.min(MAX_NIGHT, save.nightsCleared + 1) : save.nightsCleared;
     persist({
       ...save,
-      nightsCleared:
-        result === "win" ? Math.min(MAX_NIGHT, save.nightsCleared + 1) : save.nightsCleared,
+      nightsCleared: cleared,
       leaderboard: [row, ...save.leaderboard].slice(0, 40)
     });
     void postScore(row);
+    if (result === "win" && cleared > save.nightsCleared && cleared < MAX_NIGHT) return;
     setView("home");
   };
 
@@ -176,6 +178,7 @@ export default function App() {
       )}
       {nightLive && (
         <NightView
+          key={night}
           username={save.username}
           night={night}
           settings={save.settings}

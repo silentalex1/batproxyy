@@ -4,9 +4,11 @@ import type { CamId, SettingsData } from "../types";
 import { PhaserRoot } from "./PhaserRoot";
 import { setBridge } from "./bridge";
 import { CameraTablet } from "./CameraTablet";
+import { NightBreak } from "./NightBreak";
 import { Hud } from "./Hud";
 import {
   CAM_ROOMS,
+  MAX_NIGHT,
   createNight,
   grabElliot,
   huffLoudness,
@@ -294,6 +296,7 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
   }, []);
 
   const starving = state.powerOut || state.generator < 24;
+  const lastNight = night >= MAX_NIGHT;
   const huffOnFoot = huffWalking(state);
   const huffSeen = huffWatched(state);
 
@@ -347,7 +350,7 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
       {!state.jumpscare && !state.won && (
         <div className={`huff-alert ${huffOnFoot ? "on" : ""}`}>
           <img src={state.teachers.huff.portrait} alt="" />
-          <span>Mrs huff is walking!</span>
+          <span>Mrs Huff is walking!</span>
         </div>
       )}
 
@@ -395,7 +398,11 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
         </div>
       )}
 
-      {state.won && (
+      {state.won && !lastNight && (
+        <NightBreak night={night} onDone={() => onExit("win", state.minutes)} />
+      )}
+
+      {state.won && lastNight && (
         <div className="six">
           <p>6 AM</p>
           <h2>NIGHT {night} SURVIVED</h2>
