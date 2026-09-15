@@ -1125,7 +1125,7 @@ function blockedHost(host){
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
       const t=String(text||'').trim().slice(0,500);
       if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
-      if(rm!=='community'){
+      if(rm!=='community' && cu!=='MochaAI'){
         const rooms=await chatGet('chat_rooms',{});
         if(rm.startsWith('dm:')){
           const parts=rm.split(':');

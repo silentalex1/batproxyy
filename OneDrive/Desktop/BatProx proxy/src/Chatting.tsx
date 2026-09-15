@@ -17,6 +17,8 @@ type Room = { kind: 'community' | 'dm' | 'gc'; id: string; label: string };
 const dmId = (a: string, b: string) => 'dm:' + [a, b].sort().join(':');
 const cacheKey = (roomId: string) => 'bp-chat-cache:' + roomId;
 const MENTION = /@[\w$%.-]+/g;
+const AI_BOT = 'MochaAI';
+const AI_MENTION = /@mochaai/i;
 const avatarColor = (name: string) => {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
@@ -62,6 +64,7 @@ export default function Chatting() {
   const [shiftDown, setShiftDown] = useState(false);
   const [hoverMsg, setHoverMsg] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [aiThinking, setAiThinking] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionIdx, setMentionIdx] = useState(0);
@@ -198,7 +201,11 @@ export default function Chatting() {
     } catch {}
     try {
       const r = await fetch('/api/presence');
-      if (r.ok) { const d = await r.json(); setOnline((d.users || []).filter((u: Presence) => u.username && u.username !== 'anonymous')); }
+      if (r.ok) {
+        const d = await r.json();
+        const rows = (d.users || []).filter((u: Presence) => u.username && u.username !== 'anonymous' && u.username !== AI_BOT);
+        setOnline([{ username: AI_BOT, active: true }, ...rows]);
+      }
     } catch {}
     loadNames();
   }, [me, loadNames]);
@@ -220,7 +227,7 @@ export default function Chatting() {
     const loadTyping = async () => {
       try {
         const r = await fetch('/api/chat/typing?room=' + encodeURIComponent(room.id));
-        if (r.ok) { const d = await r.json(); setTyping(((d.typing || []) as string[]).filter(u => u !== me)); }
+        if (r.ok) { const d = await r.json(); setTyping(((d.typing || []) as string[]).filter(u => u !== me && u !== AI_BOT)); }
       } catch {}
     };
     loadTyping();
@@ -332,6 +339,37 @@ export default function Chatting() {
     loadProfiles();
   };
 
+  const askMocha = async (roomId: string, asked: string, from: string) => {
+    const cleaned = asked.replace(AI_MENTION, '').replace(/\s+/g, ' ').trim();
+    const prompt = cleaned
+      ? `You are MochaAI, a member of the Bat Prox chatroom. ${from} said to you: "${cleaned}". Reply in the chat, under 45 words, no markdown.`
+      : `You are MochaAI, a member of the Bat Prox chatroom. ${from} pinged you with no message. Greet them and ask what they need, under 25 words, no markdown.`;
+    let reply = '';
+    try {
+      const r = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      if (r.ok) {
+        const d = await r.json();
+        reply = String(d.response || '').trim();
+      }
+    } catch {}
+    if (!reply || /configure OPENROUTER_API_KEY|temporarily unavailable/i.test(reply)) {
+      reply = `@${from} I am here, but my brain is offline right now. Try me again in a bit.`;
+    }
+    reply = reply.slice(0, 480);
+    try {
+      await fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: roomId, user: AI_BOT, text: reply })
+      });
+      loadMessages(roomId);
+    } catch {}
+  };
+
   const send = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const t = text.trim();
@@ -359,6 +397,12 @@ export default function Chatting() {
     try {
       await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo }) });
       loadMessages(room.id);
+      if (AI_MENTION.test(t)) {
+        const target = room.id;
+        setAiThinking(true);
+        fetch('/api/chat/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: target, user: AI_BOT }) }).catch(() => {});
+        askMocha(target, t, me).finally(() => setAiThinking(false));
+      }
     } catch {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id));
     }
@@ -498,9 +542,13 @@ export default function Chatting() {
   };
 
   const activeMembers = online.filter(o => o.active);
+  const mentionPool = activeMembers.some(o => o.username === AI_BOT)
+    ? activeMembers
+    : [{ username: AI_BOT, active: true }, ...activeMembers];
   const mentionList = mentionOpen
-    ? activeMembers.filter(o => {
+    ? mentionPool.filter(o => {
         if (!mentionQuery) return true;
+        if (o.username === AI_BOT) return AI_BOT.toLowerCase().includes(mentionQuery);
         return o.username.toLowerCase().includes(mentionQuery) || dispOf(o.username).toLowerCase().includes(mentionQuery);
       }).slice(0, 6)
     : [];
@@ -698,6 +746,7 @@ export default function Chatting() {
               })}
               <div ref={bottomRef} />
             </div>
+            {aiThinking && <p className="px-5 pb-1 text-[11px] text-amber-300/70 animate-pulse">MochaAI is typing..</p>}
             {typing.length > 0 && <p className="px-5 pb-1 text-[11px] text-white/40 animate-pulse">{typing.length > 3 ? 'Others are typing..' : typing.length === 3 ? `${typing[0]}, ${typing[1]} and 1 other is typing..` : typing.length === 2 ? `${typing[0]} and ${typing[1]} are typing..` : `${typing[0]} is typing..`}</p>}
             <form onSubmit={send} className="relative p-3 border-t border-white/[0.06]">
               {mentionOpen && mentionList.length > 0 && (
