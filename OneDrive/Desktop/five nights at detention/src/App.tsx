@@ -63,16 +63,25 @@ export default function App() {
     const name = save.username;
     if (!name) return;
     let alive = true;
+    let misses = 0;
+    let id = 0;
     const check = async () => {
       if (!alive || replyRef.current) return;
       const seen = readSeen();
       const rows = await fetchReplies(name);
-      if (!alive || replyRef.current) return;
+      if (!alive) return;
+      if (rows === null) {
+        misses += 1;
+        if (misses >= 3) window.clearInterval(id);
+        return;
+      }
+      misses = 0;
+      if (replyRef.current) return;
       const fresh = rows.find((n) => !seen.includes(n.id));
       if (fresh) setReply(fresh);
     };
     void check();
-    const id = window.setInterval(check, 8000);
+    id = window.setInterval(check, 8000);
     return () => {
       alive = false;
       window.clearInterval(id);

@@ -46,21 +46,21 @@ export async function fetchScores(): Promise<ScoreRow[] | null> {
   }
 }
 
-export async function fetchReplies(username: string): Promise<SuggestionReply[]> {
+export async function fetchReplies(username: string): Promise<SuggestionReply[] | null> {
   const name = (username || "").trim();
   if (!name) return [];
   try {
     const response = await fetch(`/api/suggestions/${encodeURIComponent(name)}`, {
       cache: "no-store"
     });
-    if (!response.ok) return [];
+    if (!response.ok) return null;
     const type = response.headers.get("content-type") || "";
-    if (!type.includes("application/json")) return [];
+    if (!type.includes("application/json")) return null;
     const data = await response.json();
-    if (!Array.isArray(data.notifications)) return [];
+    if (!Array.isArray(data.notifications)) return null;
     return (data.notifications as SuggestionReply[]).filter((n) => n && n.reply);
   } catch {
-    return [];
+    return null;
   }
 }
 
