@@ -31,6 +31,17 @@ const PAGES: Page[] = [
   },
   {
     body:
+      "if you spot this face, a face of elliot brown, this face is 0.1% rare to see so if you see it then your lucky. But if you see it, make sure to click the face as it will give you 25% extra back with power.",
+    image: asset("assets/ui/0.1chance.png"),
+    next: "Next Page"
+  },
+  {
+    body:
+      "There is 6 nights, survive 6 nights till 6am. On the first 3 nights will include a generator, that you'll need to refill. But then, on night 4-6, there will be no generators, That is to prevent you from camping, and if you close the doors. There will be a 15 second cooldown.",
+    next: "Next Page"
+  },
+  {
+    body:
       "Other then that, that is pretty much it for the tutorial. Survive till it reaches 6am, and yeah you win and escape detention. This game will be planning on to get even more scarier, and even more better. So expect more better things.",
     next: "Close."
   }

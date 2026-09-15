@@ -21,7 +21,7 @@ function batproxPlugin(): Plugin {
                   if (!fs.existsSync(path.join(dir, entry.name, 'index.html'))) continue
                   const cover = covers.find((c) => fs.existsSync(path.join(dir, entry.name, c)))
                   games.push({
-                    name: entry.name.replace(/[-_]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()),
+                    name: entry.name === 'five-nights-at-detention' ? '6 Nights At Detention' : entry.name.replace(/[-_]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()),
                     filename: entry.name,
                     url: `/my-games/${entry.name}/`,
                     thumbnail: cover ? `/my-games/${entry.name}/${cover}` : null

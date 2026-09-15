@@ -26,15 +26,25 @@ export function Hud({ state, username, onToggleDoor, onLight, onOpenCams, onFeed
   const panel = (side: "left" | "right") => {
     const shut = side === "left" ? state.leftDoor : state.rightDoor;
     const lit = side === "left" ? state.leftLight : state.rightLight;
+    const cool = state.doorCool[side];
+    const hold = state.doorHold[side];
+    const iced = !shut && cool > 0.05;
+    const label = iced
+      ? `COOLDOWN ${Math.ceil(cool)}s`
+      : shut
+        ? state.hasGenerator
+          ? "CLOSED"
+          : `CLOSED ${Math.ceil(hold)}s`
+        : "OPEN";
     return (
       <div className={`door-panel ${side}`}>
         <button
-          className={`plate door ${shut ? "on" : ""}`}
-          disabled={dead}
+          className={`plate door ${shut ? "on" : ""} ${iced ? "iced" : ""}`}
+          disabled={dead || iced}
           onClick={() => onToggleDoor(side)}
         >
           <b>DOOR</b>
-          <em>{shut ? "CLOSED" : "OPEN"}</em>
+          <em>{label}</em>
         </button>
         <button
           className={`plate light ${lit ? "on" : ""}`}
@@ -78,18 +88,40 @@ export function Hud({ state, username, onToggleDoor, onLight, onOpenCams, onFeed
       </button>
 
       <div className="hud-bottom">
-        <div className={`gen ${bothShut ? "surge" : ""}`}>
-          <span>POWER LEFT: {Math.round(state.generator)}%</span>
-          <div className="gen-bar">
-            <div style={{ width: `${state.generator}%` }} />
+        {state.hasGenerator ? (
+          <div className={`gen ${bothShut ? "surge" : ""}`}>
+            <span>POWER LEFT: {Math.round(state.generator)}%</span>
+            <div className="gen-bar">
+              <div style={{ width: `${state.generator}%` }} />
+            </div>
+            <div className="usage">
+              <small>{bothShut ? "USAGE ↑↑" : "USAGE"}</small>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <b key={i} className={i < bars ? `on u${bars}` : ""} />
+              ))}
+            </div>
           </div>
-          <div className="usage">
-            <small>{bothShut ? "USAGE ↑↑" : "USAGE"}</small>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <b key={i} className={i < bars ? `on u${bars}` : ""} />
-            ))}
+        ) : (
+          <div className="gen nogen">
+            <span>NO GENERATOR · NIGHT {state.night}</span>
+            <div className="cool-row">
+              {(["left", "right"] as const).map((side) => {
+                const shut = side === "left" ? state.leftDoor : state.rightDoor;
+                const cool = state.doorCool[side];
+                return (
+                  <b key={side} className={cool > 0.05 ? "hot" : shut ? "shut" : ""}>
+                    {side === "left" ? "L" : "R"}{" "}
+                    {cool > 0.05
+                      ? `${Math.ceil(cool)}s`
+                      : shut
+                        ? `${Math.ceil(state.doorHold[side])}s`
+                        : "READY"}
+                  </b>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
         <div className="hud-links">
           <button type="button" onClick={onFeedback}>
             Feedback

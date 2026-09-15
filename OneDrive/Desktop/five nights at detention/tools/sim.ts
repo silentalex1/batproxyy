@@ -1,4 +1,4 @@
-import { createNight, tickNight, threatOn } from "../src/game/systems/ai";
+import { createNight, requestDoor, tickNight, threatOn } from "../src/game/systems/ai";
 import type { CamId, NightState, TeacherId } from "../src/types";
 
 const NO_SFX = {
@@ -12,7 +12,7 @@ let ahoogaCount = 0;
 const IDS: TeacherId[] = ["math", "gym", "principal", "history", "huff"];
 const CAMS: CamId[] = ["lounge", "hallway", "cafeteria", "principal", "basementHall", "basement"];
 
-type Policy = "blind" | "tunnel" | "balanced" | "pro" | "camper";
+type Policy = "blind" | "tunnel" | "balanced" | "pro" | "camper" | "turtle";
 
 function eligible(st: NightState, id: TeacherId): boolean {
   const t = st.teachers[id];
@@ -73,8 +73,13 @@ function runNight(night: number, policy: Policy, seed: number) {
       if (st.generator < 35) st.camerasOpen = false;
     }
 
-    st.leftDoor = Boolean(threatOn(st, "left"));
-    st.rightDoor = Boolean(threatOn(st, "right")) || st.sprintRun > 0;
+    if (policy === "turtle") {
+      requestDoor(st, "left", true);
+      requestDoor(st, "right", true);
+    } else {
+      requestDoor(st, "left", Boolean(threatOn(st, "left")));
+      requestDoor(st, "right", Boolean(threatOn(st, "right")) || st.sprintRun > 0);
+    }
     st.leftLight = false;
     st.rightLight = false;
 
@@ -102,8 +107,8 @@ function runNight(night: number, policy: Policy, seed: number) {
 
 function avg(xs: number[]) { return xs.reduce((a, b) => a + b, 0) / xs.length; }
 
-for (const policy of ["blind", "tunnel", "balanced", "camper", "pro"] as Policy[]) {
-  for (const night of [1, 3, 5]) {
+for (const policy of ["blind", "tunnel", "balanced", "camper", "turtle", "pro"] as Policy[]) {
+  for (const night of [1, 3, 4, 5, 6]) {
     const runs = [1, 2, 3, 4, 5, 6, 7, 8].map(i => runNight(night, policy, i * 7919));
     const camp = Math.max(...runs.map(r => Math.max(...IDS.map(id => r.maxDwell[id]))));
     const perHour = [0, 1, 2, 3, 4, 5].map(h => avg(runs.map(r => r.movesPerHour[h])).toFixed(1));

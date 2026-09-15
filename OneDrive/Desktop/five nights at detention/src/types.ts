@@ -38,6 +38,7 @@ export interface Teacher {
   moveEvery: number;
   moveAcc: number;
   atDoorSince: number | null;
+  doorShutAt: number | null;
   officeSince: number | null;
   portrait: string;
   body: string;
@@ -114,6 +115,10 @@ export interface NightState {
   elliotCorner: number;
   elliotRoll: number;
   elliotFound: number;
+  hasGenerator: boolean;
+  doorCool: { left: number; right: number };
+  doorHold: { left: number; right: number };
+  doorGrace: number;
 }
 
 export interface ScoreRow {

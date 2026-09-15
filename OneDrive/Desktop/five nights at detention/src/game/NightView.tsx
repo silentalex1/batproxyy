@@ -12,6 +12,7 @@ import {
   huffLoudness,
   huffWalking,
   huffWatched,
+  requestDoor,
   threatOn,
   tickNight
 } from "./systems/ai";
@@ -132,10 +133,9 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
   const toggleDoor = (side: "left" | "right") => {
     const s = stateRef.current;
     if (locked() || s.camerasOpen) return;
-    if (side === "left") s.leftDoor = !s.leftDoor;
-    else s.rightDoor = !s.rightDoor;
+    const shutting = !(side === "left" ? s.leftDoor : s.rightDoor);
+    if (!requestDoor(s, side, shutting)) return;
     audio.door();
-    s.dirty = true;
     bump();
   };
 

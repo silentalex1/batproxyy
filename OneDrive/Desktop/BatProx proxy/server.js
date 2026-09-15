@@ -94,6 +94,10 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 function initializeDatabase() {
   db.serialize(() => {
     db.run("ALTER TABLE user_suggestions ADD COLUMN genre TEXT DEFAULT 'Feedback suggestions'", () => {});
+    db.run('ALTER TABLE user_suggestions ADD COLUMN title TEXT', () => {});
+    db.run('ALTER TABLE user_suggestions ADD COLUMN reply TEXT', () => {});
+    db.run('ALTER TABLE user_suggestions ADD COLUMN replied_by TEXT', () => {});
+    db.run('ALTER TABLE user_suggestions ADD COLUMN replied_at DATETIME', () => {});
     db.run(`CREATE TABLE IF NOT EXISTS admin_accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -250,9 +254,12 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-const SUGGESTION_GENRES = ['Feedback suggestions', 'Website bug', 'Five Nights game'];
+const SUGGESTION_GENRES = ['Feedback suggestions', 'Website bug', '6th Nights game', 'Five Nights game'];
+
+const GAME_TITLES = { 'five-nights-at-detention': '6 Nights At Detention' };
 
 function titleFromSlug(slug) {
+  if (GAME_TITLES[slug]) return GAME_TITLES[slug];
   return slug
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -361,7 +368,7 @@ app.get('/api/fnad-scores', (req, res) => {
 
 app.post('/api/suggestions', async (req, res) => {
   try {
-    const { content, userIdentifier, genre } = req.body;
+    const { content, userIdentifier, genre, title } = req.body;
     
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Suggestion content is required' });
@@ -375,8 +382,8 @@ app.post('/api/suggestions', async (req, res) => {
     const identifier = userIdentifier || 'anonymous-' + Date.now();
 
     db.run(
-      'INSERT INTO user_suggestions (content, user_identifier, genre) VALUES (?, ?, ?)',
-      [sanitizedContent, identifier, SUGGESTION_GENRES.includes(genre) ? genre : 'Feedback suggestions'],
+      'INSERT INTO user_suggestions (content, user_identifier, genre, title) VALUES (?, ?, ?, ?)',
+      [sanitizedContent, identifier, SUGGESTION_GENRES.includes(genre) ? genre : 'Feedback suggestions', String(title || '').trim().slice(0, 80)],
       function(err) {
         if (err) {
           console.error('Database error:', err);
@@ -918,6 +925,35 @@ app.get('/api/admin/feedbacks', authenticateToken, requireAdmin, (req, res) => {
         return res.status(500).json({ error: 'Failed to retrieve feedbacks' });
       }
       res.json({ feedbacks: rows });
+    }
+  );
+});
+
+app.post('/api/admin/reply-feedback', authenticateToken, requireAdmin, (req, res) => {
+  const { suggestionId, reply, repliedBy } = req.body;
+
+  if (!suggestionId) {
+    return res.status(400).json({ error: 'Suggestion ID is required' });
+  }
+  const body = String(reply || '').trim().slice(0, 1000);
+  if (!body) {
+    return res.status(400).json({ error: 'Reply required' });
+  }
+  const who = String(repliedBy || 'Micah').trim().slice(0, 32) || 'Micah';
+
+  db.run(
+    "UPDATE user_suggestions SET status = 'approved', reply = ?, replied_by = ?, replied_at = CURRENT_TIMESTAMP, approved_at = CURRENT_TIMESTAMP WHERE id = ?",
+    [body, who, suggestionId],
+    function(err) {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to send reply' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Suggestion not found' });
+      }
+      suggestionsCache.clear();
+      res.json({ success: true, id: suggestionId });
     }
   );
 });

@@ -86,6 +86,11 @@ export default function AdminPanel() {
   const getToken = () => localStorage.getItem('batprox-token') || '';
 
   const [responses, setResponses] = useState<Record<string, { up: number; down: number }>>({});
+  const [resolved, setResolved] = useState<number[]>([]);
+  const [replyTarget, setReplyTarget] = useState<Feedback | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replyBusy, setReplyBusy] = useState(false);
+  const [replyError, setReplyError] = useState('');
 
   const loadFeedbacks = async (silent?: boolean) => {
     try {
@@ -184,16 +189,48 @@ export default function AdminPanel() {
     setError('');
     try {
       const response = await fetch('/api/admin/decline-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ suggestionId }) });
-      if (response.ok) { setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback declined'); setTimeout(() => setMessage(''), 2000); loadFeedbacks(true); }
+      if (response.ok) { setResolved(prev => prev.includes(suggestionId) ? prev : [...prev, suggestionId]); setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback declined'); setTimeout(() => setMessage(''), 2000); loadFeedbacks(true); }
       else { const errData = await response.json(); setError(errData.error || 'Failed to decline suggestion'); }
     } catch { setError('Network error while declining suggestion'); }
+  };
+
+  const openReply = (feedback: Feedback) => {
+    setReplyTarget(feedback);
+    setReplyText('');
+    setReplyError('');
+  };
+
+  const sendReply = async () => {
+    const target = replyTarget;
+    const body = replyText.trim();
+    if (!target) return;
+    if (!body) { setReplyError('Write a reply first.'); return; }
+    setReplyBusy(true);
+    setReplyError('');
+    try {
+      const response = await fetch('/api/admin/reply-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+        body: JSON.stringify({ suggestionId: target.id, reply: body })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setReplyError(data.error || 'Failed to send reply'); setReplyBusy(false); return; }
+      setResolved(prev => prev.includes(target.id) ? prev : [...prev, target.id]);
+      setFeedbacks(prev => prev.filter(f => f.id !== target.id));
+      setReplyTarget(null);
+      setReplyText('');
+      setMessage(`Replied to ${target.user_identifier || 'user'} and approved`);
+      setTimeout(() => setMessage(''), 2600);
+      loadFeedbacks(true);
+    } catch { setReplyError('Network error while sending reply'); }
+    setReplyBusy(false);
   };
 
   const handleApprove = async (suggestionId: number) => {
     setError('');
     try {
       const response = await fetch('/api/admin/approve-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ suggestionId }) });
-      if (response.ok) { setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback approved'); setTimeout(() => setMessage(''), 2000); loadFeedbacks(true); }
+      if (response.ok) { setResolved(prev => prev.includes(suggestionId) ? prev : [...prev, suggestionId]); setFeedbacks(prev => prev.filter(f => f.id !== suggestionId)); setMessage('Feedback approved'); setTimeout(() => setMessage(''), 2000); loadFeedbacks(true); }
       else { const errData = await response.json(); setError(errData.error || 'Failed to approve suggestion'); }
     } catch { setError('Network error while approving suggestion'); }
   };
@@ -435,9 +472,11 @@ export default function AdminPanel() {
     );
   }
 
-  const FNAD_GENRE = 'Five Nights game';
-  const pendingFeedbacks = feedbacks.filter(f => f.status === 'pending' && f.genre !== FNAD_GENRE);
-  const fnadFeedbacks = feedbacks.filter(f => f.status === 'pending' && f.genre === FNAD_GENRE);
+  const FNAD_GENRE = '6th Nights game';
+  const isFnad = (f: Feedback) => f.genre === FNAD_GENRE || f.genre === 'Five Nights game';
+  const live = (f: Feedback) => f.status === 'pending' && !resolved.includes(f.id);
+  const pendingFeedbacks = feedbacks.filter(f => live(f) && !isFnad(f));
+  const fnadFeedbacks = feedbacks.filter(f => live(f) && isFnad(f));
   const filteredUsers = users.filter(u => u.username.toLowerCase().includes(userSearch.toLowerCase()));
 
   return (
@@ -464,7 +503,7 @@ export default function AdminPanel() {
             </button>
             <button onClick={() => setTab('fnadfeedback')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'fnadfeedback' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10h.01M9 10h.01M7 16h10a4 4 0 004-4V9a4 4 0 00-4-4H7a4 4 0 00-4 4v3a4 4 0 004 4zm-2 5l2-5m12 5l-2-5" /></svg>
-              Five nights game, suggestions
+              6th nights game, suggestions
               {fnadFeedbacks.length > 0 && <span className="ml-auto text-[10px] bg-amber-600/40 text-amber-200 px-1.5 py-0.5 rounded-full">{fnadFeedbacks.length}</span>}
             </button>
             <button onClick={() => setTab('accounts')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'accounts' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
@@ -526,6 +565,7 @@ export default function AdminPanel() {
                               <p className="text-gray-200 text-[13px] break-words whitespace-pre-wrap">{feedback.content}</p>
                             </div>
                             <div className="flex gap-1.5 shrink-0">
+                              <button onClick={() => openReply(feedback)} className="text-[11px] px-3 py-1.5 rounded-lg bg-amber-600/15 hover:bg-amber-600/35 text-amber-300 border border-amber-500/25 transition-all font-medium">Reply to suggestion</button>
                               <button onClick={() => handleDecline(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>
                               <button onClick={() => handleApprove(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 transition-all font-medium">Approve</button>
                             </div>
@@ -552,8 +592,8 @@ export default function AdminPanel() {
             )}
             {tab === 'fnadfeedback' && (
               <div>
-                <h2 className="text-lg font-bold text-white mb-1">Five nights game, suggestions</h2>
-                <p className="text-xs text-white/35 mb-5">Feedback sent from inside Five Nights at Detention.</p>
+                <h2 className="text-lg font-bold text-white mb-1">6th nights game, suggestions</h2>
+                <p className="text-xs text-white/35 mb-5">Feedback sent from inside 6 Nights at Detention.</p>
                 <div className="space-y-2.5">
                   {fnadFeedbacks.length === 0 ? (
                     <div className="bg-black/40 border border-white/10 rounded-xl p-10 text-center">
@@ -565,12 +605,13 @@ export default function AdminPanel() {
                       <div key={feedback.id} className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md hover:border-white/20 transition-colors">
                         <div className="flex justify-between items-start gap-3">
                           <div className="min-w-0">
-                            <p className="text-[11px] text-gray-500 mb-1">feedback from <span className="text-amber-300 font-medium">{feedback.user_identifier || 'unknown'}</span><span className="text-gray-600"> · {new Date(feedback.submitted_at).toLocaleString()}</span><span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border align-middle text-amber-300 border-amber-500/25 bg-amber-500/10">{FNAD_GENRE}</span></p>
+                            <p className="text-[11px] text-gray-500 mb-1">feedback from <span className="text-amber-300 font-medium">{feedback.user_identifier || 'unknown'}</span><span className="text-gray-600"> · {new Date(feedback.submitted_at).toLocaleString()}</span><span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border align-middle text-amber-300 border-amber-500/25 bg-amber-500/10">{feedback.genre || FNAD_GENRE}</span></p>
                             {feedback.title && <p className="text-[13px] text-white font-semibold mb-0.5 break-words">{feedback.title}</p>}
                             <p className="text-gray-200 text-[13px] break-words whitespace-pre-wrap">{feedback.content}</p>
                           </div>
                           <div className="flex gap-1.5 shrink-0">
-                            <button onClick={() => handleDecline(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>
+                            <button onClick={() => openReply(feedback)} className="text-[11px] px-3 py-1.5 rounded-lg bg-amber-600/15 hover:bg-amber-600/35 text-amber-300 border border-amber-500/25 transition-all font-medium">Reply to suggestion</button>
+                              <button onClick={() => handleDecline(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/35 text-red-300 border border-red-500/25 transition-all font-medium">Decline</button>
                             <button onClick={() => handleApprove(feedback.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 transition-all font-medium">Approve</button>
                           </div>
                         </div>
@@ -861,6 +902,34 @@ export default function AdminPanel() {
           </div>
         </div>
       </main>
+      {replyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0d0d12] border border-white/10 rounded-2xl p-7 max-w-lg w-full shadow-2xl">
+            <h3 className="text-base font-semibold text-white mb-1">Reply to this suggestion.</h3>
+            <p className="text-[11px] text-white/35 mb-4">
+              from <span className="text-amber-300 font-medium">{replyTarget.user_identifier || 'unknown'}</span>
+              {replyTarget.title ? <span className="text-white/25"> · {replyTarget.title}</span> : null}
+            </p>
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 mb-4 max-h-32 overflow-y-auto">
+              <p className="text-[13px] text-gray-300 whitespace-pre-wrap break-words">{replyTarget.content}</p>
+            </div>
+            <textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              rows={5}
+              maxLength={1000}
+              placeholder="Write your reply to them.."
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-amber-500/60 transition-all resize-y mb-2"
+            />
+            <p className="text-[10px] text-white/25 mb-4">{replyText.trim().length}/1000 · they will see this on the site and inside the game.</p>
+            {replyError && <p className="text-red-400 text-xs mb-3">{replyError}</p>}
+            <div className="flex gap-2.5 justify-end">
+              <button type="button" onClick={() => setReplyTarget(null)} className="px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-all">Cancel</button>
+              <button type="button" disabled={replyBusy} onClick={sendReply} className="px-5 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm font-semibold transition-all">{replyBusy ? 'Sending..' : 'Approve & send'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <form onSubmit={handleCreateAccount} className="bg-[#0d0d12] border border-white/10 rounded-2xl p-7 max-w-md w-full shadow-2xl">

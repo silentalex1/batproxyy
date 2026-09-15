@@ -111,6 +111,44 @@ export const ELLIOT_MIN_POWER = 45;
 
 export const ELLIOT_POWER = 25;
 
+export const MAX_NIGHT = 6;
+
+export const GENERATOR_NIGHTS = 3;
+
+export const DOOR_HOLD = 15;
+
+export const DOOR_REARM = 5;
+
+export const DOOR_GRACE = 14;
+
+export const DOOR_REPEL = 1.3;
+
+export function hasGenerator(night: number): boolean {
+  return night <= GENERATOR_NIGHTS;
+}
+
+export function doorLocked(state: NightState, side: "left" | "right"): boolean {
+  return state.doorCool[side] > 0.05;
+}
+
+export function requestDoor(state: NightState, side: "left" | "right", shut: boolean): boolean {
+  const key = side === "left" ? "leftDoor" : "rightDoor";
+  if (state[key] === shut) return false;
+  if (shut && doorLocked(state, side)) return false;
+  state[key] = shut;
+  if (state.hasGenerator) {
+    state.dirty = true;
+    return true;
+  }
+  if (shut) state.doorHold[side] = DOOR_HOLD;
+  else {
+    state.doorHold[side] = 0;
+    state.doorCool[side] = DOOR_REARM;
+  }
+  state.dirty = true;
+  return true;
+}
+
 const SPOTS: Record<string, { left: string; bottom: string; height: string }[]> = {
   hallway: [
     { left: "37%", bottom: "24%", height: "46%" },
@@ -174,6 +212,7 @@ export function createNight(night: number): NightState {
     moveEvery,
     moveAcc: Math.random() * moveEvery,
     atDoorSince: null,
+    doorShutAt: null,
     officeSince: null,
     portrait,
     body,
@@ -283,6 +322,10 @@ export function createNight(night: number): NightState {
     camShake: 0,
     elliotOn: false,
     elliotCorner: 0,
+    hasGenerator: hasGenerator(night),
+    doorCool: { left: 0, right: 0 },
+    doorHold: { left: 0, right: 0 },
+    doorGrace: 0,
     elliotRoll: 0,
     elliotFound: 0,
     player: {
@@ -579,6 +622,7 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
     }
   }
 
+  runDoorCooldown(state, dt);
   trackPlayer(state, dt);
   advanceClock(state, dt, sfx);
   if (state.won) return;
@@ -598,6 +642,26 @@ export function tickNight(state: NightState, dt: number, sfx: Sfx): void {
   runSprint(state, dt, sfx);
   stepTeachers(state, dt, sfx);
   updateBreath(state);
+}
+
+function runDoorCooldown(state: NightState, dt: number): void {
+  if (state.hasGenerator) return;
+  if (state.doorGrace > 0) state.doorGrace = Math.max(0, state.doorGrace - dt);
+  (["left", "right"] as const).forEach((side) => {
+    const key = side === "left" ? "leftDoor" : "rightDoor";
+    if (state[key]) {
+      state.doorHold[side] = Math.max(0, state.doorHold[side] - dt);
+      if (state.doorHold[side] <= 0) {
+        state[key] = false;
+        state.doorCool[side] = DOOR_REARM;
+        state.dirty = true;
+      }
+      return;
+    }
+    if (state.doorCool[side] <= 0) return;
+    state.doorCool[side] = Math.max(0, state.doorCool[side] - dt);
+    if (state.doorCool[side] <= 0) state.dirty = true;
+  });
 }
 
 function advanceClock(state: NightState, dt: number, sfx: Sfx): void {
@@ -658,6 +722,11 @@ function runMathLook(state: NightState, dt: number, sfx: Sfx): void {
 
 function drainPower(state: NightState, dt: number, sfx: Sfx): void {
   if (state.powerOut) return;
+  if (!state.hasGenerator) {
+    state.generator = 100;
+    state.refillHold = false;
+    return;
+  }
   if (state.refillHold && state.camerasOpen && state.currentCam === "basement") {
     if (state.teachers.history.room === "basement" || state.sprintRun > 0) {
       state.staticBurst = Math.max(state.staticBurst, 0.5);
@@ -865,8 +934,12 @@ function stepTeachers(state: NightState, dt: number, sfx: Sfx): void {
 function resolveDoor(state: NightState, t: Teacher, sfx: Sfx): void {
   const closed = t.room === "leftDoor" ? state.leftDoor : state.rightDoor;
   if (t.atDoorSince === null) t.atDoorSince = state.elapsed;
+  if (!closed) t.doorShutAt = null;
   if (closed) {
-    if (state.elapsed - t.atDoorSince < retreatDelay(state, t)) return;
+    if (t.doorShutAt === null) t.doorShutAt = state.elapsed;
+    const held = Math.min(state.elapsed - t.atDoorSince, state.elapsed - t.doorShutAt);
+    if (held < Math.min(DOOR_REPEL, retreatDelay(state, t))) return;
+    t.doorShutAt = null;
     const route = ROUTES[t.id];
     t.routeIndex = Math.max(0, t.routeIndex - 1);
     t.room = route[t.routeIndex];
@@ -898,10 +971,23 @@ function advance(state: NightState, t: Teacher, sfx: Sfx, forced: boolean): void
   }
   t.stallAcc = 0;
 
+  let step = next;
+  let nextRoom = route[step];
+  const blocked = (r: RoomId) =>
+    (r === "leftDoor" || r === "rightDoor") && !state.hasGenerator && state.doorGrace > 0;
+  if (blocked(nextRoom)) {
+    if (t.routeIndex <= 0) return;
+    step = t.routeIndex - 1;
+    nextRoom = route[step];
+  }
+  const toDoor = nextRoom === "leftDoor" || nextRoom === "rightDoor";
+
   const prev = t.room;
-  t.routeIndex = next;
-  t.room = route[next];
+  t.routeIndex = step;
+  t.room = nextRoom;
+  if (toDoor && !state.hasGenerator) state.doorGrace = DOOR_GRACE;
   t.atDoorSince = t.room === "leftDoor" || t.room === "rightDoor" ? state.elapsed : null;
+  t.doorShutAt = null;
 
   if (t.room === "leftDoor" || t.room === "rightDoor") sfx.knock();
   else sfx.step();

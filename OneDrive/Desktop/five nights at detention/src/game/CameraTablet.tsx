@@ -212,6 +212,9 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                 </em>
               </button>
             )}
+            {!state.hasGenerator ? (
+              <p className="refill dead">GENERATOR OFFLINE — NOTHING TO REFUEL</p>
+            ) : (
             <button
               className={`refill ${target ? "blocked" : ""}`}
               onMouseDown={() => onRefill(true)}
@@ -228,6 +231,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                     ? "REFUELLING…"
                     : "HOLD TO REFUEL GENERATOR"}
             </button>
+            )}
           </div>
         )}
 

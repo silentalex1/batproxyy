@@ -15,7 +15,7 @@ export function HomePage({ onPlay, onCredits, onLeaderboard, onSettings, onTutor
       <div className="home-menu">
         <p className="home-kicker">RIVERDALE HIGH AFTER HOURS</p>
         <h1 className="home-title">
-          FIVE NIGHTS
+          6 NIGHTS
           <span>AT DETENTION</span>
         </h1>
         <div className="home-btns">

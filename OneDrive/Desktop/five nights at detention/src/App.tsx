@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { audio } from "./audio/engine";
 import { NightView } from "./game/NightView";
+import { MAX_NIGHT } from "./game/systems/ai";
 import { Credits } from "./screens/Credits";
 import { EnrollModal } from "./screens/EnrollModal";
 import { FeedbackModal } from "./screens/FeedbackModal";
@@ -10,17 +11,80 @@ import { Settings } from "./screens/Settings";
 import { WarningNote } from "./screens/WarningNote";
 import { Tutorial } from "./screens/Tutorial";
 import { loadSave, writeSave } from "./store/save";
-import { postScore, reportSuggestion } from "./suggestions";
+import { ReplyNote } from "./screens/ReplyNote";
+import {
+  fetchReplies,
+  markRepliesSeen,
+  postScore,
+  reportSuggestion,
+  type SuggestionReply
+} from "./suggestions";
 import type { SaveData, SettingsData, View } from "./types";
+
+const SEEN_KEY = "fnad-seen-replies";
+
+function readSeen(): number[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEEN_KEY) || "[]");
+    return Array.isArray(raw) ? raw.map(Number).filter((n) => !Number.isNaN(n)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushSeen(id: number): void {
+  try {
+    const next = readSeen();
+    if (!next.includes(id)) next.push(id);
+    localStorage.setItem(SEEN_KEY, JSON.stringify(next.slice(-60)));
+  } catch {
+    return;
+  }
+}
 
 export default function App() {
   const [save, setSave] = useState<SaveData>(() => loadSave());
   const [view, setView] = useState<View>("home");
   const [fromGame, setFromGame] = useState(false);
-  const night = useMemo(() => Math.max(1, save.nightsCleared + 1), [save.nightsCleared]);
+  const night = useMemo(
+    () => Math.min(MAX_NIGHT, Math.max(1, save.nightsCleared + 1)),
+    [save.nightsCleared]
+  );
+
+  const [reply, setReply] = useState<SuggestionReply | null>(null);
+  const replyRef = useRef<SuggestionReply | null>(null);
+  replyRef.current = reply;
 
   const persist = (next: SaveData) => {
     setSave(writeSave(next));
+  };
+
+  useEffect(() => {
+    const name = save.username;
+    if (!name) return;
+    let alive = true;
+    const check = async () => {
+      if (!alive || replyRef.current) return;
+      const seen = readSeen();
+      const rows = await fetchReplies(name);
+      if (!alive || replyRef.current) return;
+      const fresh = rows.find((n) => !seen.includes(n.id));
+      if (fresh) setReply(fresh);
+    };
+    void check();
+    const id = window.setInterval(check, 8000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [save.username]);
+
+  const dismissReply = () => {
+    const note = reply;
+    if (!note) return;
+    pushSeen(note.id);
+    void markRepliesSeen(save.username, [note.id]);
+    setReply(null);
   };
 
   const play = () => {
@@ -48,7 +112,8 @@ export default function App() {
     };
     persist({
       ...save,
-      nightsCleared: result === "win" ? save.nightsCleared + 1 : save.nightsCleared,
+      nightsCleared:
+        result === "win" ? Math.min(MAX_NIGHT, save.nightsCleared + 1) : save.nightsCleared,
       leaderboard: [row, ...save.leaderboard].slice(0, 40)
     });
     void postScore(row);
@@ -87,6 +152,7 @@ export default function App() {
           }}
         />
       )}
+      {reply && <ReplyNote note={reply} onClose={dismissReply} />}
       {view === "enroll" && <EnrollModal onEnroll={enroll} onBack={() => setView("home")} />}
       {view === "warning" && (
         <WarningNote onOk={() => setView("night")} onBack={() => setView("home")} />
@@ -113,7 +179,7 @@ export default function App() {
           username={save.username}
           night={night}
           settings={save.settings}
-          paused={view === "feedback"}
+          paused={view === "feedback" || Boolean(reply)}
           onExit={finishNight}
           onFeedback={() => {
             setFromGame(true);

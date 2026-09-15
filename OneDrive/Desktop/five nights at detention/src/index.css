@@ -1612,3 +1612,115 @@ button:disabled {
   50% { transform: translate(-3px, 2px); }
   100% { transform: translate(2px, -3px); }
 }
+
+.plate.door.iced {
+  background: linear-gradient(180deg, rgba(38, 44, 58, 0.9), rgba(12, 16, 24, 0.92));
+  border-color: #4c6383;
+  color: #9fb6d4;
+  opacity: 0.72;
+}
+
+.plate.door.iced em {
+  color: #6d88aa;
+  letter-spacing: 0.1em;
+}
+
+.gen.nogen span {
+  color: #d9c58c;
+}
+
+.cool-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.cool-row b {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  padding: 3px 9px;
+  border: 1px solid #4a4436;
+  background: rgba(14, 14, 12, 0.8);
+  color: #8f866d;
+}
+
+.cool-row b.hot {
+  border-color: #7c5a2a;
+  background: rgba(60, 40, 14, 0.8);
+  color: #e2bb72;
+}
+
+.refill.dead {
+  position: absolute;
+  right: 14px;
+  bottom: 58px;
+  width: 244px;
+  margin: 0;
+  background: #12140f;
+  border: 1px solid #4a4436;
+  color: #8f866d;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  padding: 11px 10px;
+  text-align: center;
+}
+
+.slip.reply-note {
+  width: min(520px, 92vw);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 30%),
+    repeating-linear-gradient(0deg, #e4cf8a 0 28px, #dec886 28px 29px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(120, 88, 20, 0.35),
+    0 0 46px rgba(226, 187, 82, 0.18);
+  transform: rotate(0.5deg);
+  text-align: left;
+}
+
+.reply-head {
+  margin: 0 0 10px;
+  font-family: "Special Elite", serif;
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: #3b2d0c;
+}
+
+.reply-ref {
+  margin: 0 0 10px !important;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #7a6224;
+}
+
+.reply-yours {
+  margin: 0 0 14px !important;
+  font-size: 13px;
+  font-style: italic;
+  color: #5d4a1a;
+  border-left: 3px solid rgba(120, 88, 20, 0.4);
+  padding-left: 10px;
+}
+
+.reply-body {
+  background: rgba(70, 52, 10, 0.1);
+  border: 1px solid rgba(120, 88, 20, 0.35);
+  padding: 13px 14px;
+  margin-bottom: 18px;
+}
+
+.reply-body p {
+  margin: 0 !important;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #33270a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cool-row b.shut {
+  border-color: #8b3030;
+  background: rgba(70, 18, 18, 0.8);
+  color: #e6a0a0;
+}

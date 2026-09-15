@@ -541,7 +541,7 @@ function blockedHost(host){
   }
   if(url.pathname==='/api/my-games' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
-    return new Response(JSON.stringify({games:[{name:'Five Nights At Detention', filename:'five-nights-at-detention', url:'/my-games/five-nights-at-detention/', thumbnail:'/my-games/five-nights-at-detention/cover.jpg'}]}),{headers:h});
+    return new Response(JSON.stringify({games:[{name:'6 Nights At Detention', filename:'five-nights-at-detention', url:'/my-games/five-nights-at-detention/', thumbnail:'/my-games/five-nights-at-detention/cover.jpg'}]}),{headers:h});
   }
   if(url.pathname==='/api/suggestions' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
@@ -795,6 +795,25 @@ function blockedHost(host){
       for(const id of ids){ if(!seen.includes(Number(id))) seen.push(Number(id)); }
       if(kv) await kv.put('seen_notes_'+u, JSON.stringify(seen.slice(-50)));
       return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/reply-feedback' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {suggestionId,reply,repliedBy}=await request.json();
+      const body=String(reply||'').trim().slice(0,1000);
+      if(!body) return new Response(JSON.stringify({error:'Reply required'}),{status:400, headers:h});
+      const raw=kv?await kv.get('feedbacks'):null;
+      let arr=raw?JSON.parse(raw):[];
+      const item=arr.find(x=>x.id===Number(suggestionId));
+      if(!item) return new Response(JSON.stringify({error:'Suggestion not found'}),{status:404, headers:h});
+      item.status='approved';
+      item.reply=body;
+      item.replied_by=String(repliedBy||'Micah').trim().slice(0,32)||'Micah';
+      item.replied_at=new Date().toISOString();
+      item.approved_at=new Date().toISOString();
+      if(kv) await kv.put('feedbacks', JSON.stringify(arr));
+      return new Response(JSON.stringify({success:true, id:item.id}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if((url.pathname==='/api/admin/approve-feedback' || url.pathname==='/api/admin/decline-feedback') && request.method==='POST'){

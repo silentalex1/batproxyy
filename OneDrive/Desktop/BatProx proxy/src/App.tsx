@@ -42,7 +42,7 @@ function Dashboard() {
   const [username, setUsername] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isMod, setIsMod] = useState<boolean>(false);
-  const [approvedFeedback, setApprovedFeedback] = useState<{ id: number; content: string; status: string; title?: string } | null>(null);
+  const [approvedFeedback, setApprovedFeedback] = useState<{ id: number; content: string; status: string; title?: string; reply?: string; replied_by?: string } | null>(null);
   const [fixVote, setFixVote] = useState<boolean | null>(null);
   const pendingNotesRef = useRef<number[]>([]);
   useLowPower();
@@ -154,11 +154,11 @@ function Dashboard() {
               dismissed = [];
             }
             pendingNotesRef.current = (data.notifications || []).map((n: { id: number }) => n.id);
-            const fresh = data.notifications.find((n: { id: number }) => !dismissed.includes(n.id));
+            const fresh = data.notifications.find((n: { id: number }) => !dismissed.includes(n.id)) as { id: number; content: string; status: string; title?: string; reply?: string; replied_by?: string } | undefined;
             if (fresh) {
               dismissed.push(fresh.id);
               localStorage.setItem('batprox-dismissed-feedback', JSON.stringify(dismissed));
-              setApprovedFeedback({ id: fresh.id, content: fresh.content, status: fresh.status, title: fresh.title || '' });
+              setApprovedFeedback({ id: fresh.id, content: fresh.content, status: fresh.status, title: fresh.title || '', reply: fresh.reply || '', replied_by: fresh.replied_by || '' });
             }
           }
         } catch {
@@ -464,14 +464,21 @@ function Dashboard() {
                 )}
               </svg>
             </div>
-            {approvedFeedback.status === 'declined' ? (
+            {approvedFeedback.reply ? (
+              <h3 className="text-lg font-semibold text-white mb-2">&lt;{approvedFeedback.replied_by || 'Micah'}&gt; has replied to your suggestion.</h3>
+            ) : approvedFeedback.status === 'declined' ? (
               <h3 className="text-lg font-semibold text-white mb-2">your suggestion{approvedFeedback.title ? ` "${approvedFeedback.title}"` : ''} has been declined.</h3>
             ) : (
               <h3 className="text-lg font-semibold text-white mb-2">your suggestion{approvedFeedback.title ? ` "${approvedFeedback.title}"` : ''} has been accepted.</h3>
             )}
-            {approvedFeedback.status !== 'declined' && (
+            {approvedFeedback.reply ? (
+              <div className="rounded-xl bg-amber-500/[0.07] border border-amber-500/25 px-4 py-3 mb-4 text-left">
+                <p className="text-[10px] uppercase tracking-wider text-amber-300/70 mb-1.5">reply</p>
+                <p className="text-sm text-amber-50/90 whitespace-pre-wrap break-words">{approvedFeedback.reply}</p>
+              </div>
+            ) : approvedFeedback.status !== 'declined' ? (
               <p className="text-sm text-gray-400 mb-4">however feedback may take a bit to be added so please be patient.</p>
-            )}
+            ) : null}
             <div className="rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 mb-4">
               <p className="text-xs text-white/70 mb-2.5">Did i fix your issue?</p>
               <div className="flex gap-2 justify-center">
