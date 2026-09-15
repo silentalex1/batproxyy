@@ -26,6 +26,10 @@ type Props = {
 
 const LOUNGE_ORDER: TeacherId[] = ["history", "math", "gym", "principal"];
 
+const hideBroken = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  e.currentTarget.style.visibility = "hidden";
+};
+
 export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare }: Props) {
   const index = CAM_ROOMS.findIndex((c) => c.id === state.currentCam);
   const cam = CAM_ROOMS[index];
@@ -50,7 +54,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
             className={`stage ${shake > 0 ? "rattle" : ""}`}
             style={{ "--ar": cam.ratio, "--shake": shake } as React.CSSProperties}
           >
-            <img className="feed-bg" src={cam.file} alt="" />
+            <img className="feed-bg" src={cam.file} onError={hideBroken} alt="" />
 
             {isLounge &&
               LOUNGE_ORDER.map((id) =>
@@ -60,7 +64,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                     className={`seat-fig ${id} ${state.teachers[id].notice > 0 ? "noticed" : ""}`}
                     src={asset(`assets/cameras/lounge-${id}.png`)}
                     style={LOUNGE_SEATS[id]}
-                    alt=""
+                    onError={hideBroken} alt=""
                   />
                 ) : (
                   <div key={id} className="seat-void" style={LOUNGE_SEATS[id]} />
@@ -78,7 +82,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                     className={`teacher-move ${id} ${state.teachers[id].notice > 0 ? "noticed" : ""}`}
                     src={state.teachers[id].body}
                     style={{ left: spot.left, bottom: spot.bottom, height: spot.height }}
-                    alt=""
+                    onError={hideBroken} alt=""
                   />
                 );
               })}
@@ -96,13 +100,13 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                   className={`huff-walk ${huff.notice > 0 ? "noticed" : ""}`}
                   src={huff.body}
                   style={{ transform: `scaleX(${huff.faceDir})` }}
-                  alt=""
+                  onError={hideBroken} alt=""
                 />
               </div>
             )}
 
             {isLounge && state.mathLook === "staring" && (
-              <img className="look-slam" src={state.teachers.math.scare} alt="" />
+              <img className="look-slam" src={state.teachers.math.scare} onError={hideBroken} alt="" />
             )}
 
             <div className="feed-grain" />

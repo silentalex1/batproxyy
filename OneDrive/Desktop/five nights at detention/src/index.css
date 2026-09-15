@@ -678,8 +678,8 @@ button:disabled {
 
 .stage {
   position: relative;
-  width: min(100cqw, calc(100cqh * var(--ar)));
-  aspect-ratio: var(--ar);
+  width: min(100cqw, calc(100cqh * var(--ar, 1.78)));
+  aspect-ratio: var(--ar, 1.78);
   overflow: hidden;
   background: #000;
 }

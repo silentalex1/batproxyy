@@ -358,12 +358,11 @@ export function formatClock(minutes: number): string {
 }
 
 export function formatStamp(state: NightState): string {
-  const gameSeconds = (state.minutes + (state.clockAcc / HOUR_SECONDS) * 60) * 60;
-  const h = Math.floor(gameSeconds / 3600);
-  const m = Math.floor(gameSeconds / 60) % 60;
-  const s = Math.floor(gameSeconds) % 60;
+  const gameMinutes = state.minutes + (state.clockAcc / HOUR_SECONDS) * 60;
+  const h = Math.min(6, Math.floor(gameMinutes / 60));
+  const m = Math.floor(gameMinutes) % 60;
   const hh = h === 0 ? 12 : h;
-  return `${String(hh).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} AM`;
+  return `${String(hh).padStart(2, "0")}:${String(m).padStart(2, "0")} AM`;
 }
 
 export function teachersIn(state: NightState, room: RoomId): TeacherId[] {
