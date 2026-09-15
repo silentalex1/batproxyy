@@ -5,7 +5,16 @@ import { PhaserRoot } from "./PhaserRoot";
 import { setBridge } from "./bridge";
 import { CameraTablet } from "./CameraTablet";
 import { Hud } from "./Hud";
-import { CAM_ROOMS, createNight, grabElliot, huffLoudness, threatOn, tickNight } from "./systems/ai";
+import {
+  CAM_ROOMS,
+  createNight,
+  grabElliot,
+  huffLoudness,
+  huffWalking,
+  huffWatched,
+  threatOn,
+  tickNight
+} from "./systems/ai";
 import { asset } from "../paths";
 
 type Props = {
@@ -285,9 +294,11 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
   }, []);
 
   const starving = state.powerOut || state.generator < 24;
+  const huffOnFoot = huffWalking(state);
+  const huffSeen = huffWatched(state);
 
   return (
-    <div className={`night ${state.blackout !== "none" ? "blackout" : ""}`}>
+    <div className={`night ${state.blackout !== "none" ? "blackout" : ""} ${huffSeen ? "quake" : ""}`}>
       <PhaserRoot />
       <div className="chair-back" />
       <div className={`moon-window ${starving ? "starve" : ""}`} />
@@ -331,6 +342,13 @@ export function NightView({ username, night, settings, paused, onExit, onFeedbac
             state.dirty = true;
           }}
         />
+      )}
+
+      {!state.jumpscare && !state.won && (
+        <div className={`huff-alert ${huffOnFoot ? "on" : ""}`}>
+          <img src={state.teachers.huff.portrait} alt="" />
+          <span>Mrs huff is walking!</span>
+        </div>
       )}
 
       {state.elliotOn && !state.jumpscare && !state.won && !halted && (

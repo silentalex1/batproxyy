@@ -95,7 +95,7 @@ export function CameraTablet({ state, onCam, onStep, onClose, onRefill, onScare 
                 <img
                   className={`huff-walk ${huff.notice > 0 ? "noticed" : ""}`}
                   src={huff.body}
-                  style={{ transform: `scaleX(${huff.paceX > 0.5 ? -1 : 1})` }}
+                  style={{ transform: `scaleX(${huff.faceDir})` }}
                   alt=""
                 />
               </div>

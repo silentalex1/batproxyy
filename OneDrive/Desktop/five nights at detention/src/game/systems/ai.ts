@@ -185,6 +185,7 @@ export function createNight(night: number): NightState {
     notice: 0,
     paceX: Math.random(),
     paceDir: Math.random() < 0.5 ? -1 : 1,
+    faceDir: 1,
     stepAcc: 0
   });
 
@@ -488,6 +489,10 @@ export function huffWalking(state: NightState): boolean {
   return t.room === "hallway" && t.paceDir !== 0;
 }
 
+export function huffWatched(state: NightState): boolean {
+  return huffWalking(state) && state.camerasOpen && state.currentCam === "hallway";
+}
+
 export function huffLoudness(state: NightState): number {
   if (!huffWalking(state) || state.paused || state.powerOut) return 0;
   return state.camerasOpen && state.currentCam === "hallway" ? 1 : 0.32;
@@ -505,6 +510,7 @@ function runPace(state: NightState, dt: number): void {
   if (t.stepAcc <= 0) {
     if (t.paceDir === 0) {
       t.paceDir = t.paceX > 0.5 ? -1 : 1;
+      t.faceDir = t.paceDir;
       t.stepAcc = 2.4 + Math.random() * 3.4;
     } else {
       t.paceDir = 0;
@@ -518,9 +524,11 @@ function runPace(state: NightState, dt: number): void {
   if (t.paceX <= 0) {
     t.paceX = 0;
     t.paceDir = 1;
+    t.faceDir = 1;
   } else if (t.paceX >= 1) {
     t.paceX = 1;
     t.paceDir = -1;
+    t.faceDir = -1;
   }
   state.dirty = true;
 

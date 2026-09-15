@@ -9,6 +9,7 @@ CAMS = os.path.join(ROOT, "public", "assets", "cameras")
 SOURCES = {
     "principal": (os.path.join(TEACHERS, "teacherupdate.png"), (118, 40, 436, 1044)),
     "huff": (os.path.join(TEACHERS, "mrs huff.jpg"), (316, 82, 642, 1126)),
+    "huffwalk": (os.path.join(TEACHERS, "mrs huff wakling prt2.jpg"), (282, 26, 736, 1136)),
 }
 
 
@@ -65,6 +66,27 @@ def head_crop(key, box, size, lift, gamma, sat, cool, feather):
     return out
 
 
+def key_out(img, tol=46, feather=2.2):
+    a = np.asarray(img.convert("RGB")).astype(np.float32)
+    corners = np.concatenate([a[0:12, 0:12].reshape(-1, 3), a[0:12, -12:].reshape(-1, 3)])
+    bg = corners.mean(axis=0)
+    dist = np.sqrt(((a - bg) ** 2).sum(axis=2))
+    alpha = np.clip((dist - tol) / 26.0, 0.0, 1.0) * 255.0
+    m = Image.fromarray(alpha.astype(np.uint8), "L").filter(ImageFilter.GaussianBlur(feather))
+    out = img.convert("RGBA")
+    out.putalpha(m)
+    return out
+
+
+def walk_frame(out_w, out_h, lift, gamma, sat, cool):
+    path, box = SOURCES["huffwalk"]
+    src = Image.open(path).convert("RGB").crop(box)
+    cut = key_out(src)
+    body = grade(cut.convert("RGB"), lift, gamma, sat, cool).convert("RGBA")
+    body.putalpha(cut.getchannel("A"))
+    return body.resize((out_w, out_h), Image.LANCZOS)
+
+
 def build():
     lounge = cutout("principal", 0.52, 1.34, 0.5, (0.9, 0.96, 1.12), 12, 206, 684)
     lounge.save(os.path.join(CAMS, "lounge-principal.png"))
@@ -78,7 +100,7 @@ def build():
     scare = head_crop("principal", (250, 40, 430, 250), (523, 537), 1.45, 0.82, 0.85, (1.1, 0.95, 0.95), 16)
     scare.save(os.path.join(TEACHERS, "scare-principal.png"))
 
-    huff_body = cutout("huff", 0.62, 1.26, 0.48, (0.9, 0.96, 1.12), 13, 312, 1213)
+    huff_body = walk_frame(340, 1213, 1.02, 0.95, 0.72, (0.95, 0.99, 1.06))
     huff_body.save(os.path.join(TEACHERS, "huff-cut.png"))
 
     huff_portrait = cutout("huff", 1.0, 1.05, 0.68, (0.95, 0.98, 1.06), 10, 260, 900)

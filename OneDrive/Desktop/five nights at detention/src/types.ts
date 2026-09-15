@@ -49,6 +49,7 @@ export interface Teacher {
   notice: number;
   paceX: number;
   paceDir: number;
+  faceDir: number;
   stepAcc: number;
 }
 
