@@ -1,17 +1,18 @@
 name = "api-stealthybat"
+account_id = "a74d06ef1a32cc4d76ab4566ba1b22ee"
 main = "worker.js"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "batprox_data"
-id = "17c9bb507da244849001427b49031223"
-preview_id = "17c9bb507da244849001427b49031223"
+id = "2f71f7503e3f4bfcb52b2ea559d379df"
+preview_id = "2f71f7503e3f4bfcb52b2ea559d379df"
 
 [[d1_databases]]
 binding = "batprox"
 database_name = "batprox"
-database_id = "b79d71ec-0f9f-47b4-bfd4-dd1127ab3708"
+database_id = "97a4e391-1474-4d61-a412-8558133a0d39"
 
 [vars]
 SITE_URL = "https://stealthybat.org"

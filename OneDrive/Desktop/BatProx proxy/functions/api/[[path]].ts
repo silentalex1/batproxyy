@@ -19,7 +19,8 @@ export async function onRequest(context:any){
     }
   }
   const direct=['/api/users','/api/presence','/api/gamestats','/api/recentgames','/api/chat','/api/notes','/api/feedback-response','/api/notifications','/api/admin','/api/account','/api/bridge','/api/sites','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/search'];
-  const backends=direct.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))?['https://api.stealthybat.org','https://authlogin.stealthlybat.it.com']:['https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
+  const NEW_API='https://api-stealthybat.batprox-proxy.workers.dev';
+  const backends=direct.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))?[NEW_API,'https://api.stealthybat.org','https://authlogin.stealthlybat.it.com']:[NEW_API,'https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
   const reqBody=context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer();
   for(const backend of backends){
     try{
