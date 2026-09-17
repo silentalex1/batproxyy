@@ -47,7 +47,7 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest'>('feedbacks');
+  const [tab, setTab] = useState<'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo'>('feedbacks');
   const [problems, setProblems] = useState<{ votes: Array<{ user: string; working: boolean; ts: number }>; reports: Array<{ user: string; error: string; ts: number }>; resets: Array<{ user: string; ts: number }> }>({ votes: [], reports: [], resets: [] });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
@@ -87,6 +87,31 @@ export default function AdminPanel() {
 
   const [responses, setResponses] = useState<Record<string, { up: number; down: number }>>({});
   const [resolved, setResolved] = useState<number[]>([]);
+  const [exporting, setExporting] = useState('');
+  const [exportMsg, setExportMsg] = useState('');
+
+  const runExport = async (kind: 'chat' | 'dms' | 'ai', label: string) => {
+    setExporting(kind);
+    setExportMsg('');
+    try {
+      const response = await fetch(`/api/admin/export/${kind}`, { headers: { 'Authorization': `Bearer ${getToken()}` } });
+      if (!response.ok) { setExportMsg(`${label} failed (${response.status})`); setExporting(''); return; }
+      const text = await response.text();
+      let count = 0;
+      try { count = JSON.parse(text).count || 0; } catch {}
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `batprox-${kind}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportMsg(`${label} downloaded — ${count} records`);
+      setTimeout(() => setExportMsg(''), 5000);
+    } catch { setExportMsg(`${label} failed — network error`); }
+    setExporting('');
+  };
   const [replyTarget, setReplyTarget] = useState<Feedback | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replyBusy, setReplyBusy] = useState(false);
@@ -535,6 +560,10 @@ export default function AdminPanel() {
               Login problems
               {(problems.reports.length + problems.resets.length) > 0 && <span className="ml-auto text-[10px] bg-orange-600/40 text-orange-200 px-1.5 py-0.5 rounded-full">{problems.reports.length + problems.resets.length}</span>}
             </button>
+            <button onClick={() => setTab('datainfo')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'datainfo' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75" /></svg>
+              Data information
+            </button>
           </nav>
           <div className="mt-auto space-y-1">
             <button onClick={() => navigate('/dashboard')} className="w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors">Back to Dashboard</button>
@@ -683,6 +712,40 @@ export default function AdminPanel() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+            {tab === 'datainfo' && (
+              <div>
+                <h2 className="text-lg font-bold text-white mb-1">Data information</h2>
+                <p className="text-xs text-white/35 mb-5">Download a copy of what the site has stored. Files come down as JSON.</p>
+                <div className="bg-black/40 border border-white/10 rounded-xl p-5 backdrop-blur-md max-w-2xl">
+                  <p className="text-sm font-semibold text-white mb-1">Export Data's:</p>
+                  <p className="text-[11px] text-white/35 mb-4">These files contain private messages and personal data. Keep them somewhere safe.</p>
+                  <div className="space-y-2.5">
+                    <button onClick={() => runExport('chat', 'Chat data')} disabled={!!exporting} className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 hover:border-purple-500/40 hover:bg-white/[0.07] disabled:opacity-50 transition-all text-left">
+                      <span>
+                        <span className="block text-[13px] font-medium text-white">Export chat data</span>
+                        <span className="block text-[11px] text-white/35">Every message from the public chat rooms</span>
+                      </span>
+                      <span className="text-[11px] text-purple-300 shrink-0">{exporting === 'chat' ? 'working..' : 'download'}</span>
+                    </button>
+                    <button onClick={() => runExport('dms', 'DM data')} disabled={!!exporting} className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 hover:border-purple-500/40 hover:bg-white/[0.07] disabled:opacity-50 transition-all text-left">
+                      <span>
+                        <span className="block text-[13px] font-medium text-white">Export account's dms data</span>
+                        <span className="block text-[11px] text-white/35">Direct messages, grouped by conversation</span>
+                      </span>
+                      <span className="text-[11px] text-purple-300 shrink-0">{exporting === 'dms' ? 'working..' : 'download'}</span>
+                    </button>
+                    <button onClick={() => runExport('ai', 'AI data')} disabled={!!exporting} className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 hover:border-purple-500/40 hover:bg-white/[0.07] disabled:opacity-50 transition-all text-left">
+                      <span>
+                        <span className="block text-[13px] font-medium text-white">Export AI messages Data</span>
+                        <span className="block text-[11px] text-white/35">What users asked MocahAI, and what it replied</span>
+                      </span>
+                      <span className="text-[11px] text-purple-300 shrink-0">{exporting === 'ai' ? 'working..' : 'download'}</span>
+                    </button>
+                  </div>
+                  {exportMsg && <p className="mt-4 text-[12px] text-emerald-300">{exportMsg}</p>}
                 </div>
               </div>
             )}

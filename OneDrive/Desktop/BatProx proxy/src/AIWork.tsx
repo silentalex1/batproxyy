@@ -212,7 +212,7 @@ export default function AIWork() {
         const r = await fetch('https://airesponse.stealthybat.org/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'gemini-2.5-flash', prompt: userMessage || 'Describe what you see in this image in detail.', images: imgPayloads, stream: false }),
+          body: JSON.stringify({ model: 'gemini-2.5-flash', prompt: userMessage || 'Describe what you see in this image in detail.', images: imgPayloads, stream: false, user: localStorage.getItem('batprox-user') || 'anonymous' }),
           signal: ctrl.signal
         });
         clearTimeout(t);

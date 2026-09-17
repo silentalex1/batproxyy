@@ -106,6 +106,19 @@ const CHAT_MAX=4000;
 
 const CHAT_BUDGET=6000000;
 
+async function logAi(kv, entry){
+  if(!kv) return;
+  try{
+    const raw=await kv.get('ai_logs');
+    const arr=raw?JSON.parse(raw):[];
+    arr.push(entry);
+    const keep=arr.slice(-4000);
+    let load=keep.reduce((n,x)=>n+((x&&x.prompt?x.prompt.length:0)+(x&&x.response?x.response.length:0)+120),0);
+    while(keep.length>1 && load>4000000){ const g=keep.shift(); load-=((g.prompt||'').length+(g.response||'').length+120); }
+    await kv.put('ai_logs', JSON.stringify(keep));
+  }catch{}
+}
+
 function trimRooms(all){
   const perRoom={};
   const keep=[];
@@ -724,6 +737,41 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname.startsWith('/api/admin/export/') && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const kind=url.pathname.split('/').pop();
+    try{
+      const stamp=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      if(kind==='chat'){
+        const raw=kv?await kv.get('chat_messages'):null;
+        const all=raw?JSON.parse(raw):[];
+        const rows=all.filter(m=>m&&!String(m.room||'').startsWith('dm:'));
+        const rooms=[...new Set(rows.map(m=>m.room||'community'))];
+        h.set('Content-Disposition','attachment; filename="batprox-chat-'+stamp+'.json"');
+        return new Response(JSON.stringify({exported_at:new Date().toISOString(), type:'chat', rooms, count:rows.length, messages:rows},null,2),{headers:h});
+      }
+      if(kind==='dms'){
+        const raw=kv?await kv.get('chat_messages'):null;
+        const all=raw?JSON.parse(raw):[];
+        const rows=all.filter(m=>m&&String(m.room||'').startsWith('dm:'));
+        const byRoom={};
+        for(const m of rows){ (byRoom[m.room]=byRoom[m.room]||[]).push(m); }
+        const conversations=Object.keys(byRoom).map(r=>({room:r, participants:r.split(':').slice(1), count:byRoom[r].length, messages:byRoom[r]}));
+        let invites=[];
+        try{ const ri=kv?await kv.get('dm_invites'):null; invites=ri?JSON.parse(ri):[]; }catch{}
+        h.set('Content-Disposition','attachment; filename="batprox-dms-'+stamp+'.json"');
+        return new Response(JSON.stringify({exported_at:new Date().toISOString(), type:'dms', conversations:conversations.length, count:rows.length, invites, dms:conversations},null,2),{headers:h});
+      }
+      if(kind==='ai'){
+        const raw=kv?await kv.get('ai_logs'):null;
+        const rows=raw?JSON.parse(raw):[];
+        const users=[...new Set(rows.map(x=>x&&x.user).filter(Boolean))];
+        h.set('Content-Disposition','attachment; filename="batprox-ai-'+stamp+'.json"');
+        return new Response(JSON.stringify({exported_at:new Date().toISOString(), type:'ai', users, count:rows.length, messages:rows},null,2),{headers:h});
+      }
+      return new Response(JSON.stringify({error:'Unknown export'}),{status:404, headers:h});
+    }catch(e){ return new Response(JSON.stringify({error:'Export failed'}),{status:500, headers:h}); }
+  }
   if(url.pathname==='/api/admin/users' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const raw=kv?await kv.get('users'):null;
@@ -1018,8 +1066,9 @@ function blockedHost(host){
   if(url.pathname==='/api/generate' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {model,prompt,images,debug}=await request.json();
+      const {model,prompt,images,debug,user}=await request.json();
       const q=String(prompt||'').slice(0,4000);
+      const aiUser=String(user||'anonymous').trim().slice(0,32)||'anonymous';
       const imgs=Array.isArray(images)?images.slice(0,2):[];
       const parts=[{text:q||'hi'}];
       const dbg=[];
@@ -1054,7 +1103,11 @@ function blockedHost(host){
         }
         if(text) break;
       }
-      if(!text) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.', dbg:debug?dbg:undefined}),{headers:h});
+      if(!text){
+        await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:String(model||'gemini-2.5-flash'), images:imgs.length, prompt:q, response:'', ok:false, ip:getIP()});
+        return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.', dbg:debug?dbg:undefined}),{headers:h});
+      }
+      await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:String(model||'gemini-2.5-flash'), images:imgs.length, prompt:q, response:text.slice(0,8000), ok:true, ip:getIP()});
       return new Response(JSON.stringify({response:text.slice(0,8000)}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});}
   }
@@ -1172,11 +1225,22 @@ function blockedHost(host){
         const work=(async()=>{
           const cleaned=t.replace(/@mochaai\b/ig,'').replace(/\s+/g,' ').trim();
           const prompt=cleaned
-            ? 'You are MochaAI, a member of the Bat Prox chatroom. '+cu+' said to you: "'+cleaned+'". Reply in the chat, under 45 words, no markdown.'
-            : 'You are MochaAI, a member of the Bat Prox chatroom. '+cu+' pinged you with no message. Greet them and ask what they need, under 25 words, no markdown.';
+            ? '[Chatroom] '+cu+': '+cleaned
+            : '[Chatroom] '+cu+' pinged @MochaAI';
           let out='';
+          for(let a=0;a<2&&!out;a++){
+            try{
+              const ctl=new AbortController();
+              const tmr=setTimeout(()=>ctl.abort(),15000);
+              const or=await fetch('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'batprox-ai',messages:[{role:'system',content:'You are MochaAI, a friendly member of the Bat Prox chatroom built by MicahG. Keep replies short (under 45 words), conversational, and helpful. Never use markdown. BatProx facts: it is a web platform with a dark-themed dashboard. Use the side rail for Home, Search, Games, Movies, Chat. Games are at /homework#help and powered by the Lumin library. Movies are at /movies. Chat is at /chatting with Community, DMs, and group chats. Settings opens from the top bar or side rail. If the input starts with [Chatroom], reply as MochaAI.'},{role:'user',content:prompt}],stream:false}),signal:ctl.signal});
+              clearTimeout(tmr);
+              if(!or.ok) continue;
+              const od=await or.json().catch(()=>null);
+              out=od?.message?.content||'';
+            }catch{}
+          }
           const gk=env.GEMINI_API_KEY||'';
-          if(gk){
+          if(!out && gk){
             for(let a=0;a<2&&!out;a++){
               try{
                 const ctl=new AbortController();
