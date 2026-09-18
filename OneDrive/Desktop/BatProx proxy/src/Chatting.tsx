@@ -6,7 +6,9 @@ import { startPresence } from './presence';
 import { getDisplayName, setDisplayName, fetchDisplayName, currentUser } from './displayname';
 import { useLowPower } from './power';
 
-interface Msg { id: number; room: string; user: string; display: string; text: string; ts: number; sys?: boolean; edited?: number; replyTo?: { user: string; text: string } | null }
+interface Msg {
+  imgs?: string[];
+  localImgs?: string[]; id: number; room: string; user: string; display: string; text: string; ts: number; sys?: boolean; edited?: number; replyTo?: { user: string; text: string } | null }
 interface Gc { id: string; owner: string; members: string[]; created: number }
 interface DmRoom { id: string; other: string }
 interface Presence { username: string; active: boolean }
@@ -77,6 +79,19 @@ export default function Chatting() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const ghostRef = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState<string[]>([]);
+  const [dragging, setDragging] = useState(false);
+
+  const addFiles = (files: FileList | File[] | null) => {
+    if (!files) return;
+    const pics = Array.from(files).filter(f => /^image\/(png|jpe?g|gif|webp)$/.test(f.type));
+    pics.slice(0, 4).forEach(f => {
+      if (f.size > 1500000) return;
+      const fr = new FileReader();
+      fr.onload = () => setPending(prev => (prev.length >= 4 ? prev : [...prev, String(fr.result)]));
+      fr.readAsDataURL(f);
+    });
+  };
 
   const grow = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -358,7 +373,7 @@ export default function Chatting() {
   const send = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const t = text.trim();
-    if (!t || !me) return;
+    if ((!t && !pending.length) || !me) return;
     if (editing) {
       const target = editing;
       setText('');
@@ -375,14 +390,16 @@ export default function Chatting() {
     }
     setText('');
     shrink();
+    const shots = pending;
+    setPending([]);
     setReplyTo(null);
     setMentionOpen(false);
     setMentionStart(-1);
     stickBottom.current = true;
-    const optimistic: Msg = { id: -Date.now(), room: room.id, user: me, display: dispOf(me), text: t, ts: Date.now(), replyTo };
+    const optimistic: Msg = { id: -Date.now(), room: room.id, user: me, display: dispOf(me), text: t, ts: Date.now(), replyTo, localImgs: pending };
     setMessages(prev => [...prev, optimistic]);
     try {
-      await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo }) });
+      await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo, images: shots }) });
       loadMessages(room.id);
       if (AI_MENTION.test(t)) {
         const target = room.id;
@@ -441,7 +458,7 @@ export default function Chatting() {
   const createDm = async () => {
     const v = dmTarget.trim();
     if (!v || !me) return;
-    const found = Object.keys(names).find(u => u.toLowerCase() === v.toLowerCase() || (names[u] || '').toLowerCase() === v.toLowerCase());
+    const found = v.toLowerCase() === AI_BOT.toLowerCase() ? AI_BOT : Object.keys(names).find(u => u.toLowerCase() === v.toLowerCase() || (names[u] || '').toLowerCase() === v.toLowerCase());
     if (!found) { setDmTarget(''); return; }
     try {
       const r = await fetch('/api/chat/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: me, members: [found] }) });
@@ -693,6 +710,15 @@ export default function Chatting() {
                         )}
                         {quote}
                         {renderText(m.text)}
+                        {(m.imgs || m.localImgs) && (
+                          <div className="flex flex-wrap gap-2 mt-1.5">
+                            {(m.localImgs || (m.imgs || []).map(id => `/api/chat/image/${id}`)).map((src, i) => (
+                              <a key={i} href={src} target="_blank" rel="noreferrer">
+                                <img src={src} alt="" loading="lazy" className="max-w-[240px] max-h-[240px] rounded-xl border border-white/15 object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
                         <span className={`block text-[10px] mt-1 ${mine ? 'text-white/70' : 'text-white/30'}`}>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{m.edited ? ' (edited)' : ''}</span>
                         {sel && (
                           <span className="flex gap-1.5 mt-1.5">
@@ -727,6 +753,15 @@ export default function Chatting() {
                       )}
                       {quote}
                       <p className="text-sm text-white/85 leading-relaxed whitespace-pre-wrap break-words">{renderText(m.text)}</p>
+                        {(m.imgs || m.localImgs) && (
+                          <div className="flex flex-wrap gap-2 mt-1.5">
+                            {(m.localImgs || (m.imgs || []).map(id => `/api/chat/image/${id}`)).map((src, i) => (
+                              <a key={i} href={src} target="_blank" rel="noreferrer">
+                                <img src={src} alt="" loading="lazy" className="max-w-[240px] max-h-[240px] rounded-xl border border-white/15 object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       {sel && (
                         <span className="flex gap-1.5 mt-1.5">
                           <button onClick={(e) => { e.stopPropagation(); replyNow(m); }} className="text-[11px] px-3 py-1 rounded-lg bg-orange-500/25 border border-orange-400/50 text-orange-200">reply</button>
@@ -773,11 +808,31 @@ export default function Chatting() {
                   <button type="button" onClick={() => setReplyTo(null)} className="text-white/40 hover:text-white">×</button>
                 </div>
               )}
-              <div className="flex items-end gap-2 bg-white/[0.05] border border-white/10 rounded-3xl pl-5 pr-1.5 py-1.5 focus-within:border-purple-500/50 transition-all">
+              {pending.length > 0 && (
+                <div className="flex flex-wrap gap-2 mx-1 mb-2 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/10">
+                  {pending.map((src, i) => (
+                    <div key={i} className="relative group">
+                      <img src={src} alt="" className="w-16 h-16 object-cover rounded-lg border border-white/15" />
+                      <button
+                        type="button"
+                        onClick={() => setPending(prev => prev.filter((_, j) => j !== i))}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 hover:bg-red-500 text-white text-[11px] flex items-center justify-center shadow"
+                      >x</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={e => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer?.files || null); }}
+                className={`flex items-end gap-2 bg-white/[0.05] border rounded-3xl pl-5 pr-1.5 py-1.5 transition-all ${dragging ? 'border-purple-400 bg-purple-500/10' : 'border-white/10 focus-within:border-purple-500/50'}`}
+              >
                 <div className="relative flex-1 min-w-0">
                   <div ref={ghostRef} aria-hidden className="absolute inset-0 py-2 text-sm leading-6 whitespace-pre-wrap break-words pointer-events-none overflow-hidden select-none">{highlightParts(text)}</div>
                   <textarea
                     ref={inputRef}
+                    onPaste={e => { const f = Array.from(e.clipboardData?.files || []); if (f.length) { e.preventDefault(); addFiles(f); } }}
                     onScroll={e => { if (ghostRef.current) ghostRef.current.scrollTop = (e.target as HTMLTextAreaElement).scrollTop; }}
                     value={text}
                     rows={1}

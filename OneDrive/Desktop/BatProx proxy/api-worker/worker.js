@@ -1200,6 +1200,21 @@ function blockedHost(host){
     if(user) return new Response(JSON.stringify({display:map[user]||user}),{headers:h});
     return new Response(JSON.stringify({names:map}),{headers:h});
   }
+  if(url.pathname.startsWith('/api/chat/image/') && request.method==='GET'){
+    const iid=decodeURIComponent(url.pathname.split('/').pop()||'').slice(0,40);
+    const raw=(kv&&/^[0-9]+-[0-9]+$/.test(iid))?await kv.get('chat_img_'+iid):null;
+    if(!raw) return new Response('Not found',{status:404});
+    const m=/^data:(image\/[a-z+]+);base64,(.*)$/.exec(raw);
+    if(!m) return new Response('Bad image',{status:404});
+    const bin=atob(m[2]);
+    const buf=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+    const hi=cors(new Headers(), request.headers.get('Origin'));
+    hi.set('Content-Type', m[1]);
+    hi.set('Cache-Control','public, max-age=31536000, immutable');
+    hi.set('X-Content-Type-Options','nosniff');
+    return new Response(buf,{headers:hi});
+  }
   if(url.pathname==='/api/chat/messages' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const room=String(url.searchParams.get('room')||'community').slice(0,80);
@@ -1248,10 +1263,11 @@ function blockedHost(host){
   if(url.pathname==='/api/chat/messages' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {room,user,text,replyTo}=await request.json();
+      const {room,user,text,replyTo,images}=await request.json();
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
       const t=String(text||'').trim().slice(0,CHAT_MAX);
-      if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const pics=Array.isArray(images)?images.filter(x=>typeof x==='string'&&/^data:image\/(png|jpe?g|gif|webp);base64,/.test(x)&&x.length<2200000).slice(0,4):[];
+      if(!cu||(!t&&!pics.length)) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
       if(rm!=='community' && cu!==AI_BOT){
         const rooms=await chatGet('chat_rooms',{});
         if(rm.startsWith('dm:')){
@@ -1265,19 +1281,30 @@ function blockedHost(host){
       const all=await chatGet('chat_messages',[]);
       const id=all.length?Math.max(...all.map(m=>m.id||0))+1:1;
       const rt=replyTo&&typeof replyTo==='object'?{user:String(replyTo.user||'').slice(0,20), text:String(replyTo.text||'').slice(0,200)}:null;
-      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt});
+      const imgIds=[];
+      for(let i=0;i<pics.length;i++){
+        const iid=id+'-'+i;
+        try{ if(kv) await kv.put('chat_img_'+iid, pics[i]); imgIds.push(iid); }catch{}
+      }
+      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt, imgs:imgIds.length?imgIds:undefined});
       await chatPut('chat_messages',trimRooms(all));
-      if(cu!==AI_BOT && /@(batprox-ai|mochaai)\b/i.test(t)){
+      const isAiDm=rm.startsWith('dm:')&&rm.split(':').includes(AI_BOT);
+      if(cu!==AI_BOT && (isAiDm || /@(batprox-ai|mochaai)\b/i.test(t))){
         const work=(async()=>{
           const cleaned=t.replace(/@(batprox-ai|mochaai)\b/ig,'').replace(/\s+/g,' ').trim();
-          const ask=cleaned
-            ? '[Chatroom] '+cu+' said to you: "'+cleaned+'". Reply in the chat, under 45 words.'
-            : '[Chatroom] '+cu+' pinged you with no message. Greet them and ask what they need, under 25 words.';
-          const {text:out}=await askBatprox(kv, env, [{role:'user', content:ask}]);
+          const shot=pics.length?' They also attached an image, which you cannot see, so ask them to describe it if it matters.':'';
+          const ask=isAiDm
+            ? (cleaned?cleaned+shot:'They sent you an image with no text.'+shot)
+            : (cleaned
+              ? '[Chatroom] '+cu+' said to you: "'+cleaned+'".'+shot+' Reply in the chat, under 45 words.'
+              : '[Chatroom] '+cu+' pinged you with no message.'+shot+' Greet them and ask what they need, under 25 words.');
+          const prior=isAiDm?(await chatGet('chat_messages',[])).filter(m=>m.room===rm&&m.text).slice(-8).map(m=>({role:m.user===AI_BOT?'assistant':'user', content:String(m.text).slice(0,1200)})):[];
+          const convo=isAiDm?prior.slice(0,-1).concat([{role:'user', content:ask}]):[{role:'user', content:ask}];
+          const {text:out}=await askBatprox(kv, env, convo);
           const reply=out||('@'+cu+' batprox-ai could not answer right now. Try again in a moment.');
           const after=await chatGet('chat_messages',[]);
           const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:reply.replace(/\s+/g,' ').trim().slice(0,480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});
+          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:reply.replace(/\s+/g,' ').trim().slice(0,isAiDm?1600:480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});
           await chatPut('chat_messages',trimRooms(after));
         })().catch(()=>{});
         if(ctx&&ctx.waitUntil) ctx.waitUntil(work); else await work;
