@@ -17,6 +17,26 @@ interface ChatHistory {
 export default function AIWork() {
   const navigate = useNavigate();
   const [message, setMessage] = useState('');
+  const [aiModel, setAiModel] = useState<'mocah' | 'batprox-ai'>(() => (localStorage.getItem('batprox-ai-model') as 'mocah' | 'batprox-ai') || 'mocah');
+  const [localOnline, setLocalOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('batprox-ai-model', aiModel);
+  }, [aiModel]);
+
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch('/api/ai/status', { cache: 'no-store' });
+        const d = await r.json();
+        if (alive) setLocalOnline(!!d.online);
+      } catch { if (alive) setLocalOnline(false); }
+    };
+    check();
+    const id = setInterval(check, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[] }>>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -209,16 +229,24 @@ export default function AIWork() {
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 45000);
-        const r = await fetch('https://airesponse.stealthybat.org/api/generate', {
+        const useLocal = aiModel === 'batprox-ai';
+        const endpoint = useLocal ? '/api/ai/batprox' : 'https://airesponse.stealthybat.org/api/generate';
+        const payload = useLocal
+          ? { prompt: userMessage || 'Describe what you see in this image in detail.', messages: newMessages.slice(-12), user: localStorage.getItem('batprox-user') || 'anonymous' }
+          : { model: 'gemini-2.5-flash', prompt: userMessage || 'Describe what you see in this image in detail.', images: imgPayloads, stream: false, user: localStorage.getItem('batprox-user') || 'anonymous' };
+        const r = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'gemini-2.5-flash', prompt: userMessage || 'Describe what you see in this image in detail.', images: imgPayloads, stream: false, user: localStorage.getItem('batprox-user') || 'anonymous' }),
+          body: JSON.stringify(payload),
           signal: ctrl.signal
         });
         clearTimeout(t);
         if (r.ok) {
           const d = await r.json();
           if (d && typeof d.response === 'string' && d.response.trim()) reply = d.response;
+        } else if (useLocal) {
+          const d = await r.json().catch(() => ({}));
+          reply = d.error ? `batprox-ai: ${d.error}` : 'batprox-ai is offline right now.';
         }
       } catch {}
       setMessages(prev => [...prev, { role: 'assistant' as const, content: reply }]);
@@ -621,6 +649,15 @@ export default function AIWork() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 15l-5-5L5 21" />
                       </svg>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setAiModel(m => (m === 'mocah' ? 'batprox-ai' : 'mocah'))}
+                      title={aiModel === 'batprox-ai' ? 'Your own model, running on your PC' : 'Hosted MocahAI'}
+                      className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-[11px] font-medium transition-all"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${aiModel === 'batprox-ai' ? (localOnline ? 'bg-emerald-400' : 'bg-red-400') : 'bg-purple-400'}`} />
+                      <span className="text-white/80">{aiModel === 'batprox-ai' ? 'batprox-ai' : 'MocahAI'}</span>
+                    </button>
                     <textarea
                       ref={inputRef}
                       value={message}
@@ -633,7 +670,7 @@ export default function AIWork() {
                       onKeyDown={handleKeyDown}
                       onPaste={handlePaste}
                       rows={1}
-                      placeholder="Ask MocahAI anything.."
+                      placeholder={aiModel === 'batprox-ai' ? (localOnline ? 'Ask batprox-ai anything..' : 'batprox-ai is offline..') : 'Ask MocahAI anything..'}
                       className="w-full pl-14 pr-5 py-4 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all duration-300 backdrop-blur-md shadow-2xl text-lg resize-none max-h-40"
                     />
                     {isTyping && (

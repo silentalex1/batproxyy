@@ -576,6 +576,59 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true, id:arr.length}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/ai/register' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const want=String(env.BRIDGE_TOKEN||'');
+    const got=String(request.headers.get('x-bridge-token')||'');
+    if(!want) return new Response(JSON.stringify({success:false, error:'BRIDGE_TOKEN is not set on the worker'}),{status:503, headers:h});
+    if(!got||got!==want) return new Response(JSON.stringify({success:false, error:'Bad bridge token'}),{status:403, headers:h});
+    try{
+      const {origin,model,host}=await request.json();
+      const clean=String(origin||'').trim().replace(/\/+$/,'');
+      if(!/^https:\/\//.test(clean)) return new Response(JSON.stringify({success:false, error:'origin must be https'}),{status:400, headers:h});
+      const rec={origin:clean.slice(0,200), model:String(model||'batprox-ai').slice(0,60), host:String(host||'pc').slice(0,60), ts:Date.now()};
+      if(kv) await kv.put('ai_origin', JSON.stringify(rec));
+      return new Response(JSON.stringify({success:true, registered:rec}),{headers:h});
+    }catch{ return new Response(JSON.stringify({success:false, error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/ai/status' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    let rec=null;
+    try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
+    if(!rec) return new Response(JSON.stringify({online:false, reason:'No model host has registered yet'}),{headers:h});
+    const age=Date.now()-(rec.ts||0);
+    return new Response(JSON.stringify({online:age<180000, model:rec.model, host:rec.host, seconds_since_ping:Math.round(age/1000)}),{headers:h});
+  }
+  if(url.pathname==='/api/ai/batprox' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    let rec=null;
+    try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
+    if(!rec||!rec.origin) return new Response(JSON.stringify({response:'', error:'batprox-ai is offline right now.'}),{status:503, headers:h});
+    if(Date.now()-(rec.ts||0)>180000) return new Response(JSON.stringify({response:'', error:'batprox-ai host has not checked in recently.'}),{status:503, headers:h});
+    try{
+      const body=await request.json();
+      const q=String(body.prompt||body.message||'').slice(0,8000);
+      const aiUser=String(body.user||'anonymous').trim().slice(0,32)||'anonymous';
+      if(!q) return new Response(JSON.stringify({response:'', error:'prompt required'}),{status:400, headers:h});
+      const history=Array.isArray(body.messages)?body.messages.filter(m=>m&&m.role&&m.content).slice(-12).map(m=>({role:String(m.role).slice(0,12), content:String(m.content).slice(0,4000)})):[];
+      const messages=history.length?history:[{role:'user', content:q}];
+      const ctl=new AbortController();
+      const tmr=setTimeout(()=>ctl.abort(), 60000);
+      let out='', err='';
+      try{
+        const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model, messages, stream:false, keep_alive:-1}), signal:ctl.signal});
+        clearTimeout(tmr);
+        if(r.ok){ const d=await r.json().catch(()=>null); out=d?.message?.content||''; }
+        else err='host returned '+r.status;
+      }catch(e){ clearTimeout(tmr); err=(e&&e.name==='AbortError')?'timed out':'host unreachable'; }
+      if(!out){
+        await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:rec.model, images:0, prompt:q, response:'', ok:false, ip:getIP()});
+        return new Response(JSON.stringify({response:'', error:err||'no reply from batprox-ai'}),{status:502, headers:h});
+      }
+      await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:rec.model, images:0, prompt:q, response:out.slice(0,8000), ok:true, ip:getIP()});
+      return new Response(JSON.stringify({response:out.slice(0,8000), model:rec.model}),{headers:h});
+    }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
+  }
   if(url.pathname==='/api/ai/chat' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const apiKey=env.OPENROUTER_API_KEY;
@@ -1072,6 +1125,7 @@ function blockedHost(host){
       const imgs=Array.isArray(images)?images.slice(0,2):[];
       const parts=[{text:q||'hi'}];
       const dbg=[];
+      const ollamaImgs=[];
       for(const im of imgs){
         let data='', mime='image/png';
         if(typeof im==='string'){
@@ -1083,7 +1137,24 @@ function blockedHost(host){
         }
         if(!data||data.length>2800000) continue;
         parts.push({inline_data:{mime_type:mime, data}});
+        ollamaImgs.push(data);
       }
+      try{
+        const ctl=new AbortController();
+        const tmr=setTimeout(()=>ctl.abort(), 90000);
+        const omsg={role:'user', content:q||(ollamaImgs.length?'Describe what you see in this image in detail.':'hi')};
+        if(ollamaImgs.length) omsg.images=ollamaImgs;
+        const or=await fetch('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'batprox-ai',messages:[{role:'system',content:'You are BatProx AI (MochaAI), a custom AI assistant built by MicahG for the Bat Prox site platform. You are strong in algebra, chemistry, physics, and other hard classes. You excel at understanding student notes and can analyze images: describe them, transcribe text, explain diagrams, and solve problems shown. Always identify yourself as MochaAI when asked who you are. Be friendly, concise, and accurate.'},omsg],stream:false}),signal:ctl.signal});
+        clearTimeout(tmr);
+        if(or.ok){
+          const od=await or.json().catch(()=>null);
+          const otext=od?.message?.content||'';
+          if(otext.trim()){
+            await logAi(kv,{ts:Date.now(),user:aiUser,source:'generate',model:'batprox-ai',images:imgs.length,prompt:q,response:otext.slice(0,8000),ok:true,ip:getIP()});
+            return new Response(JSON.stringify({response:otext.slice(0,8000)}),{headers:h});
+          }
+        }
+      }catch(e){ dbg.push('batprox-ai:ex:'+((e&&e.message)||e)); }
       const key=env.GEMINI_API_KEY||'';
       if(!key) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
       const models=[String(model||'gemini-2.5-flash'), String(model||'gemini-2.5-flash'), String(model||'gemini-2.5-flash')];
