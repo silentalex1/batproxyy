@@ -9,7 +9,7 @@ import { useLowPower } from './power';
 interface ChatHistory {
   id: string;
   title: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[] }>;
+  messages: Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[]; imgs?: string[] }>;
   timestamp: number;
   checkpoints?: Array<{ id: string; messageIndex: number; timestamp: number }>;
 }
@@ -32,7 +32,7 @@ export default function AIWork() {
     const id = setInterval(check, 30000);
     return () => { alive = false; clearInterval(id); };
   }, []);
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[] }>>([]);
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[]; imgs?: string[] }>>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null);
@@ -87,6 +87,23 @@ export default function AIWork() {
     Cookies.set('chatHistory', JSON.stringify(chatHistory), { expires: 365 });
   }, [chatHistory]);
 
+  const syncHistory = (chats: ChatHistory[]) => {
+    const u = localStorage.getItem('batprox-user');
+    if (!u) return;
+    fetch('/api/ai/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, chats }) }).catch(() => {});
+  };
+
+  useEffect(() => {
+    const u = localStorage.getItem('batprox-user');
+    if (!u) return;
+    let alive = true;
+    fetch(`/api/ai/history?user=${encodeURIComponent(u)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (alive && Array.isArray(d.chats) && d.chats.length) setChatHistory(d.chats); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const saveChatToHistory = (messagesToSave?: Array<{ role: 'user' | 'assistant'; content: string }>) => {
     const messagesArray = messagesToSave || messages;
     if (messagesArray.length === 0) return;
@@ -103,13 +120,13 @@ export default function AIWork() {
     if (currentChatId) {
       setChatHistory(prev => {
         const updated = prev.map(chat => chat.id === currentChatId ? newChat : chat);
-        Cookies.set('chatHistory', JSON.stringify(updated), { expires: 365 });
+        Cookies.set('chatHistory', JSON.stringify(updated), { expires: 365 }); syncHistory(updated);
         return updated;
       });
     } else {
       setChatHistory(prev => {
         const updated = [newChat, ...prev];
-        Cookies.set('chatHistory', JSON.stringify(updated), { expires: 365 });
+        Cookies.set('chatHistory', JSON.stringify(updated), { expires: 365 }); syncHistory(updated);
         setCurrentChatId(newChat.id);
         return updated;
       });
@@ -134,7 +151,7 @@ export default function AIWork() {
   const deleteChat = (chatId: string) => {
     setChatHistory(prev => {
       const newHistory = prev.filter(chat => chat.id !== chatId);
-      Cookies.set('chatHistory', JSON.stringify(newHistory), { expires: 365 });
+      Cookies.set('chatHistory', JSON.stringify(newHistory), { expires: 365 }); syncHistory(newHistory);
       return newHistory;
     });
     if (currentChatId === chatId) {
@@ -211,7 +228,8 @@ export default function AIWork() {
     if (e) e.preventDefault();
     if (message.trim() || images.length > 0) {
       const userMessage = message.trim();
-      const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
+      const shots = images.map(i => String(i.data || '')).filter(Boolean).slice(0, 4);
+      const newMessages = [...messages, { role: 'user' as const, content: userMessage, imgs: shots.length ? shots : undefined }];
       setMessages(newMessages);
       setMessage('');
       setImages([]);
@@ -220,7 +238,8 @@ export default function AIWork() {
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 45000);
-        const payload = { prompt: userMessage || 'Describe what you see in this image in detail.', messages: newMessages.slice(-12), user: localStorage.getItem('batprox-user') || 'anonymous' };
+        const note = shots.length ? ' [The user attached ' + shots.length + ' image(s). You cannot view images, so ask them to describe it.]' : '';
+        const payload = { prompt: (userMessage || 'The user sent an image with no text.') + note, messages: newMessages.slice(-12).map(mm => ({ role: mm.role, content: mm.content })), user: localStorage.getItem('batprox-user') || 'anonymous' };
         const r = await fetch('/api/ai/batprox', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -522,12 +541,19 @@ export default function AIWork() {
                               ))}
                             </div>
                           )}
-                          <ReactMarkdown>
-                            {msg.content}
-                          </ReactMarkdown>
+                          <ReactMarkdown>{String(msg.content || "").replace(/(?<!\n)\n(?!\n)/g, "  \n")}</ReactMarkdown>
                         </div>
                       ) : (
-                        msg.content
+                        <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+                      )}
+                      {Array.isArray(msg.imgs) && msg.imgs.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {msg.imgs.map((src, ii) => (
+                            <a key={ii} href={src} target="_blank" rel="noreferrer">
+                              <img src={src} alt="" className="max-w-[220px] max-h-[220px] rounded-xl border border-white/15 object-cover" />
+                            </a>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -649,14 +675,15 @@ export default function AIWork() {
                       onChange={(e) => {
                         setMessage(e.target.value);
                         const el = e.target;
-                        el.style.height = 'auto';
-                        el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+                        el.style.height = '56px';
+                        if (el.scrollHeight > 58) el.style.height = Math.min(el.scrollHeight, 200) + 'px';
                       }}
                       onKeyDown={handleKeyDown}
                       onPaste={handlePaste}
                       rows={1}
                       placeholder={localOnline === false ? 'batprox-ai is offline..' : 'Ask batprox-ai anything..'}
-                      className="w-full pl-14 pr-5 py-4 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all duration-300 backdrop-blur-md shadow-2xl text-lg resize-none max-h-40"
+                      style={{ height: '56px', overflowY: 'auto' }}
+                      className="w-full pl-14 pr-5 py-4 rounded-2xl leading-6 resize-none bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all duration-300 backdrop-blur-md shadow-2xl text-lg resize-none max-h-40"
                     />
                     {isTyping && (
                       <button
