@@ -107,20 +107,37 @@ const CHAT_MAX=4000;
 
 const CHAT_BUDGET=6000000;
 
+const INFERFORGE_BASE='https://inferforge.org';
+const INFERFORGE_MODEL='batprox-ai';
+
 async function askBatprox(kv, env, messages){
   let rec=null;
   try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
   if(rec&&rec.origin&&Date.now()-(rec.ts||0)<180000){
     try{
       const ctl=new AbortController();
-      const tmr=setTimeout(()=>ctl.abort(), 45000);
-      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model||'batprox-ai', messages, stream:false, keep_alive:-1}), signal:ctl.signal});
+      const tmr=setTimeout(()=>ctl.abort(), 30000);
+      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model||INFERFORGE_MODEL, messages, stream:false, keep_alive:-1}), signal:ctl.signal});
       clearTimeout(tmr);
       if(r.ok){
         const d=await r.json().catch(()=>null);
         const out=d?.message?.content||'';
         if(out) return {text:out, backend:'local'};
       }
+    }catch{}
+  }
+  const key=String(env.INFERFORGE_KEY||'');
+  if(!key) return {text:'', backend:'none'};
+  for(let a=0;a<2;a++){
+    try{
+      const ctl=new AbortController();
+      const tmr=setTimeout(()=>ctl.abort(), 45000);
+      const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:INFERFORGE_MODEL, messages, stream:false}), signal:ctl.signal});
+      clearTimeout(tmr);
+      if(!r.ok) continue;
+      const d=await r.json().catch(()=>null);
+      const out=d?.choices?.[0]?.message?.content||'';
+      if(out) return {text:out, backend:'inferforge'};
     }catch{}
   }
   return {text:'', backend:'none'};
@@ -617,9 +634,9 @@ function blockedHost(host){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     let rec=null;
     try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
-    if(!rec) return new Response(JSON.stringify({online:false, reason:'No model host has registered yet'}),{headers:h});
+    if(!rec) return new Response(JSON.stringify({online:true, model:INFERFORGE_MODEL, host:'inferforge'}),{headers:h});
     const age=Date.now()-(rec.ts||0);
-    return new Response(JSON.stringify({online:age<180000, model:rec.model, host:rec.host, seconds_since_ping:Math.round(age/1000)}),{headers:h});
+    return new Response(JSON.stringify({online:true, model:rec.model||INFERFORGE_MODEL, host:age<180000?rec.host:'inferforge', seconds_since_ping:Math.round(age/1000)}),{headers:h});
   }
   if(url.pathname==='/api/ai/batprox' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
@@ -633,7 +650,7 @@ function blockedHost(host){
       const {text,backend}=await askBatprox(kv, env, messages);
       if(!text){
         await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
-        return new Response(JSON.stringify({response:'', error:'batprox-ai is offline. The model host is not running.'}),{status:502, headers:h});
+        return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
       }
       await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
       return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
@@ -1136,7 +1153,7 @@ function blockedHost(host){
       const {text,backend}=await askBatprox(kv, env, [{role:'user', content:q}]);
       if(!text){
         await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
-        return new Response(JSON.stringify({response:'', error:'batprox-ai is offline. The model host is not running.'}),{status:502, headers:h});
+        return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
       }
       await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
       return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
@@ -1257,7 +1274,7 @@ function blockedHost(host){
             ? '[Chatroom] '+cu+' said to you: "'+cleaned+'". Reply in the chat, under 45 words.'
             : '[Chatroom] '+cu+' pinged you with no message. Greet them and ask what they need, under 25 words.';
           const {text:out}=await askBatprox(kv, env, [{role:'user', content:ask}]);
-          const reply=out||('@'+cu+' batprox-ai is offline right now. Try again when the model host is back.');
+          const reply=out||('@'+cu+' batprox-ai could not answer right now. Try again in a moment.');
           const after=await chatGet('chat_messages',[]);
           const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
           after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:reply.replace(/\s+/g,' ').trim().slice(0,480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});
