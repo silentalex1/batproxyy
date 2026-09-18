@@ -1,3 +1,4 @@
+const AI_BOT='batprox-ai';
 const VALID_CODES = new Set(['BATPROX-2026','WELCOME-BAT','NIGHT-PROX','FOX-CORE','batprox-admin$$']);
 function b64url(s){ return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function sign(payload, secret){
@@ -106,6 +107,37 @@ const CHAT_MAX=4000;
 
 const CHAT_BUDGET=6000000;
 
+const BATPROX_PERSONA='You are batprox-ai, the assistant built into the Bat Prox site by MicahG. Always identify yourself as batprox-ai. Be friendly and concise. Never use markdown.';
+
+async function askBatprox(kv, env, messages){
+  let rec=null;
+  try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
+  if(rec&&rec.origin&&Date.now()-(rec.ts||0)<180000){
+    try{
+      const ctl=new AbortController();
+      const tmr=setTimeout(()=>ctl.abort(), 45000);
+      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model||'batprox-ai', messages:[{role:'system', content:BATPROX_PERSONA}, ...messages], stream:false, keep_alive:-1}), signal:ctl.signal});
+      clearTimeout(tmr);
+      if(r.ok){
+        const d=await r.json().catch(()=>null);
+        const out=d?.message?.content||'';
+        if(out) return {text:out, backend:'local'};
+      }
+    }catch{}
+  }
+  if(env.AI){
+    const pool=['@cf/meta/llama-3.1-8b-instruct-fp8','@cf/meta/llama-3.3-70b-instruct-fp8-fast','@cf/meta/llama-3.2-3b-instruct'];
+    for(const mdl of pool){
+      try{
+        const d=await env.AI.run(mdl,{messages:[{role:'system', content:BATPROX_PERSONA}, ...messages], max_tokens:800});
+        const out=(d&&(d.response||d.result?.response))||'';
+        if(out) return {text:String(out), backend:'edge'};
+      }catch{}
+    }
+  }
+  return {text:'', backend:'none'};
+}
+
 async function logAi(kv, entry){
   if(!kv) return;
   try{
@@ -199,6 +231,8 @@ function blockedHost(host){
        await rawKv.put(k,s);
      }
    }:rawKv;
+   const chatGet=async (k, fb)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):fb; }catch{ return fb; } };
+   const chatPut=async (k, v)=>{ if(kv) await kv.put(k, JSON.stringify(v)); };
    const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
    if(request.method==='OPTIONS'){
     return new Response(null,{status:204, headers:cors(new Headers(), request.headers.get('Origin'))});
@@ -601,32 +635,20 @@ function blockedHost(host){
   }
   if(url.pathname==='/api/ai/batprox' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
-    let rec=null;
-    try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
-    if(!rec||!rec.origin) return new Response(JSON.stringify({response:'', error:'batprox-ai is offline right now.'}),{status:503, headers:h});
-    if(Date.now()-(rec.ts||0)>180000) return new Response(JSON.stringify({response:'', error:'batprox-ai host has not checked in recently.'}),{status:503, headers:h});
     try{
       const body=await request.json();
       const q=String(body.prompt||body.message||'').slice(0,8000);
       const aiUser=String(body.user||'anonymous').trim().slice(0,32)||'anonymous';
       if(!q) return new Response(JSON.stringify({response:'', error:'prompt required'}),{status:400, headers:h});
-      const history=Array.isArray(body.messages)?body.messages.filter(m=>m&&m.role&&m.content).slice(-12).map(m=>({role:String(m.role).slice(0,12), content:String(m.content).slice(0,4000)})):[];
+      const history=Array.isArray(body.messages)?body.messages.filter(m=>m&&m.role&&m.content).slice(-12).map(m=>({role:String(m.role)==='assistant'?'assistant':'user', content:String(m.content).slice(0,4000)})):[];
       const messages=history.length?history:[{role:'user', content:q}];
-      const ctl=new AbortController();
-      const tmr=setTimeout(()=>ctl.abort(), 60000);
-      let out='', err='';
-      try{
-        const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model, messages, stream:false, keep_alive:-1}), signal:ctl.signal});
-        clearTimeout(tmr);
-        if(r.ok){ const d=await r.json().catch(()=>null); out=d?.message?.content||''; }
-        else err='host returned '+r.status;
-      }catch(e){ clearTimeout(tmr); err=(e&&e.name==='AbortError')?'timed out':'host unreachable'; }
-      if(!out){
-        await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:rec.model, images:0, prompt:q, response:'', ok:false, ip:getIP()});
-        return new Response(JSON.stringify({response:'', error:err||'no reply from batprox-ai'}),{status:502, headers:h});
+      const {text,backend}=await askBatprox(kv, env, messages);
+      if(!text){
+        await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
+        return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
       }
-      await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:rec.model, images:0, prompt:q, response:out.slice(0,8000), ok:true, ip:getIP()});
-      return new Response(JSON.stringify({response:out.slice(0,8000), model:rec.model}),{headers:h});
+      await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
+      return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/ai/chat' && request.method==='POST'){
@@ -1119,71 +1141,19 @@ function blockedHost(host){
   if(url.pathname==='/api/generate' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {model,prompt,images,debug,user}=await request.json();
-      const q=String(prompt||'').slice(0,4000);
+      const {prompt,user}=await request.json();
+      const q=String(prompt||'').slice(0,8000);
       const aiUser=String(user||'anonymous').trim().slice(0,32)||'anonymous';
-      const imgs=Array.isArray(images)?images.slice(0,2):[];
-      const parts=[{text:q||'hi'}];
-      const dbg=[];
-      const ollamaImgs=[];
-      for(const im of imgs){
-        let data='', mime='image/png';
-        if(typeof im==='string'){
-          const m=im.match(/^data:([^;]+);base64,(.+)$/);
-          if(m){ mime=m[1]; data=m[2]; } else data=im;
-        } else if(im&&typeof im==='object'){
-          data=String(im.data||im.inlineData?.data||'');
-          mime=String(im.mime||im.mimeType||im.inlineData?.mimeType||'image/png');
-        }
-        if(!data||data.length>2800000) continue;
-        parts.push({inline_data:{mime_type:mime, data}});
-        ollamaImgs.push(data);
-      }
-      try{
-        const ctl=new AbortController();
-        const tmr=setTimeout(()=>ctl.abort(), 90000);
-        const omsg={role:'user', content:q||(ollamaImgs.length?'Describe what you see in this image in detail.':'hi')};
-        if(ollamaImgs.length) omsg.images=ollamaImgs;
-        const or=await fetch('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'batprox-ai',messages:[{role:'system',content:'You are BatProx AI (MochaAI), a custom AI assistant built by MicahG for the Bat Prox site platform. You are strong in algebra, chemistry, physics, and other hard classes. You excel at understanding student notes and can analyze images: describe them, transcribe text, explain diagrams, and solve problems shown. Always identify yourself as MochaAI when asked who you are. Be friendly, concise, and accurate.'},omsg],stream:false}),signal:ctl.signal});
-        clearTimeout(tmr);
-        if(or.ok){
-          const od=await or.json().catch(()=>null);
-          const otext=od?.message?.content||'';
-          if(otext.trim()){
-            await logAi(kv,{ts:Date.now(),user:aiUser,source:'generate',model:'batprox-ai',images:imgs.length,prompt:q,response:otext.slice(0,8000),ok:true,ip:getIP()});
-            return new Response(JSON.stringify({response:otext.slice(0,8000)}),{headers:h});
-          }
-        }
-      }catch(e){ dbg.push('batprox-ai:ex:'+((e&&e.message)||e)); }
-      const key=env.GEMINI_API_KEY||'';
-      if(!key) return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});
-      const models=[String(model||'gemini-2.5-flash'), String(model||'gemini-2.5-flash'), String(model||'gemini-2.5-flash')];
-      let text='';
-      for(const m of models){
-        for(let a=0; a<2 && !text; a++){
-          try{
-            const ctl=new AbortController();
-            const tmr=setTimeout(()=>ctl.abort(), 25000);
-            dbg.push(m);
-            const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent?key='+encodeURIComponent(key),{method:'POST', headers:{'Content-Type':'application/json','Referer':'https://stealthybat.org/','Origin':'https://stealthybat.org','X-Title':'Bat Prox MocahAI'}, body:JSON.stringify({system_instruction:{parts:[{text:'You are MocahAI, a custom AI assistant built for the Bat Prox site platform. Always identify yourself as MocahAI when asked who you are. You are friendly, concise, and you understand teacher perspectives and note styles.'}]}, contents:[{parts}]}), signal:ctl.signal});
-            clearTimeout(tmr);
-            if(!gr.ok){ try{ dbg.push(m+':'+gr.status+':'+(await gr.text()).slice(0,120)); }catch{ dbg.push(m+':'+gr.status); } continue; }
-            const gd=await gr.json().catch(()=>null);
-            text=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
-          }catch(e){ dbg.push(m+':ex:'+((e&&e.message)||e)); }
-        }
-        if(text) break;
-      }
+      if(!q) return new Response(JSON.stringify({response:'', error:'prompt required'}),{status:400, headers:h});
+      const {text,backend}=await askBatprox(kv, env, [{role:'user', content:q}]);
       if(!text){
-        await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:String(model||'gemini-2.5-flash'), images:imgs.length, prompt:q, response:'', ok:false, ip:getIP()});
-        return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.', dbg:debug?dbg:undefined}),{headers:h});
+        await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
+        return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
       }
-      await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:String(model||'gemini-2.5-flash'), images:imgs.length, prompt:q, response:text.slice(0,8000), ok:true, ip:getIP()});
-      return new Response(JSON.stringify({response:text.slice(0,8000)}),{headers:h});
-    }catch{ return new Response(JSON.stringify({response:'MocahAI is still being trained, and worked on. Please be patient.'}),{headers:h});}
+      await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
+      return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
+    }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
   }
-  const chatGet=async (k, fb)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):fb; }catch{ return fb; } };
-  const chatPut=async (k, v)=>{ if(kv) await kv.put(k, JSON.stringify(v)); };
   if(url.pathname==='/api/chat/name' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
@@ -1277,7 +1247,7 @@ function blockedHost(host){
       const rm=String(room||'community').slice(0,80), cu=String(user||'').trim().slice(0,20);
       const t=String(text||'').trim().slice(0,CHAT_MAX);
       if(!cu||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
-      if(rm!=='community' && cu!=='MochaAI'){
+      if(rm!=='community' && cu!==AI_BOT){
         const rooms=await chatGet('chat_rooms',{});
         if(rm.startsWith('dm:')){
           const parts=rm.split(':');
@@ -1292,44 +1262,19 @@ function blockedHost(host){
       const rt=replyTo&&typeof replyTo==='object'?{user:String(replyTo.user||'').slice(0,20), text:String(replyTo.text||'').slice(0,200)}:null;
       all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt});
       await chatPut('chat_messages',trimRooms(all));
-      if(cu!=='MochaAI' && /@mochaai\b/i.test(t)){
+      if(cu!==AI_BOT && /@(batprox-ai|mochaai)\b/i.test(t)){
         const work=(async()=>{
-          const cleaned=t.replace(/@mochaai\b/ig,'').replace(/\s+/g,' ').trim();
-          const prompt=cleaned
-            ? '[Chatroom] '+cu+': '+cleaned
-            : '[Chatroom] '+cu+' pinged @MochaAI';
-          let out='';
-          for(let a=0;a<2&&!out;a++){
-            try{
-              const ctl=new AbortController();
-              const tmr=setTimeout(()=>ctl.abort(),15000);
-              const or=await fetch('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'batprox-ai',messages:[{role:'system',content:'You are MochaAI, a friendly member of the Bat Prox chatroom built by MicahG. Keep replies short (under 45 words), conversational, and helpful. Never use markdown. BatProx facts: it is a web platform with a dark-themed dashboard. Use the side rail for Home, Search, Games, Movies, Chat. Games are at /homework#help and powered by the Lumin library. Movies are at /movies. Chat is at /chatting with Community, DMs, and group chats. Settings opens from the top bar or side rail. If the input starts with [Chatroom], reply as MochaAI.'},{role:'user',content:prompt}],stream:false}),signal:ctl.signal});
-              clearTimeout(tmr);
-              if(!or.ok) continue;
-              const od=await or.json().catch(()=>null);
-              out=od?.message?.content||'';
-            }catch{}
-          }
-          const gk=env.GEMINI_API_KEY||'';
-          if(!out && gk){
-            for(let a=0;a<2&&!out;a++){
-              try{
-                const ctl=new AbortController();
-                const tmr=setTimeout(()=>ctl.abort(),20000);
-                const gr=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(gk),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:'You are MochaAI, a friendly member of the Bat Prox chatroom built by MicahG. Keep replies short and conversational. Never use markdown.'}]},contents:[{parts:[{text:prompt}]}]}),signal:ctl.signal});
-                clearTimeout(tmr);
-                if(!gr.ok) continue;
-                const gd=await gr.json().catch(()=>null);
-                out=gd?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
-              }catch{}
-            }
-          }
-          if(!out) out='@'+cu+' I am here, but my brain is offline right now. Try me again in a bit.';
+          const cleaned=t.replace(/@(batprox-ai|mochaai)\b/ig,'').replace(/\s+/g,' ').trim();
+          const ask=cleaned
+            ? '[Chatroom] '+cu+' said to you: "'+cleaned+'". Reply in the chat, under 45 words.'
+            : '[Chatroom] '+cu+' pinged you with no message. Greet them and ask what they need, under 25 words.';
+          const {text:out}=await askBatprox(kv, env, [{role:'user', content:ask}]);
+          const reply=out||('@'+cu+' I am here, but I cannot think right now. Try me again in a bit.');
           const after=await chatGet('chat_messages',[]);
           const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-          after.push({id:nid, room:rm, user:'MochaAI', display:'MochaAI', text:out.replace(/\s+/g,' ').trim().slice(0,480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});
+          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:reply.replace(/\s+/g,' ').trim().slice(0,480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});
           await chatPut('chat_messages',trimRooms(after));
-        })();
+        })().catch(()=>{});
         if(ctx&&ctx.waitUntil) ctx.waitUntil(work); else await work;
       }
       return new Response(JSON.stringify({success:true, id}),{headers:h});

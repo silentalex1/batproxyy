@@ -17,8 +17,8 @@ type Room = { kind: 'community' | 'dm' | 'gc'; id: string; label: string };
 const dmId = (a: string, b: string) => 'dm:' + [a, b].sort().join(':');
 const cacheKey = (roomId: string) => 'bp-chat-cache:' + roomId;
 const MENTION = /@[\w$%.-]+/g;
-const AI_BOT = 'MochaAI';
-const AI_MENTION = /@mochaai\b/i;
+const AI_BOT = 'batprox-ai';
+const AI_MENTION = /@(batprox-ai|mochaai)\b/i;
 const avatarColor = (name: string) => {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
@@ -739,7 +739,7 @@ export default function Chatting() {
               })}
               <div ref={bottomRef} />
             </div>
-            {aiThinking && <p className="px-5 pb-1 text-[11px] text-amber-300/70 animate-pulse">MochaAI is typing..</p>}
+            {aiThinking && <p className="px-5 pb-1 text-[11px] text-amber-300/70 animate-pulse">batprox-ai is typing..</p>}
             {typing.length > 0 && <p className="px-5 pb-1 text-[11px] text-white/40 animate-pulse">{typing.length > 3 ? 'Others are typing..' : typing.length === 3 ? `${typing[0]}, ${typing[1]} and 1 other is typing..` : typing.length === 2 ? `${typing[0]} and ${typing[1]} are typing..` : `${typing[0]} is typing..`}</p>}
             <form onSubmit={send} className="relative p-3 border-t border-white/[0.06]">
               {mentionOpen && mentionList.length > 0 && (

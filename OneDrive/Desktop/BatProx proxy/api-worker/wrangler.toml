@@ -14,6 +14,9 @@ binding = "batprox"
 database_name = "batprox"
 database_id = "97a4e391-1474-4d61-a412-8558133a0d39"
 
+[ai]
+binding = "AI"
+
 [vars]
 SITE_URL = "https://stealthybat.org"
 
