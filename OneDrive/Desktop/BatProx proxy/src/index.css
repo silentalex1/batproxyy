@@ -475,3 +475,8 @@ html[data-gaming='1'] .backdrop-blur-md,html[data-gaming='1'] .backdrop-blur-xl,
 html[data-gaming='1'] .blur-\[120px\],html[data-gaming='1'] .blur-\[110px\],html[data-gaming='1'] .blur-\[140px\],html[data-gaming='1'] .blur-\[100px\]{display:none !important}
 html[data-gaming='1'] canvas{display:none !important}
 html[data-gaming='1'] iframe{will-change:auto;contain:layout paint style}
+
+@keyframes dropslide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

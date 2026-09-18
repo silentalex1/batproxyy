@@ -26,6 +26,7 @@ import LoginStatus from './LoginStatus';
 import Advertisement from './Advertisement';
 import MyScripts from './MyScripts';
 import Apps from './Apps';
+import FileDropper from './FileDropper';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -217,6 +218,9 @@ function Dashboard() {
       case 'Daily Reminder':
         setShowReminder(true);
         return;
+      case 'File dropper':
+        navigate('/file-dropper');
+        return;
       default:
         return;
     }
@@ -266,7 +270,8 @@ function Dashboard() {
     { label: 'Movies', image: null, tint: 'bg-[#ef4444]' },
     { label: 'AI', image: null, tint: 'bg-[#8b5cf6]' },
     { label: 'Games', image: null, tint: 'bg-[#10b981]' },
-    { label: 'Daily Reminder', image: null, tint: 'bg-[#f59e0b]' }
+    { label: 'Daily Reminder', image: null, tint: 'bg-[#f59e0b]' },
+    { label: 'File dropper', image: null, tint: 'bg-[#6366f1]' }
   ];
 
   return (
@@ -355,6 +360,10 @@ function Dashboard() {
                         e.currentTarget.style.display = 'none';
                       }}
                     />
+                  ) : item.label === 'File dropper' ? (
+                    <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                    </svg>
                   ) : item.label === 'Daily Reminder' ? (
                     <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
@@ -565,6 +574,8 @@ export default function App() {
         <Route path="/advertisement" element={<Advertisement />} />
         <Route path="/my-scripts" element={<MyScripts />} />
         <Route path="/apps" element={<Apps />} />
+        <Route path="/file-dropper" element={<FileDropper />} />
+        <Route path="/file-dropper/:user/dashboard" element={<FileDropper />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Router>

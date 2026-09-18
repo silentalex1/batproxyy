@@ -632,6 +632,65 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true, registered:rec}),{headers:h});
     }catch{ return new Response(JSON.stringify({success:false, error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/drops' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const u=String(url.searchParams.get('user')||'').trim().slice(0,32);
+    if(!u) return new Response(JSON.stringify({drops:[]}),{headers:h});
+    let rows=[];
+    try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
+    return new Response(JSON.stringify({drops:Array.isArray(rows)?rows:[]}),{headers:h});
+  }
+  if(url.pathname==='/api/drops' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,name,kind,mime,data,text}=await request.json();
+      const u=String(user||'').trim().slice(0,32);
+      if(!u) return new Response(JSON.stringify({error:'user required'}),{status:400, headers:h});
+      const body=String(data||'');
+      const note=String(text||'');
+      if(!body && !note) return new Response(JSON.stringify({error:'nothing to save'}),{status:400, headers:h});
+      if(body.length>5200000) return new Response(JSON.stringify({error:'file too large'}),{status:413, headers:h});
+      let rows=[];
+      try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
+      const id=u+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      const rec={id, name:String(name||'untitled').slice(0,120), kind:kind==='text'?'text':'file', mime:String(mime||'application/octet-stream').slice(0,80), size:body?body.length:note.length, ts:Date.now()};
+      if(kv) await kv.put('drop_'+id, body||note);
+      rows.unshift(rec);
+      let load=0;
+      const keep=[];
+      for(const r of rows){ load+=(r.size||0); if(load>40000000) break; keep.push(r); }
+      if(kv) await kv.put('drops_'+u, JSON.stringify(keep.slice(0,200)));
+      return new Response(JSON.stringify({success:true, drop:rec}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname.startsWith('/api/drops/file/') && request.method==='GET'){
+    const id=decodeURIComponent(url.pathname.split('/').pop()||'').slice(0,80);
+    const raw=(kv&&/^[A-Za-z0-9._-]+$/.test(id))?await kv.get('drop_'+id):null;
+    if(raw===null||raw===undefined) return new Response('Not found',{status:404});
+    const hd=cors(new Headers(), request.headers.get('Origin'));
+    hd.set('X-Content-Type-Options','nosniff');
+    hd.set('Cache-Control','private, max-age=300');
+    const m=/^data:([^;]+);base64,(.*)$/.exec(raw);
+    if(!m){ hd.set('Content-Type','text/plain; charset=utf-8'); return new Response(raw,{headers:hd}); }
+    const bin=atob(m[2]);
+    const buf=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+    hd.set('Content-Type', /^(image|video|audio|text)\//.test(m[1])?m[1]:'application/octet-stream');
+    return new Response(buf,{headers:hd});
+  }
+  if(url.pathname==='/api/drops/delete' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,id}=await request.json();
+      const u=String(user||'').trim().slice(0,32);
+      const di=String(id||'').slice(0,80);
+      if(!u||!di||di.indexOf(u+'-')!==0) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      let rows=[];
+      try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
+      if(kv) await kv.put('drops_'+u, JSON.stringify(rows.filter(r=>r.id!==di)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
   if(url.pathname==='/api/ai/history' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const u=String(url.searchParams.get('user')||'').trim().slice(0,32);
