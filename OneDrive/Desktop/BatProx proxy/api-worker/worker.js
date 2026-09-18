@@ -107,8 +107,6 @@ const CHAT_MAX=4000;
 
 const CHAT_BUDGET=6000000;
 
-const BATPROX_PERSONA='You are batprox-ai, the assistant built into the Bat Prox site by MicahG. Always identify yourself as batprox-ai. Be friendly and concise. Never use markdown.';
-
 async function askBatprox(kv, env, messages){
   let rec=null;
   try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
@@ -116,7 +114,7 @@ async function askBatprox(kv, env, messages){
     try{
       const ctl=new AbortController();
       const tmr=setTimeout(()=>ctl.abort(), 45000);
-      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model||'batprox-ai', messages:[{role:'system', content:BATPROX_PERSONA}, ...messages], stream:false, keep_alive:-1}), signal:ctl.signal});
+      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model||'batprox-ai', messages, stream:false, keep_alive:-1}), signal:ctl.signal});
       clearTimeout(tmr);
       if(r.ok){
         const d=await r.json().catch(()=>null);
@@ -124,16 +122,6 @@ async function askBatprox(kv, env, messages){
         if(out) return {text:out, backend:'local'};
       }
     }catch{}
-  }
-  if(env.AI){
-    const pool=['@cf/meta/llama-3.1-8b-instruct-fp8','@cf/meta/llama-3.3-70b-instruct-fp8-fast','@cf/meta/llama-3.2-3b-instruct'];
-    for(const mdl of pool){
-      try{
-        const d=await env.AI.run(mdl,{messages:[{role:'system', content:BATPROX_PERSONA}, ...messages], max_tokens:800});
-        const out=(d&&(d.response||d.result?.response))||'';
-        if(out) return {text:String(out), backend:'edge'};
-      }catch{}
-    }
   }
   return {text:'', backend:'none'};
 }
@@ -645,7 +633,7 @@ function blockedHost(host){
       const {text,backend}=await askBatprox(kv, env, messages);
       if(!text){
         await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
-        return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
+        return new Response(JSON.stringify({response:'', error:'batprox-ai is offline. The model host is not running.'}),{status:502, headers:h});
       }
       await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
       return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
@@ -1148,7 +1136,7 @@ function blockedHost(host){
       const {text,backend}=await askBatprox(kv, env, [{role:'user', content:q}]);
       if(!text){
         await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
-        return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
+        return new Response(JSON.stringify({response:'', error:'batprox-ai is offline. The model host is not running.'}),{status:502, headers:h});
       }
       await logAi(kv,{ts:Date.now(), user:aiUser, source:'generate', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
       return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
@@ -1269,7 +1257,7 @@ function blockedHost(host){
             ? '[Chatroom] '+cu+' said to you: "'+cleaned+'". Reply in the chat, under 45 words.'
             : '[Chatroom] '+cu+' pinged you with no message. Greet them and ask what they need, under 25 words.';
           const {text:out}=await askBatprox(kv, env, [{role:'user', content:ask}]);
-          const reply=out||('@'+cu+' I am here, but I cannot think right now. Try me again in a bit.');
+          const reply=out||('@'+cu+' batprox-ai is offline right now. Try again when the model host is back.');
           const after=await chatGet('chat_messages',[]);
           const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
           after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:reply.replace(/\s+/g,' ').trim().slice(0,480), ts:Date.now(), replyTo:{user:cu, text:t.slice(0,200)}});

@@ -637,10 +637,10 @@ export default function AIWork() {
                       </svg>
                     </button>
                     <div
-                      title={localOnline ? 'Running on the local model host' : 'Running on the always-on edge backend'}
+                      title={localOnline ? 'batprox-ai model host is online' : 'batprox-ai model host is offline'}
                       className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/[0.04] text-[11px] font-medium"
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${localOnline ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${localOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
                       <span className="text-white/80">batprox-ai</span>
                     </div>
                     <textarea
@@ -655,7 +655,7 @@ export default function AIWork() {
                       onKeyDown={handleKeyDown}
                       onPaste={handlePaste}
                       rows={1}
-                      placeholder="Ask batprox-ai anything.."
+                      placeholder={localOnline === false ? 'batprox-ai is offline..' : 'Ask batprox-ai anything..'}
                       className="w-full pl-14 pr-5 py-4 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all duration-300 backdrop-blur-md shadow-2xl text-lg resize-none max-h-40"
                     />
                     {isTyping && (
