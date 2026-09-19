@@ -1,5 +1,5 @@
 export async function onRequest(context:any){
-  if(context.request.method==='OPTIONS') return new Response(null,{status:204, headers:{'Access-Control-Allow-Origin':'https://stealthybat.org','Access-Control-Allow-Credentials':'true','Access-Control-Allow-Methods':'GET, POST, PUT, DELETE, OPTIONS','Access-Control-Allow-Headers':'*'}});
+  if(context.request.method==='OPTIONS') return new Response(null,{status:204, headers:{'Access-Control-Allow-Origin': context.request.headers.get('Origin') || '*','Access-Control-Allow-Credentials':'true','Access-Control-Allow-Methods':'GET, POST, PUT, DELETE, OPTIONS','Access-Control-Allow-Headers':'*'}});
   const url=new URL(context.request.url);
   const known=['/api/auth','/api/admin','/api/account','/api/bridge','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/recentgames','/api/gamestats','/api/presence','/api/search'];
   if(!known.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))){
@@ -37,13 +37,13 @@ export async function onRequest(context:any){
       }
       const h=new Headers(r.headers);
       const origin=context.request.headers.get('Origin')||'';
-      let allow='https://stealthybat.org';
+      let allow=origin||'*';
       try{
         if(!origin||origin==='null') allow='*';
         else if(origin.indexOf('blob:')===0) allow=origin;
         else {
           const host=new URL(origin).hostname;
-          if(host==='stealthybat.org'||host.endsWith('.stealthybat.org')||host.endsWith('.workers.dev')||host.endsWith('.pages.dev')) allow=origin;
+          if(host) allow=origin;
         }
       }catch{}
       h.set('Access-Control-Allow-Origin',allow);
@@ -51,5 +51,5 @@ export async function onRequest(context:any){
       return new Response(body,{status:r.status, headers:h});
     }catch{}
   }
-  return new Response(JSON.stringify({error:'Backend unreachable'}),{status:502, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'https://stealthybat.org'}});
+  return new Response(JSON.stringify({error:'Backend unreachable'}),{status:502, headers:{'Content-Type':'application/json','Access-Control-Allow-Origin': context.request.headers.get('Origin') || '*'}});
 }

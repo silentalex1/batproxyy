@@ -7,8 +7,24 @@ function sign(payload, secret){
   const data=h+'.'+p;
   return data+'.'+b64url(secret.slice(0,16)+data.slice(-8));
 }
+let SITE_DOMAINS=['stealthybat.org','stealthlybat.it.com'];
+
+function domainOk(host){
+  const hh=String(host||'').toLowerCase();
+  if(hh.endsWith('.workers.dev')||hh.endsWith('.pages.dev')) return true;
+  return SITE_DOMAINS.some(d=>hh===d||hh.endsWith('.'+d));
+}
+
+async function loadDomains(kv){
+  try{
+    const raw=kv?await kv.get('site_domains'):null;
+    const arr=raw?JSON.parse(raw):null;
+    if(Array.isArray(arr)&&arr.length) SITE_DOMAINS=arr.map(x=>String(x).toLowerCase()).filter(Boolean).slice(0,40);
+  }catch{}
+}
+
 function cors(h, origin){
-  let allow='https://stealthybat.org';
+  let allow='https://'+(SITE_DOMAINS[0]||'stealthybat.org');
   try{
     const o=String(origin||'');
     if(!o || o==='null'){
@@ -20,7 +36,7 @@ function cors(h, origin){
     if(o.indexOf('blob:')===0) allow=o;
     else {
       const host=new URL(o).hostname;
-      if(host==='stealthybat.org'||host.endsWith('.stealthybat.org')||host.endsWith('.workers.dev')||host.endsWith('.pages.dev')) allow=o;
+      if(domainOk(host)) allow=o;
     }
   }catch{}
   h.set('Access-Control-Allow-Origin', allow);
@@ -210,7 +226,7 @@ function blockedHost(host){
   const h=String(host||'').toLowerCase().replace(/\.$/,'');
   if(!h) return true;
   if(h==='localhost'||h==='::1'||h==='[::1]'||h==='0.0.0.0') return true;
-  if(h.includes('stealthybat.org')||h.includes('stealthlybat.it.com')) return true;
+  if(domainOk(h)) return true;
   if(/^127\./.test(h)||/^10\./.test(h)||/^192\.168\./.test(h)||/^169\.254\./.test(h)) return true;
   const m=h.match(/^172\.(1[6-9]|2[0-9]|3[01])\./);
   if(m) return true;
@@ -240,6 +256,7 @@ function blockedHost(host){
    }:rawKv;
    const chatGet=async (k, fb)=>{ try{ const r=kv?await kv.get(k):null; return r?JSON.parse(r):fb; }catch{ return fb; } };
    const chatPut=async (k, v)=>{ if(kv) await kv.put(k, JSON.stringify(v)); };
+   await loadDomains(kv);
    const getIP=()=>request.headers.get('cf-connecting-ip')||request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||request.headers.get('x-real-ip')||'unknown';
    if(request.method==='OPTIONS'){
     return new Response(null,{status:204, headers:cors(new Headers(), request.headers.get('Origin'))});
@@ -631,6 +648,30 @@ function blockedHost(host){
       if(kv) await kv.put('ai_origin', JSON.stringify(rec));
       return new Response(JSON.stringify({success:true, registered:rec}),{headers:h});
     }catch{ return new Response(JSON.stringify({success:false, error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/domains' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    return new Response(JSON.stringify({domains:SITE_DOMAINS}),{headers:h});
+  }
+  if(url.pathname==='/api/domains' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const want=String(env.BRIDGE_TOKEN||'');
+    const got=String(request.headers.get('x-bridge-token')||'');
+    if(!want) return new Response(JSON.stringify({error:'BRIDGE_TOKEN is not set on the worker'}),{status:503, headers:h});
+    if(!got||got!==want) return new Response(JSON.stringify({error:'Bad bridge token'}),{status:403, headers:h});
+    try{
+      const {add,remove}=await request.json();
+      const clean=(v)=>String(v||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*$/,'').slice(0,80);
+      let list=SITE_DOMAINS.slice();
+      const a=clean(add);
+      const r=clean(remove);
+      if(a && /^[a-z0-9.-]+\.[a-z]{2,}$/.test(a) && list.indexOf(a)<0) list.push(a);
+      if(r) list=list.filter(x=>x!==r);
+      list=list.slice(0,40);
+      if(kv) await kv.put('site_domains', JSON.stringify(list));
+      SITE_DOMAINS=list;
+      return new Response(JSON.stringify({success:true, domains:list}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/drops' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
