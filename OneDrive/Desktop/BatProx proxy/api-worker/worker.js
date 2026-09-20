@@ -406,15 +406,23 @@ function blockedHost(host){
       if(!to) return new Response(JSON.stringify({success:false, error:'Enter a username'}),{status:200, headers:jh()});
       if(to.toLowerCase()===meName.toLowerCase()) return new Response(JSON.stringify({success:false, error:'That is your own account'}),{status:200, headers:jh()});
       const users=await loadUsers();
-      const target=users.find(u=>String(u.username).toLowerCase()===to.toLowerCase());
-      if(!target) return new Response(JSON.stringify({success:false, error:'No validated account with that username'}),{status:200, headers:jh()});
+      let target=users.find(u=>String(u.username).toLowerCase()===to.toLowerCase());
+      if(!target){
+        if(!/^[A-Za-z0-9._$-]{3,20}$/.test(to)) return new Response(JSON.stringify({success:false, error:'Username must be 3 to 20 characters, letters numbers . _ - $'}),{status:200, headers:jh()});
+        const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code='';
+        for(let i=0;i<6;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+        target={id:users.length?Math.max(...users.map(u=>u.id||0))+1:1, username:to, invite_code:code.slice(0,3)+'-'+code.slice(3), created_at:new Date().toISOString(), temp:true, createdBy:meName};
+        users.push(target);
+        try{ if(kv) await kv.put('users', JSON.stringify(users)); }catch{}
+      }
       const shares=await loadShares();
       const list=Array.isArray(shares[target.username])?shares[target.username]:[];
       if(list.some(x=>x&&x.owner===meName)) return new Response(JSON.stringify({success:false, error:'You already shared your account with '+target.username}),{status:200, headers:jh()});
       list.push({owner:meName, ts:Date.now()});
       shares[target.username]=list.slice(-20);
       await saveShares(shares);
-      return new Response(JSON.stringify({success:true, to:target.username}),{headers:jh()});
+      return new Response(JSON.stringify({success:true, to:target.username, temporary:!!target.temp, invite_code:target.temp?target.invite_code:undefined}),{headers:jh()});
     }
     if(url.pathname==='/api/account/unshare'){
       const to=String(body.to||'').trim();
@@ -425,7 +433,20 @@ function blockedHost(host){
         if(!shares[k].length) delete shares[k];
       }
       await saveShares(shares);
-      return new Response(JSON.stringify({success:true}),{headers:jh()});
+      let removed=false;
+      try{
+        const users=await loadUsers();
+        const t=users.find(u=>String(u.username).toLowerCase()===to.toLowerCase());
+        if(t&&t.temp&&t.createdBy===meName){
+          const stillShared=Object.keys(shares).some(k=>k.toLowerCase()===to.toLowerCase());
+          if(!stillShared){
+            const left=users.filter(u=>String(u.username).toLowerCase()!==to.toLowerCase());
+            if(kv) await kv.put('users', JSON.stringify(left));
+            removed=true;
+          }
+        }
+      }catch{}
+      return new Response(JSON.stringify({success:true, removedTempAccount:removed}),{headers:jh()});
     }
     const want=String(body.account||'').trim();
     if(!want) return new Response(JSON.stringify({success:false, error:'Pick an account'}),{status:200, headers:jh()});
@@ -971,6 +992,25 @@ function blockedHost(host){
         try{ const ri=kv?await kv.get('dm_invites'):null; invites=ri?JSON.parse(ri):[]; }catch{}
         h.set('Content-Disposition','attachment; filename="batprox-dms-'+stamp+'.json"');
         return new Response(JSON.stringify({exported_at:new Date().toISOString(), type:'dms', conversations:conversations.length, count:rows.length, invites, dms:conversations},null,2),{headers:h});
+      }
+      if(kind==='drops'){
+        const users=await chatGet('users',[]);
+        const names=new Set(Array.isArray(users)?users.map(u=>u&&u.username).filter(Boolean):[]);
+        names.add('realalex');
+        names.add('admin');
+        try{ Object.keys(await chatGet('chat_names',{})).forEach(k=>names.add(k)); }catch{}
+        try{ Object.keys(await chatGet('chat_profiles',{})).forEach(k=>names.add(k)); }catch{}
+        const out=[];
+        let total=0;
+        for(const u of names){
+          let rows=[];
+          try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
+          if(!rows.length) continue;
+          total+=rows.length;
+          out.push({user:u, count:rows.length, bytes:rows.reduce((n,r)=>n+(r.size||0),0), drops:rows});
+        }
+        h.set('Content-Disposition','attachment; filename="batprox-drops-'+stamp+'.json"');
+        return new Response(JSON.stringify({exported_at:new Date().toISOString(), type:'drops', users:out.length, count:total, accounts:out},null,2),{headers:h});
       }
       if(kind==='ai'){
         const raw=kv?await kv.get('ai_logs'):null;

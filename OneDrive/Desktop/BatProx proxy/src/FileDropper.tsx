@@ -176,7 +176,7 @@ export default function FileDropper() {
           ) : (
             <div className="space-y-2">
               {drops.map(d => (
-                <div key={d.id} className="flex items-center gap-4 rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 px-4 py-3 transition-colors">
+                <div key={d.id} onClick={() => window.open(`/api/drops/file/${encodeURIComponent(d.id)}`, '_blank', 'noreferrer')} className="flex items-center gap-4 rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.07] px-4 py-3 transition-colors cursor-pointer">
                   <div className="w-10 h-10 rounded-lg bg-purple-600/20 border border-purple-500/25 flex items-center justify-center shrink-0">
                     <svg className="w-5 h-5 text-purple-300" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                       {d.kind === 'text' ? (
@@ -190,8 +190,8 @@ export default function FileDropper() {
                     <p className="text-sm font-medium truncate">{d.name}</p>
                     <p className="text-[11px] text-white/35">{d.kind} · {prettySize(d.size)} · {ago(d.ts)}</p>
                   </div>
-                  <a href={`/api/drops/file/${encodeURIComponent(d.id)}`} target="_blank" rel="noreferrer" className="text-[11px] px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 shrink-0">open</a>
-                  <button onClick={() => remove(d.id)} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/30 text-red-300 border border-red-500/25 shrink-0">delete</button>
+                  <a href={`/api/drops/file/${encodeURIComponent(d.id)}`} onClick={e => e.stopPropagation()} target="_blank" rel="noreferrer" className="text-[11px] px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 shrink-0">open</a>
+                  <button onClick={e => { e.stopPropagation(); remove(d.id); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/30 text-red-300 border border-red-500/25 shrink-0">delete</button>
                 </div>
               ))}
             </div>

@@ -20,6 +20,9 @@ export default function DailyReminder({ isOpen, onClose }: Props) {
     setErr('');
     setNote('');
     setPerm(permissionState());
+    if (permissionState() === 'default') {
+      ensurePermission().then(() => setPerm(permissionState()));
+    }
   }, [isOpen]);
 
   useEffect(() => {
@@ -90,6 +93,16 @@ export default function DailyReminder({ isOpen, onClose }: Props) {
           Start reminding.
         </button>
 
+        {perm === 'default' && (
+          <button
+            onClick={async () => { await ensurePermission(); setPerm(permissionState()); }}
+            className="w-full mt-3 py-2.5 rounded-xl text-[12px] font-semibold text-white transition-all"
+            style={{ background: 'rgba(124,58,237,0.25)', border: '1px solid rgba(167,139,250,0.4)' }}
+          >
+            Allow notifications
+          </button>
+        )}
+        {perm === 'granted' && <p className="text-[11px] text-emerald-300/80 mt-3">Notifications are on, reminders will reach you outside the tab.</p>}
         {perm === 'denied' && <p className="text-[11px] text-amber-300/80 mt-3 leading-relaxed">Notifications are blocked for this site in your browser. Allow them in the padlock menu so reminders can reach you outside the tab.</p>}
 
         {list.length > 0 && (

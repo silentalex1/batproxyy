@@ -90,7 +90,7 @@ export default function AdminPanel() {
   const [exporting, setExporting] = useState('');
   const [exportMsg, setExportMsg] = useState('');
 
-  const runExport = async (kind: 'chat' | 'dms' | 'ai', label: string) => {
+  const runExport = async (kind: 'chat' | 'dms' | 'ai' | 'drops', label: string) => {
     setExporting(kind);
     setExportMsg('');
     try {
@@ -743,6 +743,13 @@ export default function AdminPanel() {
                         <span className="block text-[11px] text-white/35">What users asked MocahAI, and what it replied</span>
                       </span>
                       <span className="text-[11px] text-purple-300 shrink-0">{exporting === 'ai' ? 'working..' : 'download'}</span>
+                    </button>
+                    <button onClick={() => runExport('drops', 'File dropper data')} disabled={!!exporting} className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 hover:border-purple-500/40 hover:bg-white/[0.07] disabled:opacity-50 transition-all text-left">
+                      <span>
+                        <span className="block text-[13px] font-medium text-white">file dropper</span>
+                        <span className="block text-[11px] text-white/35">Download people saved file drops</span>
+                      </span>
+                      <span className="text-[11px] text-purple-300 shrink-0">{exporting === 'drops' ? 'working..' : 'download'}</span>
                     </button>
                   </div>
                   {exportMsg && <p className="mt-4 text-[12px] text-emerald-300">{exportMsg}</p>}
