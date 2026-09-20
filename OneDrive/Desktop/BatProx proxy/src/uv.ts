@@ -149,6 +149,7 @@ export function initUltraviolet(): Promise<void> {
         });
       }
       const wispUrls = [
+        'wss://' + location.host + '/wisp/',
         'wss://wisp.mercurywork.shop/wisp/',
         'wss://anura.terbium.work/wisp/',
         'wss://wisp.run.place/wisp/',

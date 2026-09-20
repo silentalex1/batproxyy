@@ -116,20 +116,17 @@ export default function SearchEngine() {
         clearTimer();
         timerRef.current = setTimeout(() => {
           if (stampRef.current === s) {
-            setUseSandbox(true);
-            setSrc(getSandboxUrl(resolved));
-            setLoading(!skipLoading);
-            setHasError(false);
-            setKey(v => v + 1);
+            setLoading(false);
+            setHasError(true);
           }
-        }, 5500);
+        }, 20000);
       }
       setSrc(getUvUrl(resolved));
       setKey(v => v + 1);
     }).catch(() => {
-      setUseSandbox(true);
-      setSrc(getSandboxUrl(resolved));
-      setKey(v => v + 1);
+      clearTimer();
+      setLoading(false);
+      setHasError(true);
     });
   }, [clearTimer, skipLoading, navigate]);
 
