@@ -715,7 +715,8 @@ function blockedHost(host){
       let rows=[];
       try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
       const id=u+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-      const rec={id, name:String(name||'untitled').slice(0,120), kind:kind==='text'?'text':'file', mime:String(mime||'application/octet-stream').slice(0,80), size:body?body.length:note.length, ts:Date.now()};
+      const isFolder = kind==='folder';
+      const rec={id, name:String(name||'untitled').slice(0,120), kind:isFolder?'folder':kind==='text'?'text':'file', mime:String(mime||'application/octet-stream').slice(0,80), size:body?body.length:note.length, ts:Date.now()};
       if(kv) await kv.put('drop_'+id, body||note);
       rows.unshift(rec);
       let load=0;
@@ -732,6 +733,10 @@ function blockedHost(host){
     const hd=cors(new Headers(), request.headers.get('Origin'));
     hd.set('X-Content-Type-Options','nosniff');
     hd.set('Cache-Control','private, max-age=300');
+    if(raw.startsWith('{"files"') || raw.startsWith('{"bundle"')){
+      hd.set('Content-Type','application/json; charset=utf-8');
+      return new Response(raw,{headers:hd});
+    }
     const m=/^data:([^;]+);base64,(.*)$/.exec(raw);
     if(!m){ hd.set('Content-Type','text/plain; charset=utf-8'); return new Response(raw,{headers:hd}); }
     const bin=atob(m[2]);
@@ -739,6 +744,23 @@ function blockedHost(host){
     for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
     hd.set('Content-Type', /^(image|video|audio|text)\//.test(m[1])?m[1]:'application/octet-stream');
     return new Response(buf,{headers:hd});
+  }
+  if(url.pathname==='/api/drops/rename' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,id,name}=await request.json();
+      const u=String(user||'').trim().slice(0,32);
+      const di=String(id||'').slice(0,80);
+      const nn=String(name||'').trim().slice(0,120);
+      if(!u||!di||di.indexOf(u+'-')!==0 || !nn) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      let rows=[];
+      try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
+      let found=false;
+      for(const r of rows){ if(r.id===di){ r.name=nn; found=true; break; } }
+      if(!found) return new Response(JSON.stringify({error:'Not found'}),{status:404, headers:h});
+      if(kv) await kv.put('drops_'+u, JSON.stringify(rows));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/drops/delete' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');

@@ -148,13 +148,22 @@ export function initUltraviolet(): Promise<void> {
           }, { once: true });
         });
       }
-      const wispUrls = [
+      // self-host first only if localhost; in production (batnight.org / stealthybat etc) public wisps are more reliable
+      const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+      const wispUrls = isLocal ? [
         'wss://' + location.host + '/wisp/',
         'wss://wisp.mercurywork.shop/wisp/',
         'wss://anura.terbium.work/wisp/',
         'wss://wisp.run.place/wisp/',
         'wss://wisp.terbiumon.top/wisp/',
         'wss://wisp.whimsy.run/wisp/'
+      ] : [
+        'wss://wisp.mercurywork.shop/wisp/',
+        'wss://anura.terbium.work/wisp/',
+        'wss://wisp.run.place/wisp/',
+        'wss://wisp.terbiumon.top/wisp/',
+        'wss://wisp.whimsy.run/wisp/',
+        'wss://' + location.host + '/wisp/'
       ];
       const connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
       let connected = false;

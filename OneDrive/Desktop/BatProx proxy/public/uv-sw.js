@@ -12,6 +12,45 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// ---- BatProx Daily Reminder notifications ----
+let bpReminders = [];
+let bpTimer = null;
+function bpDayStamp(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+async function bpTick(){
+  if(!bpReminders.length) return;
+  const now=new Date(); const today=bpDayStamp(now);
+  for(const r of bpReminders){
+    if(r.lastFired===today) continue;
+    const due = now.getHours() > r.hh || (now.getHours()===r.hh && now.getMinutes() >= r.mm);
+    if(!due) continue;
+    const mins = now.getHours()*60+now.getMinutes()-(r.hh*60+r.mm);
+    if(mins>120) continue;
+    r.lastFired=today;
+    try{ await self.registration.showNotification('Reminder', { body:r.text, tag:'bp-reminder-'+r.id, icon:'/favicon.ico', badge:'/favicon.ico', data:{ url:'/dashboard' } }); }catch{}
+  }
+}
+function bpSchedule(){
+  if(bpTimer) clearInterval(bpTimer);
+  bpTimer=setInterval(bpTick, 25000);
+  bpTick();
+}
+self.addEventListener('message', (event)=>{
+  const d=event.data||{};
+  if(d.type==='bp-sync-reminders'){ bpReminders=Array.isArray(d.reminders)?d.reminders:[]; bpSchedule(); }
+  if(d.type==='bp-reminder' && d.body){
+    event.waitUntil(self.registration.showNotification(d.title||'Reminder', { body:d.body, tag:d.tag||'bp-reminder', icon:'/favicon.ico', badge:'/favicon.ico', data:{ url:'/dashboard' } }));
+  }
+});
+self.addEventListener('notificationclick', (event)=>{
+  event.notification.close();
+  const url=(event.notification.data && event.notification.data.url) || '/dashboard';
+  event.waitUntil((async()=>{
+    const all=await clients.matchAll({ type:'window', includeUncontrolled:true });
+    for(const c of all){ try{ if(c.url.includes(self.location.origin)){ await c.focus(); try{ c.postMessage({type:'bp-check-reminders'});}catch{} return; } }catch{} }
+    await clients.openWindow(url);
+  })());
+});
+
 self.addEventListener('fetch', (event) => {
   try {
     const u = event.request.url;
