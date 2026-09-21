@@ -818,6 +818,12 @@ function blockedHost(host){
       const q=String(body.prompt||body.message||'').slice(0,8000);
       const aiUser=String(body.user||'anonymous').trim().slice(0,32)||'anonymous';
       if(!q) return new Response(JSON.stringify({response:'', error:'prompt required'}),{status:400, headers:h});
+      const pwWant=/\b(reset|change).{0,20}password\b/i.test(q) || /\bforgot.*password\b/i.test(q);
+      if(pwWant){
+        const dmHint="To reset your password, go to DMs and start a chat with **batprox-ai** — then follow what I say there. I'll ask 2 quick checks and then \"What password do you want it to change?\" — just type your new invite code and I'll update it instantly.";
+        await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', prompt:q, response:dmHint, ok:true, backend:'rule', ip:getIP()});
+        return new Response(JSON.stringify({response:dmHint, model:'batprox-ai', backend:'rule'}),{headers:h});
+      }
       const history=Array.isArray(body.messages)?body.messages.filter(m=>m&&m.role&&m.content).slice(-12).map(m=>({role:String(m.role)==='assistant'?'assistant':'user', content:String(m.content).slice(0,4000)})):[];
       const messages=history.length?history:[{role:'user', content:q}];
       const {text,backend}=await askBatprox(kv, env, messages);
@@ -1482,6 +1488,78 @@ function blockedHost(host){
       await chatPut('chat_messages',trimRooms(all));
       const isAiDm=rm.startsWith('dm:')&&rm.split(':').includes(AI_BOT);
       const repliedToAi=!!(rt&&rt.user===AI_BOT);
+      // --- batprox-ai DM password reset state machine ---
+      if(isAiDm && cu!==AI_BOT){
+        const stKey='pwreset_'+cu;
+        let st=null;
+        try{ const raw=kv?await kv.get(stKey):null; st=raw?JSON.parse(raw):null; }catch{}
+        const lower=t.toLowerCase();
+        const wantsReset=/\b(reset|change).{0,20}password\b/.test(lower) || /\bforgot.*password\b/.test(lower);
+        // if already waiting for new password (stage 3)
+        if(st && st.stage===3){
+          const newPw=t.trim();
+          // validate
+          if(newPw.length<3 || newPw.length>20){ 
+            const after=await chatGet('chat_messages',[]);
+            const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+            after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"That doesn't look right — pick a new invite code 3-20 characters. What password do you want it to change?", ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
+            await chatPut('chat_messages',trimRooms(after));
+            if(ctx&&ctx.waitUntil) ctx.waitUntil(Promise.resolve()); else {}
+            return new Response(JSON.stringify({success:true, id}),{headers:h});
+          }
+          // update users KV
+          try{
+            const rawU=kv?await kv.get('users'):null;
+            let arr=rawU?JSON.parse(rawU):[];
+            const u=arr.find((x:any)=>x.username===cu);
+            if(!u){ const after=await chatGet('chat_messages',[]); const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1; after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"I couldn't find your account — are you logged in as "+cu+"? Try logging out and back in.", ts:Date.now()}); await chatPut('chat_messages',trimRooms(after)); return new Response(JSON.stringify({success:true, id}),{headers:h}); }
+            u.invite_code=newPw;
+            if(kv) await kv.put('users', JSON.stringify(arr));
+            try{ VALID_CODES.add(newPw); }catch{}
+            if(kv) await kv.put(stKey, JSON.stringify(null));
+            // clear state
+            try{ if(kv) await kv.put(stKey, ''); }catch{}
+            const after=await chatGet('chat_messages',[]);
+            const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+            after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Done! Your password was updated to \""+newPw+"\". You can now log in with it — and the admin panel shows the new code too.", ts:Date.now(), replyTo:{user:cu, text:"***"}});
+            await chatPut('chat_messages',trimRooms(after));
+          }catch(e){
+            const after=await chatGet('chat_messages',[]);
+            const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+            after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Something went wrong saving your new password. Try again in a moment.", ts:Date.now()});
+            await chatPut('chat_messages',trimRooms(after));
+          }
+          return new Response(JSON.stringify({success:true, id}),{headers:h});
+        }
+        if(st && st.stage===2){
+          // second check done -> ask final question
+          if(kv) await kv.put(stKey, JSON.stringify({stage:3, ts:Date.now()}));
+          const after=await chatGet('chat_messages',[]);
+          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Got it. What password do you want it to change? Reply with your new invite code (3-20 characters) and I'll update it right away.", ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
+          await chatPut('chat_messages',trimRooms(after));
+          return new Response(JSON.stringify({success:true, id}),{headers:h});
+        }
+        if(st && st.stage===1){
+          // user answered first check
+          if(kv) await kv.put(stKey, JSON.stringify({stage:2, ts:Date.now()}));
+          const after=await chatGet('chat_messages',[]);
+          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Thanks. Quick second check: what's a recent invite code you've used, or just type \"skip\" to continue.", ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
+          await chatPut('chat_messages',trimRooms(after));
+          return new Response(JSON.stringify({success:true, id}),{headers:h});
+        }
+        if(wantsReset || (st && st.stage)){
+          // start flow
+          if(!st) { if(kv) await kv.put(stKey, JSON.stringify({stage:1, ts:Date.now()})); }
+          const after=await chatGet('chat_messages',[]);
+          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+          const txt=!st ? "Let's reset your password. I'll ask 2 quick checks first. 1) Are you logged in as \""+cu+"\"? Reply \"yes\" to continue." : (st.stage===1?"Are you logged in as \""+cu+"\"? Reply \"yes\".":"What password do you want it to change?");
+          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:txt, ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
+          await chatPut('chat_messages',trimRooms(after));
+          return new Response(JSON.stringify({success:true, id}),{headers:h});
+        }
+      }
       if(cu!==AI_BOT && (isAiDm || repliedToAi || /@(batprox-ai|mochaai)\b/i.test(t))){
         const work=(async()=>{
           const cleaned=t.replace(/@(batprox-ai|mochaai)\b/ig,'').replace(/\s+/g,' ').trim();
