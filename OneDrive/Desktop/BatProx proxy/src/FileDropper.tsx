@@ -201,10 +201,9 @@ export default function FileDropper() {
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
-  // rename / context menu
+  // rename (click rename button or right-click to edit instantly)
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState('');
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!me) return;
@@ -216,12 +215,6 @@ export default function FileDropper() {
   }, [me]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const close = () => setMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('scroll', close);
-    return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close); };
-  }, []);
 
   const saveOne = async (name: string, kind: 'file' | 'text' | 'folder', mime: string, data: string, text: string) => {
     const r = await fetch('/api/drops', {
@@ -371,7 +364,6 @@ export default function FileDropper() {
   const startRename = (d: Drop) => {
     setRenameId(d.id);
     setRenameVal(d.name);
-    setMenu(null);
   };
 
   const confirmRename = async () => {
@@ -475,7 +467,7 @@ export default function FileDropper() {
                 <div
                   key={d.id}
                   onClick={() => { if (renameId !== d.id) openViewer(d); }}
-                  onContextMenu={e => { e.preventDefault(); setMenu({ id: d.id, x: e.clientX, y: e.clientY }); }}
+                  onContextMenu={e => { e.preventDefault(); const found = drops.find(x => x.id === d.id); if (found) startRename(found); }}
                   className="flex items-center gap-4 rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.07] px-4 py-3 transition-colors cursor-pointer"
                 >
                   <div className="w-10 h-10 rounded-lg bg-purple-600/20 border border-purple-500/25 flex items-center justify-center shrink-0">
@@ -510,12 +502,6 @@ export default function FileDropper() {
                   <button onClick={e => { e.stopPropagation(); remove(d.id); }} className="text-[11px] px-3 py-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/30 text-red-300 border border-red-500/25 shrink-0">delete</button>
                 </div>
               ))}
-            </div>
-          )}
-          {menu && (
-            <div style={{ left: menu.x, top: menu.y }} className="fixed z-40 w-40 rounded-xl bg-[#11111a] border border-white/15 shadow-2xl overflow-hidden">
-              <button onClick={e => { e.stopPropagation(); const d = drops.find(x => x.id === menu.id); if (d) startRename(d); }} className="w-full text-left px-3 py-2.5 text-sm hover:bg-white/10">Rename</button>
-              <button onClick={e => { e.stopPropagation(); setMenu(null); remove(menu.id); }} className="w-full text-left px-3 py-2.5 text-sm hover:bg-red-500/20 text-red-300">Delete</button>
             </div>
           )}
         </main>
