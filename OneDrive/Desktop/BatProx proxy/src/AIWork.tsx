@@ -85,7 +85,9 @@ export default function AIWork() {
   const [themeGlow, setThemeGlow] = useState<string>('rgba(147, 51, 234, 0.18)');
   const [selectedModel, setSelectedModel] = useState<Model>({ id: 'batprox-ai', name: 'BatProx AI', status: 'online' });
   const [customA, setCustomA] = useState('#c084fc');
-  const [customB, setCustomB] = useState('#6366f1'); void customA; void customB;
+  const [customB, setCustomB] = useState('#6366f1'); void customA;
+  const [pendingTheme, setPendingTheme] = useState<{ a: string; b: string; label: string } | null>(null);
+  const [alwaysAllow, setAlwaysAllow] = useState(() => { try { return localStorage.getItem('bp-ai-always-allow') === '1'; } catch { return false; } });
   const availableModels: Model[] = [
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
     { id: 'inferforge-code', name: 'Inferforge-code', badge: 'Code', status: 'online' },
@@ -98,7 +100,6 @@ export default function AIWork() {
 
   const applyCustomGradient = (a: string, b: string) => {
     setCustomA(a); setCustomB(b);
-    void (a + '33');
     document.documentElement.style.setProperty('--bp-accent', a);
     document.documentElement.style.setProperty('--bp-accent-2', b);
     document.documentElement.style.setProperty('--bp-glow', `${parseInt(a.slice(1, 3), 16)}, ${parseInt(a.slice(3, 5), 16)}, ${parseInt(a.slice(5, 7), 16)}`);
@@ -110,6 +111,11 @@ export default function AIWork() {
       localStorage.setItem('bp-custom-gradient', JSON.stringify({ a, b }));
     } catch {}
     window.dispatchEvent(new CustomEvent('bp-theme'));
+  };
+  const requestThemeChange = (a: string, b: string, label: string) => {
+    if (alwaysAllow) { applyCustomGradient(a, b); return true; }
+    setPendingTheme({ a, b, label });
+    return false;
   };
 
   useEffect(() => {
@@ -231,20 +237,34 @@ export default function AIWork() {
   const handleSendMessage = async (textOverride?: string) => {
     const raw = (textOverride ?? inputValue).trim();
     if (!raw && images.length === 0) return;
+    let themeRequested: { a: string; b: string; label: string } | null = null;
     if (raw.toLowerCase().includes('change my background theme design to')) {
       const themeName = raw.replace(/change my background theme design to/i, '').trim();
       if (themeName) {
-        if (themeName.toLowerCase().includes('blue')) applyCustomGradient('#3b82f6', '#06b6d4');
-        else if (themeName.toLowerCase().includes('green')) applyCustomGradient('#22c55e', '#16a34a');
-        else if (themeName.toLowerCase().includes('red') || themeName.toLowerCase().includes('crimson')) applyCustomGradient('#ef4444', '#f97316');
-        else if (themeName.toLowerCase().includes('gold') || themeName.toLowerCase().includes('yellow')) applyCustomGradient('#eab308', '#f59e0b');
-        else if (/^#[0-9a-f]{6}$/i.test(themeName)) applyCustomGradient(themeName, '#6366f1');
-        else applyCustomGradient('#a855f7', '#6366f1');
+        if (themeName.toLowerCase().includes('black and white') || themeName.toLowerCase().includes('black & white')) themeRequested = { a: '#e5e7eb', b: '#9ca3af', label: 'black and white' };
+        else if (themeName.toLowerCase().includes('blue')) themeRequested = { a: '#3b82f6', b: '#06b6d4', label: themeName };
+        else if (themeName.toLowerCase().includes('green')) themeRequested = { a: '#22c55e', b: '#16a34a', label: themeName };
+        else if (themeName.toLowerCase().includes('red') || themeName.toLowerCase().includes('crimson')) themeRequested = { a: '#ef4444', b: '#f97316', label: themeName };
+        else if (themeName.toLowerCase().includes('gold') || themeName.toLowerCase().includes('yellow')) themeRequested = { a: '#eab308', b: '#f59e0b', label: themeName };
+        else if (/^#[0-9a-f]{6}$/i.test(themeName)) themeRequested = { a: themeName, b: '#6366f1', label: themeName };
+        else themeRequested = { a: '#a855f7', b: '#6366f1', label: themeName };
       }
-    }
-    if (raw.toLowerCase().match(/#[0-9a-f]{6}/i)) {
+    } else if (raw.toLowerCase().match(/#[0-9a-f]{6}/i)) {
       const hex = raw.match(/#[0-9a-f]{6}/i)?.[0];
-      if (hex) applyCustomGradient(hex, customB);
+      if (hex) themeRequested = { a: hex, b: customB, label: hex };
+    }
+    if (themeRequested) {
+      const ok = requestThemeChange(themeRequested.a, themeRequested.b, themeRequested.label);
+      if (!ok) {
+        const userMessage = raw; const shots = images.map(i => String(i.data || '')).filter(Boolean).slice(0, 4);
+        const newMessages = [...messages, { role: 'user' as const, content: userMessage, imgs: shots.length ? shots : undefined }];
+        setMessages(newMessages); lastUserRef.current = userMessage; lastImgsRef.current = shots.length ? shots : undefined;
+        setInputValue(''); setImages([]); setAttachedFiles([]);
+        const ask = `I can change your background to "${themeRequested.label}" — do you allow me to update your website colors?`;
+        setMessages(prev => [...prev, { role: 'assistant' as const, content: ask }]);
+        saveChatToHistory([...newMessages, { role: 'assistant' as const, content: ask }]);
+        return;
+      }
     }
     const userMessage = raw; const shots = images.map(i => String(i.data || '')).filter(Boolean).slice(0, 4);
     const newMessages = [...messages, { role: 'user' as const, content: userMessage, imgs: shots.length ? shots : undefined }];
@@ -287,7 +307,7 @@ export default function AIWork() {
     <div className="relative min-h-screen w-full bg-[#050507] text-white flex flex-col justify-between overflow-hidden font-sans" onDragEnter={onDragEnter} onDragOver={e => e.preventDefault()} onDragLeave={onDragLeave} onDrop={handleDrop}>
       <div className="absolute inset-0 pointer-events-none opacity-40 z-0" style={{ backgroundSize: '36px 36px', backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px)' }} />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[650px] h-[650px] rounded-full blur-[120px] pointer-events-none transition-all duration-700 ease-in-out z-0" style={{ background: themeGlow }} />
-      <style>{`@keyframes bpPulse{0%,100%{transform:scale(0.85);opacity:0.45}50%{transform:scale(1.18);opacity:1;box-shadow:0 0 12px rgba(168,85,247,0.8)}} @keyframes bpFloat{0%{opacity:0;transform:translateY(8px) scale(0.98)}100%{opacity:1;transform:translateY(0) scale(1)}} @keyframes bpGlowMelt{0%{filter:blur(4px);opacity:0}100%{filter:blur(0);opacity:1}} .bp-word{display:inline-block;animation:bpFloat 420ms cubic-bezier(0.22,1,0.36,1) both, bpGlowMelt 420ms ease-out both} .bp-stream{filter:drop-shadow(0 0 6px rgba(168,85,247,0.25))}`}</style>
+      <style>{`@keyframes bpPulse{0%,100%{transform:scale(0.9);opacity:0.5}50%{transform:scale(1.14);opacity:1;box-shadow:0 0 10px rgba(168,85,247,0.75)}} @keyframes bpFloat{0%{opacity:0;transform:translateY(5px)}100%{opacity:1;transform:translateY(0)}} @keyframes bpGlowMelt{0%{filter:blur(3px);opacity:0}100%{filter:blur(0);opacity:1}} .bp-word{display:inline-block;will-change:transform,opacity;animation:bpFloat 360ms cubic-bezier(0.16,1,0.3,1) both, bpGlowMelt 360ms ease-out both} .bp-stream{filter:drop-shadow(0 0 5px rgba(168,85,247,0.18))}`}</style>
       {dragging && (<div className="fixed inset-0 z-[60] bg-purple-600/10 backdrop-blur-sm border-2 border-dashed border-purple-500/60 flex items-center justify-center pointer-events-none"><div className="text-center"><p className="text-lg font-medium text-purple-200">drop your files here</p><p className="text-xs text-purple-300/60 mt-1">images, folders and .zip archives are supported</p></div></div>)}
 
       <header className="relative z-20 w-full max-w-6xl mx-auto pt-4 px-4">
@@ -342,6 +362,19 @@ export default function AIWork() {
                 {msg.role === 'user' && (<div className="w-8 h-8 rounded-full bg-[#271d42] border border-purple-400/20 flex items-center justify-center shrink-0"><IconUser /></div>)}
               </div>
             ))}
+            {pendingTheme && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>
+                <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-[#120e1e] border border-[#2d2248] shadow-md">
+                  <p className="text-xs text-purple-200 mb-3">Allow BatProx AI to change your background to <span className="font-semibold" style={{ color: pendingTheme.a }}>{pendingTheme.label}</span>?</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => { applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Background updated to ${pendingTheme.label}.` }]); }} className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold">Allow permission</button>
+                    <button onClick={() => setPendingTheme(null)} className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 text-xs border border-white/10">Decline permission</button>
+                    <button onClick={() => { try { localStorage.setItem('bp-ai-always-allow', '1'); setAlwaysAllow(true); } catch {}; applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Always allowed — background updated to ${pendingTheme.label} and future changes will apply automatically.` }]); }} className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Always Allow</button>
+                  </div>
+                </div>
+              </div>
+            )}
             {(isThinking || streamText) && (
               <div className="flex gap-3 justify-start">
                 <div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>

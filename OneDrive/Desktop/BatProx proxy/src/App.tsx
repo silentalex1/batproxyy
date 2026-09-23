@@ -383,7 +383,7 @@ function Dashboard() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                     </svg>
                   )}
-                  {item.label === 'AI' && <span className="absolute -top-1 -right-1 text-[8px] font-bold tracking-widest px-1.5 py-0.5 rounded-full bg-emerald-500 text-white border border-white/20">updated</span>}
+                  {item.label === 'AI' && <span className="absolute -top-1.5 -right-1.5 text-[7px] font-extrabold tracking-widest px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white border border-white/20 shadow-lg shadow-emerald-500/30 backdrop-blur-md">updated</span>}
                 </span>
                 <span className="text-[11px] text-white/70 group-hover:text-white">{item.label}</span>
               </button>
