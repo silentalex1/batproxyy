@@ -127,13 +127,16 @@ const INFERFORGE_BASE='https://inferforge.org';
 const INFERFORGE_MODEL='batprox-ai';
 
 async function askBatprox(kv, env, messages){
+  let hasImages=false;
+  try{ for(const m of (messages||[])) if(m&&typeof m.content!=='string'&&Array.isArray(m.content)) { for(const c of m.content) if(c&&c.type==='image_url') hasImages=true; } }catch{}
   let rec=null;
   try{ const raw=kv?await kv.get('ai_origin'):null; rec=raw?JSON.parse(raw):null; }catch{}
   if(rec&&rec.origin&&Date.now()-(rec.ts||0)<180000){
     try{
       const ctl=new AbortController();
       const tmr=setTimeout(()=>ctl.abort(), 30000);
-      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:rec.model||INFERFORGE_MODEL, messages, stream:false, keep_alive:-1}), signal:ctl.signal});
+      const modelToUse=hasImages ? (rec.model&&String(rec.model).includes('vision')?rec.model:'qwen2.5vl:7b') : (rec.model||INFERFORGE_MODEL);
+      const r=await fetch(rec.origin+'/api/chat',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:modelToUse, messages, stream:false, keep_alive:-1}), signal:ctl.signal});
       clearTimeout(tmr);
       if(r.ok){
         const d=await r.json().catch(()=>null);
@@ -144,17 +147,20 @@ async function askBatprox(kv, env, messages){
   }
   const key=String(env.INFERFORGE_KEY||'');
   if(!key) return {text:'', backend:'none'};
-  for(let a=0;a<2;a++){
-    try{
-      const ctl=new AbortController();
-      const tmr=setTimeout(()=>ctl.abort(), 45000);
-      const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:INFERFORGE_MODEL, messages, stream:false}), signal:ctl.signal});
-      clearTimeout(tmr);
-      if(!r.ok) continue;
-      const d=await r.json().catch(()=>null);
-      const out=d?.choices?.[0]?.message?.content||'';
-      if(out) return {text:out, backend:'inferforge'};
-    }catch{}
+  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:[INFERFORGE_MODEL];
+  for(const mdl of visionModels){
+    for(let a=0;a<1;a++){
+      try{
+        const ctl=new AbortController();
+        const tmr=setTimeout(()=>ctl.abort(), 45000);
+        const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:mdl, messages, stream:false}), signal:ctl.signal});
+        clearTimeout(tmr);
+        if(!r.ok) continue;
+        const d=await r.json().catch(()=>null);
+        const out=d?.choices?.[0]?.message?.content||'';
+        if(out) return {text:out, backend:'inferforge'};
+      }catch{}
+    }
   }
   return {text:'', backend:'none'};
 }
@@ -831,7 +837,37 @@ function blockedHost(host){
         return new Response(JSON.stringify({response:dmHint, model:'batprox-ai', backend:'rule'}),{headers:h});
       }
       const history=Array.isArray(body.messages)?body.messages.filter(m=>m&&m.role&&m.content).slice(-12).map(m=>({role:String(m.role)==='assistant'?'assistant':'user', content:String(m.content).slice(0,4000)})):[];
-      const messages=history.length?history:[{role:'user', content:q}];
+      let messages=history.length?history:[{role:'user', content:q}];
+      const imgs=Array.isArray(body.images)?body.images.filter((x:string)=>typeof x==='string'&&x.startsWith('data:image/')).slice(0,4):[];
+      if(imgs.length){
+        const last=messages[messages.length-1];
+        if(last && last.role==='user'){
+          const arr=[{type:'text', text:String(last.content||q)}];
+          for(const u of imgs) arr.push({type:'image_url', image_url:{url:u}});
+          (last as any).content=arr;
+        } else {
+          const arr=[{type:'text', text:q}];
+          for(const u of imgs) arr.push({type:'image_url', image_url:{url:u}});
+          messages.push({role:'user', content:arr as any});
+        }
+      }
+      if(/\b(how long|hours|time on|leaderboard)\b/i.test(q)){
+        try{
+          let hours=0;
+          const rawG=kv?await kv.get('gamestats'):null; const mapG=rawG?JSON.parse(rawG):{};
+          const per=mapG[aiUser]||{};
+          hours=Object.values(per).reduce((a:number,b:any)=>a+Number(b||0),0)/3600;
+          const rawT=kv?await kv.get('usertime'):null; const tm=rawT?JSON.parse(rawT):{};
+          const u=tm[aiUser]; const total=u&&typeof u==='object'?Number(u.total||0):Number(u||0);
+          if(total) hours=Math.max(hours, total/3600);
+          const rawP=kv?await kv.get('presence'):null; const mp=rawP?JSON.parse(rawP):{};
+          const pr=mp[aiUser]; if(pr&&pr.total) hours=Math.max(hours, Number(pr.total||0)/3600);
+          const hrsStr=hours<0.1?`${Math.round(hours*60)}m`:`${hours.toFixed(1)}h`;
+          messages.unshift({role:'system', content:`User ${aiUser} leaderboard time: ${hrsStr} (${Math.round(hours*3600)}s). No cap — hours can exceed 177h, keep counting. If asked about image, you DID receive ${imgs.length} image(s) and can describe it.`} as any);
+        }catch{}
+      } else if(imgs.length){
+        messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} as any);
+      }
       const {text,backend}=await askBatprox(kv, env, messages);
       if(!text){
         await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
@@ -1325,7 +1361,7 @@ function blockedHost(host){
     try{
       const {username,game,seconds}=await request.json();
       const cu=String(username||'').trim().slice(0,20), g=String(game||'').trim().slice(0,80);
-      const s=Math.max(0, Math.min(86400, parseInt(seconds,10)||0));
+      const s=Math.max(0, Math.min(10000000, parseInt(seconds,10)||0));
       if(!cu||!g||!s) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
       const raw=kv?await kv.get('gamestats'):null;
       const map=raw?JSON.parse(raw):{};

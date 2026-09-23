@@ -293,8 +293,7 @@ export default function AIWork() {
     let reply = 'batprox-ai could not answer right now.';
     try {
       const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 45000);
-      const note = shots.length ? ' [The user attached ' + shots.length + ' image(s). You cannot view images, so ask them to describe it.]' : '';
-      const payload = { prompt: (userMessage || 'The user sent an image with no text.') + note, messages: newMessages.slice(-12).map(mm => ({ role: mm.role, content: mm.content })), user: localStorage.getItem('batprox-user') || 'anonymous', model: selectedModel.id };
+      const payload: any = { prompt: userMessage || 'The user sent an image.', messages: newMessages.slice(-12).map(mm => ({ role: mm.role, content: mm.content })), user: localStorage.getItem('batprox-user') || 'anonymous', model: selectedModel.id, images: shots };
       const r = await fetch('/api/ai/batprox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: ctrl.signal });
       clearTimeout(t);
       if (r.ok) { const d = await r.json(); if (d && typeof d.response === 'string' && d.response.trim()) reply = d.response; }
