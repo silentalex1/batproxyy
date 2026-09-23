@@ -244,18 +244,18 @@ export default function AIWork() {
 
   const parseThemeRequest = (raw: string): { a: string; b: string; label: string } | null => {
     let name: string | null = null;
-    const m1 = raw.match(/change my background(?: theme design)? to\s+(.+)/i);
+    const m1 = raw.match(/change my (?:website )?background(?: theme design| colors| color)? to\s+(.+)/i);
     if (m1) name = m1[1].trim();
     else {
-      const m2 = raw.match(/change my background to\s+(.+)/i);
+      const m2 = raw.match(/change background(?: colors| color)? to\s+(.+)/i);
       if (m2) name = m2[1].trim();
       else {
-        const m3 = raw.match(/change background to\s+(.+)/i);
-        if (m3) name = m3[1].trim();
+        const m3 = raw.match(/background.*?to\s+([#a-z0-9 &]+)/i);
+        if (m3 && /white|black|blue|green|red|gold|yellow|#/.test(m3[1].toLowerCase())) name = m3[1].trim();
       }
     }
     if (name) {
-      const n = name.toLowerCase();
+      const n = name.toLowerCase().replace(/["'.]/g, '');
       if (n.includes('black and white') || n.includes('black & white') || (n.includes('white') && n.includes('black'))) return { a: '#e5e7eb', b: '#111827', label: 'black and white' };
       if (n.includes('white and blue') || (n.includes('white') && n.includes('blue'))) return { a: '#e5e7eb', b: '#3b82f6', label: 'white and blue' };
       if (n.includes('blue')) return { a: '#3b82f6', b: '#06b6d4', label: name };
@@ -438,10 +438,11 @@ export default function AIWork() {
           </div>
         )}
         <div className="relative bg-[#0d0a14]/90 backdrop-blur-xl border border-[#231a38] rounded-2xl p-4 shadow-2xl flex flex-col gap-2.5">
-          <div className="relative inline-block self-start">
-            <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className="flex items-center gap-2 bg-[#171126] hover:bg-[#231a38] border border-[#2f234a] rounded-lg px-3 py-1.5 text-xs text-purple-200 transition">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="font-medium">{selectedModel.id}</span><IconChevron open={isModelMenuOpen} />
-            </button>
+          <div className="flex items-center justify-between">
+            <div className="relative inline-block">
+              <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className="flex items-center gap-2 bg-[#171126] hover:bg-[#231a38] border border-[#2f234a] rounded-lg px-3 py-1.5 text-xs text-purple-200 transition">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="font-medium">{selectedModel.id}</span><IconChevron open={isModelMenuOpen} />
+              </button>
             {isModelMenuOpen && (
               <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50">
                 <div className="text-[11px] font-semibold text-purple-400/60 px-3 py-1 uppercase tracking-wider">Our AI models</div>
@@ -452,6 +453,8 @@ export default function AIWork() {
                 ))}</div>
               </div>
             )}
+            </div>
+            <button onClick={startNewChat} className="h-7 px-3 rounded-full bg-[#211833] hover:bg-[#2b2042] text-[#d1c7e9] text-xs font-medium border border-[#3b2d5a] transition">+ New Chat</button>
           </div>
           {attachedFiles.length > 0 && (<div className="flex flex-wrap gap-2">{attachedFiles.map(f => (<div key={f.id} className="flex items-center gap-2 pl-3 pr-2 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/85"><span className="truncate max-w-[180px]">{f.label || f.file.name}</span><button onClick={() => setAttachedFiles(prev => prev.filter(x => x.id !== f.id))} className="w-5 h-5 rounded-full bg-red-500/80 text-white">×</button></div>))}</div>)}
           {images.length > 0 && (<div className="flex flex-wrap gap-2">{images.map(img => (<div key={img.id} className="relative group"><img src={img.data} alt="" className="w-20 h-20 object-cover rounded-lg border border-white/20" /><button onClick={() => removeImage(img.id)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full text-white text-xs opacity-0 group-hover:opacity-100">×</button></div>))}</div>)}
