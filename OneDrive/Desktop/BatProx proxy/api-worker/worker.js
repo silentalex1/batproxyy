@@ -748,19 +748,25 @@ function blockedHost(host){
   if(url.pathname==='/api/drops/rename' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      const {user,id,name}=await request.json();
-      const u=String(user||'').trim().slice(0,32);
-      const di=String(id||'').slice(0,80);
-      const nn=String(name||'').trim().slice(0,120);
-      if(!u||!di||di.indexOf(u+'-')!==0 || !nn) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
-      let rows=[];
-      try{ const raw=kv?await kv.get('drops_'+u):null; rows=raw?JSON.parse(raw):[]; }catch{}
+      let body:any={}; try{ body=await request.json(); }catch{ return new Response(JSON.stringify({error:'Invalid JSON'}),{status:400, headers:h}); }
+      const u=String(body.user||'').trim().slice(0,32);
+      const di=String(body.id||'').slice(0,80);
+      const nn=String(body.name||'').trim().slice(0,120);
+      if(!u||!di||!nn) return new Response(JSON.stringify({error:'Missing fields'}),{status:400, headers:h});
+      if(di.indexOf(u+'-')!==0) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      let rows:any[]=[];
+      try{
+        const raw=kv?await kv.get('drops_'+u):null;
+        if(raw && typeof raw==='string' && raw.trim()){
+          try{ const parsed=JSON.parse(raw); if(Array.isArray(parsed)) rows=parsed; }catch{ rows=[]; }
+        }
+      }catch{}
       let found=false;
-      for(const r of rows){ if(r.id===di){ r.name=nn; found=true; break; } }
+      for(const r of rows){ if(r && r.id===di){ r.name=nn; found=true; break; } }
       if(!found) return new Response(JSON.stringify({error:'Not found'}),{status:404, headers:h});
-      if(kv) await kv.put('drops_'+u, JSON.stringify(rows));
+      try{ if(kv) await kv.put('drops_'+u, JSON.stringify(rows)); }catch(e){ return new Response(JSON.stringify({error:'KV put failed'}),{status:500, headers:h}); }
       return new Response(JSON.stringify({success:true}),{headers:h});
-    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+    }catch(e:any){ return new Response(JSON.stringify({error:'Invalid', detail:String(e&&e.message||e).slice(0,200)}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/drops/delete' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
@@ -1562,6 +1568,24 @@ function blockedHost(host){
       }
       if(cu!==AI_BOT && (isAiDm || repliedToAi || /@(batprox-ai|mochaai)\b/i.test(t))){
         const work=(async()=>{
+          // If anyone asks about password reset in chatroom or DM (not yet in reset flow), guide them to DMs
+          const lowerCheck=t.toLowerCase();
+          const wantsResetEarly=/\b(reset|change).{0,20}password\b/.test(lowerCheck) || /\bforgot.*password\b/.test(lowerCheck);
+          if(wantsResetEarly){
+            // Check if already in staged flow (handled above for DM) — but for chatroom/early DM answer with hint
+            let skipHint=false;
+            if(isAiDm){
+              try{ const raw=kv?await kv.get('pwreset_'+cu):null; const st=raw?JSON.parse(raw):null; if(st && st.stage) skipHint=true; }catch{}
+            }
+            if(!skipHint){
+              const hint="To reset your password, go to DMs and start a chat with **batprox-ai** — then follow what I say there. I'll ask 2 quick checks and then \"What password do you want it to change?\" — just type your new invite code and I'll update it instantly.";
+              const after=await chatGet('chat_messages',[]);
+              const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+              after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:hint, ts:Date.now(), replyTo:{user:cu, text:t.slice(0,120)}});
+              await chatPut('chat_messages',trimRooms(after));
+              return;
+            }
+          }
           const cleaned=t.replace(/@(batprox-ai|mochaai)\b/ig,'').replace(/\s+/g,' ').trim();
           const shot=pics.length?' They also attached an image, which you cannot see, so ask them to describe it if it matters.':'';
           const quoted=rt&&rt.text?(' They are replying to this earlier message from '+(rt.user||'someone')+': "'+String(rt.text).slice(0,300)+'".'):'';
