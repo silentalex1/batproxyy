@@ -88,6 +88,7 @@ export default function AIWork() {
   const [customB, setCustomB] = useState('#6366f1'); void customA;
   const [pendingTheme, setPendingTheme] = useState<{ a: string; b: string; label: string } | null>(null);
   const [alwaysAllow, setAlwaysAllow] = useState(() => { try { return localStorage.getItem('bp-ai-always-allow') === '1'; } catch { return false; } });
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   useEffect(() => {
     const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
     if (!u) return;
@@ -308,12 +309,23 @@ export default function AIWork() {
   const handleContinue = async () => {
     if (!fullResponse) return;
     setShowContinue(false);
+    const base = fullResponse;
+    setStreamText(base);
     const ctrl = new AbortController();
     try {
-      const r = await fetch('/api/ai/batprox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Continue where you left off. Previous response: ' + fullResponse.slice(-500), messages: [...messages, { role: 'assistant' as const, content: fullResponse }].slice(-12).map(m => ({ role: m.role, content: m.content })), user: localStorage.getItem('batprox-user') || 'anonymous' }), signal: ctrl.signal });
-      if (r.ok) { const d = await r.json(); const extra = (d.response || '').trim(); if (extra) { const combined = fullResponse + '\n\n' + extra; startFluidStream(combined); return; } }
+      const r = await fetch('/api/ai/batprox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Continue where you left off. Previous response: ' + base.slice(-600), messages: [...messages, { role: 'assistant' as const, content: base }].slice(-12).map(m => ({ role: m.role, content: m.content })), user: localStorage.getItem('batprox-user') || 'anonymous' }), signal: ctrl.signal });
+      if (r.ok) { const d = await r.json(); const extra = (d.response || '').trim(); if (extra) {
+        const combined = base + '\n\n' + extra;
+        setFullResponse(combined);
+        let idx = base.length;
+        if (typingRef.current) clearInterval(typingRef.current);
+        typingRef.current = setInterval(() => {
+          if (idx < combined.length) { idx = Math.min(combined.length, idx + 4); setStreamText(combined.slice(0, idx)); if (idx >= combined.length) { if (typingRef.current) clearInterval(typingRef.current); setIsThinking(false); if (isTruncated(combined)) setShowContinue(true); else { setMessages(prev => [...prev, { role: 'assistant' as const, content: combined }]); saveChatToHistory([...messages, { role: 'assistant' as const, content: combined }]); setStreamText(''); setFullResponse(''); } } }
+        }, 18);
+        return;
+      } }
     } catch {}
-    setMessages(prev => [...prev, { role: 'assistant' as const, content: fullResponse }]); saveChatToHistory([...messages, { role: 'assistant' as const, content: fullResponse }]); setStreamText(''); setFullResponse('');
+    setMessages(prev => [...prev, { role: 'assistant' as const, content: base }]); saveChatToHistory([...messages, { role: 'assistant' as const, content: base }]); setStreamText(''); setFullResponse(''); setIsThinking(false);
   };
 
   const handleSuggestionClick = (prompt: string) => {
@@ -374,7 +386,7 @@ export default function AIWork() {
               <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (<div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>)}
                 <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed select-text ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : String(msg.content).includes('has been stopped by') ? 'bg-red-950/60 text-red-200 rounded-bl-none border border-red-500/30 shadow-md' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
-                  {msg.role === 'assistant' ? <div className="select-text"><ReactMarkdown>{String(msg.content || "")}</ReactMarkdown></div> : <span className="whitespace-pre-wrap break-words select-text">{msg.content}</span>}
+                  {msg.role === 'assistant' ? <div className="select-text prose prose-invert max-w-none"><ReactMarkdown components={{ code({ inline, className, children, ...props }: any) { const txt = String(children).replace(/\n$/, ''); if (inline) return <code className="px-1 py-0.5 rounded bg-white/10 text-purple-200 text-xs" {...props}>{children}</code>; const id = txt.slice(0, 40); return <div className="relative group my-2 rounded-xl overflow-hidden border border-white/10 bg-black/40"><div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/10"><span className="text-[10px] tracking-widest text-white/30">{(className || '').replace('language-', '') || 'code'}</span><button onClick={() => { navigator.clipboard.writeText(txt).then(() => { setCopiedCode(id); setTimeout(() => setCopiedCode(null), 1500); }); }} className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white/70 hover:text-white text-[11px] border border-white/10 transition">{copiedCode === id ? 'copied' : 'copy code'}</button></div><pre className="p-3 overflow-x-auto text-xs leading-relaxed"><code className={className} {...props}>{txt}</code></pre></div>; } }}>{String(msg.content || "")}</ReactMarkdown></div> : <span className="whitespace-pre-wrap break-words select-text">{msg.content}</span>}
                   {Array.isArray((msg as any).imgs) && (msg as any).imgs.length > 0 && (<div className="flex flex-wrap gap-2 mt-2">{(msg as any).imgs.map((src: string, ii: number) => (<a key={ii} href={src} target="_blank" rel="noreferrer"><img src={src} alt="" className="max-w-[220px] max-h-[220px] rounded-xl border border-white/15" /></a>))}</div>)}
                 </div>
                 {msg.role === 'user' && (<div className="w-8 h-8 rounded-full bg-[#271d42] border border-purple-400/20 flex items-center justify-center shrink-0"><IconUser /></div>)}
