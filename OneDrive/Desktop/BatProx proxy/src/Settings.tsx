@@ -701,6 +701,46 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
                     );
                   })}
                 </div>
+                <div className="mt-6 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm font-medium text-white/90">Custom gradient</p>
+                      <p className="text-xs text-white/40">Pick any colors — applies to every page and homepage. The AI can also change it.</p>
+                    </div>
+                  </div>
+                  {(() => {
+                    let cg: any = null; try { cg = JSON.parse(localStorage.getItem('bp-custom-gradient') || 'null'); } catch {}
+                    const a = cg?.a || '#c084fc'; const b = cg?.b || '#6366f1';
+                    const apply = (ca: string, cb: string) => {
+                      document.documentElement.style.setProperty('--bp-accent', ca);
+                      document.documentElement.style.setProperty('--bp-accent-2', cb);
+                      document.documentElement.style.setProperty('--bp-glow', `${parseInt(ca.slice(1,3),16)}, ${parseInt(ca.slice(3,5),16)}, ${parseInt(ca.slice(5,7),16)}`);
+                      try { localStorage.setItem('bp-custom-gradient', JSON.stringify({ a: ca, b: cb })); const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}'); s.customGradient = { a: ca, b: cb }; s.theme = 'custom'; localStorage.setItem('batprox-settings', JSON.stringify(s)); } catch {}
+                      const ev = new CustomEvent('bp-theme'); window.dispatchEvent(ev);
+                    };
+                    return (
+                      <div className="space-y-3">
+                        <div className="h-14 rounded-xl border border-white/10" style={{ background: `linear-gradient(135deg, ${a}, ${b})` }} />
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="flex flex-col gap-1.5">
+                            <span className="text-[11px] text-white/40">Color 1</span>
+                            <div className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2">
+                              <input type="color" value={a} onChange={e => apply(e.target.value, b)} className="w-8 h-8 rounded-lg bg-transparent border-0 p-0 cursor-pointer" />
+                              <span className="text-xs text-white/70">{a}</span>
+                            </div>
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className="text-[11px] text-white/40">Color 2</span>
+                            <div className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2">
+                              <input type="color" value={b} onChange={e => apply(a, e.target.value)} className="w-8 h-8 rounded-lg bg-transparent border-0 p-0 cursor-pointer" />
+                              <span className="text-xs text-white/70">{b}</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             )}
 

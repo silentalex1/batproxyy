@@ -84,9 +84,8 @@ export default function AIWork() {
   const [siteTime, setSiteTime] = useState<string>('0 seconds');
   const [themeGlow, setThemeGlow] = useState<string>('rgba(147, 51, 234, 0.18)');
   const [selectedModel, setSelectedModel] = useState<Model>({ id: 'batprox-ai', name: 'BatProx AI', status: 'online' });
-  const [showColorPicker, setShowColorPicker] = useState(false);
   const [customA, setCustomA] = useState('#c084fc');
-  const [customB, setCustomB] = useState('#6366f1');
+  const [customB, setCustomB] = useState('#6366f1'); void customA; void customB;
   const availableModels: Model[] = [
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
     { id: 'inferforge-code', name: 'Inferforge-code', badge: 'Code', status: 'online' },
@@ -177,23 +176,54 @@ export default function AIWork() {
     if (entries.some(en => en)) { const collected: Array<{ file: File; label?: string }> = []; for (const en of entries) collected.push(...(await readEntry(en))); addFiles(collected); }
     else addFiles(Array.from(e.dataTransfer.files || []).map(f => ({ file: f, label: f.name })));
   };
+  const isTruncated = (t: string) => {
+    const s = t.trim();
+    if (!s) return false;
+    if (s.length >= 1400) return true;
+    if (s.length > 220 && !/[.!?)"']\s*$/.test(s) && !s.endsWith('```')) return true;
+    return false;
+  };
+  const getDisableTyping = () => {
+    try { const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}'); return !!s.disableTypingAnimation; } catch { return false; }
+  };
   const startFluidStream = (text: string) => {
+    if (getDisableTyping()) {
+      setIsThinking(false); setStreamText(''); setFullResponse('');
+      const userContent = lastUserRef.current; const imgs = lastImgsRef.current;
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: text }]);
+      saveChatToHistory([...messages, { role: 'user' as const, content: userContent, imgs: imgs } as any, { role: 'assistant' as const, content: text } as any]);
+      if (isTruncated(text)) setShowContinue(true);
+      return;
+    }
     setFullResponse(text); setStreamText(''); setShowContinue(false);
     let idx = 0;
     if (typingRef.current) clearInterval(typingRef.current);
     typingRef.current = setInterval(() => {
       if (idx < text.length) {
-        idx = Math.min(text.length, idx + 4);
+        idx = Math.min(text.length, idx + 3);
         setStreamText(text.slice(0, idx));
         if (idx >= text.length) {
           if (typingRef.current) clearInterval(typingRef.current);
           setIsThinking(false);
-          if (text.length >= 1500) setShowContinue(true);
-          else { const userContent = lastUserRef.current; const imgs = lastImgsRef.current; saveChatToHistory([...messages, { role: 'user' as const, content: userContent, imgs: imgs } as any, { role: 'assistant' as const, content: text } as any]); setMessages(prev => [...prev, { role: 'assistant' as const, content: text }]); setStreamText(''); setFullResponse('');
-          }
+          if (isTruncated(text)) setShowContinue(true);
+          else { const userContent = lastUserRef.current; const imgs = lastImgsRef.current; saveChatToHistory([...messages, { role: 'user' as const, content: userContent, imgs: imgs } as any, { role: 'assistant' as const, content: text } as any]); setMessages(prev => [...prev, { role: 'assistant' as const, content: text }]); setStreamText(''); setFullResponse(''); }
         }
       }
-    }, 16);
+    }, 22);
+  };
+  const handleStop = () => {
+    if (typingRef.current) clearInterval(typingRef.current);
+    setIsThinking(false);
+    const me = (() => { try { return localStorage.getItem('batprox-user') || 'user'; } catch { return 'user'; } })();
+    const stopped = streamText || fullResponse;
+    if (stopped) {
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: stopped }]);
+      saveChatToHistory([...messages, { role: 'assistant' as const, content: stopped }]);
+    }
+    setStreamText(''); setFullResponse(''); setShowContinue(false);
+    const stopMsg = `BatProx AI message has been stopped by ${me}`;
+    setMessages(prev => [...prev, { role: 'assistant' as const, content: stopMsg }]);
+    saveChatToHistory([...messages, { role: 'assistant' as const, content: stopMsg }]);
   };
   const lastUserRef = useRef('');
   const lastImgsRef = useRef<string[] | undefined>(undefined);
@@ -298,41 +328,14 @@ export default function AIWork() {
               <button onClick={() => handleSuggestionClick("Change my background theme design to ____")} className="p-4 bg-[#120e1e]/90 hover:bg-[#1c1530] border border-[#2b2046] hover:border-[#4d387b] rounded-2xl text-purple-200 text-xs md:text-sm font-medium transition shadow-lg flex flex-col items-start justify-between text-left h-28"><div className="p-2 rounded-lg bg-[#1f1636] text-purple-400 border border-purple-500/20"><IconBrush /></div><span>Change my background theme design to ____</span></button>
               <button onClick={() => handleSuggestionClick("What did chatroom talked about?")} className="p-4 bg-[#120e1e]/90 hover:bg-[#1c1530] border border-[#2b2046] hover:border-[#4d387b] rounded-2xl text-purple-200 text-xs md:text-sm font-medium transition shadow-lg flex flex-col items-start justify-between text-left h-28"><div className="p-2 rounded-lg bg-[#1f1636] text-purple-400 border border-purple-500/20"><IconMsg /></div><span>What did chatroom talked about?</span></button>
             </div>
-            <div className="w-full max-w-2xl">
-              <div className="rounded-2xl border border-[#2b2046] bg-[#0d0a14]/80 backdrop-blur-xl p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-purple-300/70 uppercase tracking-widest">Website Gradient</p>
-                  <button onClick={() => setShowColorPicker(v => !v)} className="h-8 px-4 rounded-full bg-[#211833] hover:bg-[#2b2042] text-[#d1c7e9] text-xs font-medium border border-[#3b2d5a] transition">Pick colors</button>
-                </div>
-                <div className="h-14 rounded-xl border border-white/10 shadow-inner" style={{ background: `linear-gradient(135deg, ${customA}, ${customB})` }} />
-                {showColorPicker && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-[11px] text-white/40">Color 1</span>
-                      <div className="flex items-center gap-2 rounded-xl bg-[#120d20] border border-[#271d3d] px-3 py-2">
-                        <input type="color" value={customA} onChange={e => applyCustomGradient(e.target.value, customB)} className="w-8 h-8 rounded-lg bg-transparent border-0 p-0 cursor-pointer" />
-                        <span className="text-xs text-white/70">{customA}</span>
-                      </div>
-                    </label>
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-[11px] text-white/40">Color 2</span>
-                      <div className="flex items-center gap-2 rounded-xl bg-[#120d20] border border-[#271d3d] px-3 py-2">
-                        <input type="color" value={customB} onChange={e => applyCustomGradient(customA, e.target.value)} className="w-8 h-8 rounded-lg bg-transparent border-0 p-0 cursor-pointer" />
-                        <span className="text-xs text-white/70">{customB}</span>
-                      </div>
-                    </label>
-                  </div>
-                )}
-                <p className="text-[11px] text-white/30">Applies to every page and homepage. The AI can also change it — try “Change my background theme design to #ff6b35”.</p>
-              </div>
-            </div>
+
           </div>
         ) : (
           <div className="w-full max-w-2xl space-y-4 py-4 my-auto">
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (<div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>)}
-                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : String(msg.content).includes('has been stopped by') ? 'bg-red-950/60 text-red-200 rounded-bl-none border border-red-500/30 shadow-md' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
                   {msg.role === 'assistant' ? <ReactMarkdown>{String(msg.content || "")}</ReactMarkdown> : <span className="whitespace-pre-wrap break-words">{msg.content}</span>}
                   {Array.isArray((msg as any).imgs) && (msg as any).imgs.length > 0 && (<div className="flex flex-wrap gap-2 mt-2">{(msg as any).imgs.map((src: string, ii: number) => (<a key={ii} href={src} target="_blank" rel="noreferrer"><img src={src} alt="" className="max-w-[220px] max-h-[220px] rounded-xl border border-white/15" /></a>))}</div>)}
                 </div>
@@ -361,6 +364,11 @@ export default function AIWork() {
       </main>
 
       <footer className="relative z-30 w-full max-w-2xl mx-auto pb-6 px-4">
+        {(isThinking || streamText) && (
+          <div className="flex justify-center mb-2">
+            <button onClick={handleStop} className="px-5 py-1.5 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg transition border border-red-400/30">Stop</button>
+          </div>
+        )}
         {showContinue && (
           <div className="flex justify-center mb-2">
             <button onClick={handleContinue} className="px-4 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg transition">Continue</button>
