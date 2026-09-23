@@ -5,6 +5,7 @@ import Cookies from 'js-cookie';
 import Settings from './Settings';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
+import { applyTheme } from './theme';
 
 const IconChevron = ({ open }: { open?: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${open ? 'rotate-180' : ''} transition-transform`}><path d="M6 9l6 6 6-6" /></svg>
@@ -302,6 +303,25 @@ export default function AIWork() {
     } catch { reply = 'batprox-ai could not answer right now.'; }
     if (raw.toLowerCase().includes('how long was i on this website')) reply = `You have been active on this website for ${siteTime}.`;
     if (raw.toLowerCase().includes('what did chatroom talked about')) reply = `The chatroom recently discussed upcoming platform updates, new AI models, UI tweaks, and web mini-games!`;
+    const toolMatch = reply.match(/"name"\s*:\s*"update_settings".*?"new"\s*:\s*"([^"]+)"/s);
+    if (toolMatch) {
+      const themeName = toolMatch[1];
+      const doApply = () => {
+        try {
+          const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}');
+          s.theme = themeName; localStorage.setItem('batprox-settings', JSON.stringify(s));
+          applyTheme(themeName);
+        } catch { applyTheme(themeName); }
+      };
+      if (alwaysAllow) doApply();
+      else {
+        const a = themeName === 'Moon' ? '#38bdf8' : '#e5e7eb'; const b = '#6366f1';
+        setPendingTheme({ a, b, label: themeName });
+        setIsThinking(false);
+        startFluidStream(reply + `\n\nI can switch you to "${themeName}" — allow me to update your settings?`);
+        return;
+      }
+    }
     setIsThinking(false);
     startFluidStream(reply);
   };
