@@ -88,6 +88,13 @@ export default function AIWork() {
   const [customB, setCustomB] = useState('#6366f1'); void customA;
   const [pendingTheme, setPendingTheme] = useState<{ a: string; b: string; label: string } | null>(null);
   const [alwaysAllow, setAlwaysAllow] = useState(() => { try { return localStorage.getItem('bp-ai-always-allow') === '1'; } catch { return false; } });
+  useEffect(() => {
+    const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
+    if (!u) return;
+    fetch(`/api/ai/permissions?user=${encodeURIComponent(u)}`, { cache: 'no-store' }).then(r => r.json()).then(d => {
+      if (d && typeof d.alwaysAllow === 'boolean') { setAlwaysAllow(!!d.alwaysAllow); try { localStorage.setItem('bp-ai-always-allow', d.alwaysAllow ? '1' : '0'); } catch {} }
+    }).catch(() => {});
+  }, []);
   const availableModels: Model[] = [
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
     { id: 'inferforge-code', name: 'Inferforge-code', badge: 'Code', status: 'online' },
@@ -234,25 +241,37 @@ export default function AIWork() {
   const lastUserRef = useRef('');
   const lastImgsRef = useRef<string[] | undefined>(undefined);
 
+  const parseThemeRequest = (raw: string): { a: string; b: string; label: string } | null => {
+    let name: string | null = null;
+    const m1 = raw.match(/change my background(?: theme design)? to\s+(.+)/i);
+    if (m1) name = m1[1].trim();
+    else {
+      const m2 = raw.match(/change my background to\s+(.+)/i);
+      if (m2) name = m2[1].trim();
+      else {
+        const m3 = raw.match(/change background to\s+(.+)/i);
+        if (m3) name = m3[1].trim();
+      }
+    }
+    if (name) {
+      const n = name.toLowerCase();
+      if (n.includes('black and white') || n.includes('black & white') || (n.includes('white') && n.includes('black'))) return { a: '#e5e7eb', b: '#111827', label: 'black and white' };
+      if (n.includes('white and blue') || (n.includes('white') && n.includes('blue'))) return { a: '#e5e7eb', b: '#3b82f6', label: 'white and blue' };
+      if (n.includes('blue')) return { a: '#3b82f6', b: '#06b6d4', label: name };
+      if (n.includes('green')) return { a: '#22c55e', b: '#16a34a', label: name };
+      if (n.includes('red') || n.includes('crimson')) return { a: '#ef4444', b: '#f97316', label: name };
+      if (n.includes('gold') || n.includes('yellow')) return { a: '#eab308', b: '#f59e0b', label: name };
+      if (/^#[0-9a-f]{6}$/i.test(name)) return { a: name, b: '#6366f1', label: name };
+      return { a: '#a855f7', b: '#6366f1', label: name };
+    }
+    const hex = raw.match(/#[0-9a-f]{6}/i)?.[0];
+    if (hex) return { a: hex, b: customB, label: hex };
+    return null;
+  };
   const handleSendMessage = async (textOverride?: string) => {
     const raw = (textOverride ?? inputValue).trim();
     if (!raw && images.length === 0) return;
-    let themeRequested: { a: string; b: string; label: string } | null = null;
-    if (raw.toLowerCase().includes('change my background theme design to')) {
-      const themeName = raw.replace(/change my background theme design to/i, '').trim();
-      if (themeName) {
-        if (themeName.toLowerCase().includes('black and white') || themeName.toLowerCase().includes('black & white')) themeRequested = { a: '#e5e7eb', b: '#9ca3af', label: 'black and white' };
-        else if (themeName.toLowerCase().includes('blue')) themeRequested = { a: '#3b82f6', b: '#06b6d4', label: themeName };
-        else if (themeName.toLowerCase().includes('green')) themeRequested = { a: '#22c55e', b: '#16a34a', label: themeName };
-        else if (themeName.toLowerCase().includes('red') || themeName.toLowerCase().includes('crimson')) themeRequested = { a: '#ef4444', b: '#f97316', label: themeName };
-        else if (themeName.toLowerCase().includes('gold') || themeName.toLowerCase().includes('yellow')) themeRequested = { a: '#eab308', b: '#f59e0b', label: themeName };
-        else if (/^#[0-9a-f]{6}$/i.test(themeName)) themeRequested = { a: themeName, b: '#6366f1', label: themeName };
-        else themeRequested = { a: '#a855f7', b: '#6366f1', label: themeName };
-      }
-    } else if (raw.toLowerCase().match(/#[0-9a-f]{6}/i)) {
-      const hex = raw.match(/#[0-9a-f]{6}/i)?.[0];
-      if (hex) themeRequested = { a: hex, b: customB, label: hex };
-    }
+    let themeRequested = parseThemeRequest(raw);
     if (themeRequested) {
       const ok = requestThemeChange(themeRequested.a, themeRequested.b, themeRequested.label);
       if (!ok) {
@@ -370,7 +389,7 @@ export default function AIWork() {
                   <div className="flex gap-2">
                     <button onClick={() => { applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Background updated to ${pendingTheme.label}.` }]); }} className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold">Allow permission</button>
                     <button onClick={() => setPendingTheme(null)} className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 text-xs border border-white/10">Decline permission</button>
-                    <button onClick={() => { try { localStorage.setItem('bp-ai-always-allow', '1'); setAlwaysAllow(true); } catch {}; applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Always allowed — background updated to ${pendingTheme.label} and future changes will apply automatically.` }]); }} className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Always Allow</button>
+                    <button onClick={() => { try { localStorage.setItem('bp-ai-always-allow', '1'); setAlwaysAllow(true); } catch {}; const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })(); if (u) fetch('/api/ai/permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, alwaysAllow: true }) }).catch(() => {}); applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Always allowed — background updated to ${pendingTheme.label} and future changes will apply automatically.` }]); }} className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Always Allow</button>
                   </div>
                 </div>
               </div>

@@ -841,6 +841,23 @@ function blockedHost(host){
       return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/ai/permissions' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const user=String(url.searchParams.get('user')||'').trim().slice(0,32);
+    if(!user) return new Response(JSON.stringify({ alwaysAllow:false }),{headers:h});
+    try{ const raw=kv?await kv.get('ai_perm_'+user):null; const j=raw?JSON.parse(raw):null; return new Response(JSON.stringify({ alwaysAllow:!!(j&&j.alwaysAllow) }),{headers:h}); }catch{ return new Response(JSON.stringify({ alwaysAllow:false }),{headers:h}); }
+  }
+  if(url.pathname==='/api/ai/permissions' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const { user, alwaysAllow }=await request.json();
+      const u=String(user||'').trim().slice(0,32);
+      if(!u) return new Response(JSON.stringify({error:'user required'}),{status:400, headers:h});
+      const val=!!alwaysAllow;
+      if(kv) await kv.put('ai_perm_'+u, JSON.stringify({ alwaysAllow:val, ts:Date.now() }));
+      return new Response(JSON.stringify({success:true, alwaysAllow:val}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h}); }
+  }
   if(url.pathname==='/api/ai/chat' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const apiKey=env.OPENROUTER_API_KEY;
