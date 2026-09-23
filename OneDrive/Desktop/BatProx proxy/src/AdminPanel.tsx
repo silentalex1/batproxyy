@@ -757,90 +757,125 @@ export default function AdminPanel() {
               </div>
             )}
             {tab === 'coderequest' && (
-              <div>
-                <div className="flex items-center justify-between gap-4 mb-1">
-                  <h2 className="text-lg font-bold text-white">Code request</h2>
-                  <span className={`text-[11px] px-3 py-1 rounded-full border flex items-center gap-1.5 ${codePc ? 'bg-green-500/10 text-green-300 border-green-500/30' : 'bg-white/5 text-white/40 border-white/10'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${codePc ? 'bg-green-400 animate-pulse' : 'bg-white/30'}`} />
-                    {codePc ? `your pc is connected${codeHost ? ` (${codeHost})` : ''}` : 'your pc is offline'}
-                  </span>
+              <div className="h-[calc(100vh-4rem)] -m-8 flex flex-col bg-[#0a0a10] rounded-none">
+                <div className="flex items-center gap-3 px-4 h-11 border-b border-white/[0.07] bg-[#0d0d14] shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+                  </div>
+                  <span className="text-[12px] text-white/70 font-medium ml-1">batprox workspace</span>
+                  <span className="text-[11px] text-white/25">~/batprox-proxy</span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className={`text-[11px] px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${codePc ? 'text-emerald-300 border-emerald-500/25 bg-emerald-500/10' : 'text-white/40 border-white/10 bg-white/[0.03]'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${codePc ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
+                      {codePc ? `agent connected${codeHost ? ` · ${codeHost}` : ''}` : 'agent not running'}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-gray-500 text-sm mb-5">Runs on your own Claude account through the bridge on your PC. Enter sends it, shift+enter makes a new line.</p>
-                <div className="grid lg:grid-cols-[1fr_260px] gap-4 items-start">
-                  <div className="space-y-4">
-                    <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md">
-                      <div className="flex items-center gap-3 mb-3">
-                        <select value={codeProvider} onChange={e => setCodeProvider(e.target.value as 'claude' | 'copilot')} className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500/60 transition-all">
-                          <option className="bg-[#0d0d12]" value="claude">Claude</option>
-                          <option className="bg-[#0d0d12]" value="copilot">GitHub Copilot</option>
-                        </select>
-                        <span className="text-[11px] text-white/35">{codeProvider === 'claude' ? 'connects to your Claude account' : 'connects to your GitHub Copilot account'}</span>
-                      </div>
-                      <textarea
-                        value={codePrompt}
-                        onChange={e => { setCodePrompt(e.target.value); if (codeError) setCodeError(''); }}
-                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCodeRequest(); } }}
-                        placeholder="type the request you want.."
-                        rows={7}
-                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all resize-y leading-relaxed"
-                      />
-                      <div className="flex items-center justify-between gap-3 mt-3">
-                        <span className="text-[11px] text-white/25">{codeStage || 'enter = send · shift+enter = new line'}</span>
-                        <button onClick={sendCodeRequest} disabled={codeBusy || !codePrompt.trim()} className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center gap-2">
-                          {codeBusy && <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>}
-                          {codeBusy ? 'sending' : 'send request'}
+
+                <div className="flex-1 flex min-h-0">
+                  <div className="w-60 shrink-0 border-r border-white/[0.07] bg-[#0b0b12] flex flex-col">
+                    <div className="px-3 py-2.5 border-b border-white/[0.06]">
+                      <p className="text-[10px] uppercase tracking-widest text-white/25 mb-2">model</p>
+                      <div className="space-y-1">
+                        <button
+                          onClick={() => setCodeProvider('claude')}
+                          className={`w-full text-left px-2.5 py-2 rounded-lg border transition-colors ${codeProvider === 'claude' ? 'bg-purple-600/15 border-purple-500/35' : 'bg-white/[0.02] border-white/[0.07] hover:border-white/15'}`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            <span className="text-[12px] font-medium text-white">BatProx Agentic</span>
+                          </span>
+                          <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">edits the site from your prompt</span>
+                        </button>
+                        <button
+                          disabled
+                          className="w-full text-left px-2.5 py-2 rounded-lg border border-white/[0.06] bg-white/[0.01] opacity-50 cursor-not-allowed"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white/25" />
+                            <span className="text-[12px] font-medium text-white/60">InferForge codex</span>
+                          </span>
+                          <span className="block text-[10px] text-white/30 mt-0.5 pl-3.5">coming soon</span>
                         </button>
                       </div>
-                      {codeError && <p className="text-red-400 text-xs mt-3 whitespace-pre-wrap break-words">{codeError}</p>}
                     </div>
-                    {codeOut && (
-                      <div className="bg-black border border-purple-500/30 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(139,92,246,0.2)]">
-                        <div className="bg-white/[0.04] border-b border-white/10 px-4 py-2 flex items-center gap-2">
-                          <span className="text-xs font-mono text-purple-300">answer</span>
-                          <button onClick={() => setCodeOut('')} className="ml-auto text-[11px] text-white/35 hover:text-white/80 transition-colors">clear</button>
-                        </div>
-                        <pre className="p-4 max-h-[26rem] overflow-auto font-mono text-[12.5px] text-white/80 whitespace-pre-wrap break-words bg-[#050508]">{codeOut}</pre>
+
+                    <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
+                      <p className="text-[10px] uppercase tracking-widest text-white/25 mb-2">history</p>
+                      <div className="flex-1 overflow-y-auto space-y-1 -mx-1 px-1">
+                        {codeJobs.length === 0 && <p className="text-[11px] text-white/25 px-1">nothing yet</p>}
+                        {codeJobs.map(j => (
+                          <button
+                            key={j.id}
+                            onClick={() => { setCodeOpen(j.id); setCodeOut(j.reply || ''); }}
+                            className={`w-full text-left px-2.5 py-2 rounded-lg border transition-colors ${codeOpen === j.id ? 'bg-white/[0.06] border-white/15' : 'bg-transparent border-transparent hover:bg-white/[0.03]'}`}
+                          >
+                            <span className="flex items-center gap-1.5 mb-0.5">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${j.status === 'done' ? 'bg-emerald-400' : j.status === 'error' ? 'bg-red-400' : 'bg-amber-400 animate-pulse'}`} />
+                              <span className="text-[10px] text-white/30">{codeAgo(j.ts)}</span>
+                            </span>
+                            <span className="block text-[11px] text-white/70 leading-snug line-clamp-2">{j.prompt}</span>
+                          </button>
+                        ))}
                       </div>
-                    )}
+                    </div>
                   </div>
-                  <div className="bg-black/40 border border-white/10 rounded-xl backdrop-blur-md lg:sticky lg:top-0 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-white/[0.07] flex items-center gap-2">
-                      <div>
-                        <p className="text-xs font-bold text-white leading-tight">recent requests</p>
-                        <p className="text-[10px] text-white/30">last 12 from this panel</p>
-                      </div>
-                      {codeJobs.length > 0 && <span className="ml-auto text-[10px] text-white/35 bg-white/[0.06] border border-white/10 px-2 py-0.5 rounded-full">{codeJobs.length}</span>}
-                    </div>
-                    <div className="p-2 space-y-1.5 max-h-[32rem] overflow-y-auto">
-                      {codeJobs.length === 0 && (
-                        <div className="px-3 py-8 text-center">
-                          <p className="text-[11px] text-white/30">Nothing sent yet.</p>
-                          <p className="text-[10px] text-white/20 mt-1">Your requests will show up here.</p>
+
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <div className="flex-1 overflow-y-auto p-5 min-h-0">
+                      {codeError && (
+                        <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/25 text-[12px] text-red-300">{codeError}</div>
+                      )}
+                      {!codeOut && !codeBusy && !codeError && (
+                        <div className="h-full flex flex-col items-center justify-center text-center">
+                          <div className="w-14 h-14 rounded-2xl bg-purple-600/12 border border-purple-500/25 flex items-center justify-center mb-4">
+                            <svg className="w-7 h-7 text-purple-300/80" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                            </svg>
+                          </div>
+                          <p className="text-[13px] text-white/50">Describe a change and the agent will make it.</p>
+                          <p className="text-[11px] text-white/25 mt-1.5">It runs on your machine and edits this repo directly.</p>
                         </div>
                       )}
-                      {codeJobs.map(job => {
-                        const tone = job.status === 'done'
-                          ? { dot: 'bg-green-400', text: 'text-green-300', edge: 'border-l-green-400/70', chip: 'bg-green-500/10 text-green-300 border-green-500/25' }
-                          : job.status === 'error'
-                            ? { dot: 'bg-red-400', text: 'text-red-300', edge: 'border-l-red-400/70', chip: 'bg-red-500/10 text-red-300 border-red-500/25' }
-                            : { dot: 'bg-amber-400 animate-pulse', text: 'text-amber-300', edge: 'border-l-amber-400/70', chip: 'bg-amber-500/10 text-amber-300 border-amber-500/25' };
-                        const open = codeOpen === job.id;
-                        return (
+                      {codeBusy && !codeOut && (
+                        <div className="flex items-center gap-2.5 text-[12px] text-white/50">
+                          <span className="w-3.5 h-3.5 rounded-full border-2 border-purple-400/30 border-t-purple-400 animate-spin" />
+                          {codeStage || 'working...'}
+                        </div>
+                      )}
+                      {codeOut && (
+                        <pre className="text-[12px] leading-relaxed text-white/80 whitespace-pre-wrap break-words font-mono">{codeOut}</pre>
+                      )}
+                    </div>
+
+                    <div className="border-t border-white/[0.07] bg-[#0b0b12] p-3 shrink-0">
+                      <div className="rounded-xl border border-white/10 bg-[#0e0e16] focus-within:border-purple-500/40 transition-colors">
+                        <textarea
+                          value={codePrompt}
+                          onChange={e => setCodePrompt(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCodeRequest(); } }}
+                          rows={3}
+                          placeholder="make the dashboard cards rounder, add a dark toggle to settings.."
+                          className="w-full px-4 py-3 bg-transparent text-white text-[13px] placeholder-white/25 resize-none outline-none font-mono leading-relaxed"
+                        />
+                        <div className="flex items-center gap-3 px-3 pb-2.5">
+                          <span className="text-[10px] text-white/25">enter to run · shift+enter for a new line</span>
                           <button
-                            key={job.id}
-                            onClick={() => { setCodeOpen(job.id); setCodeOut(job.reply || ''); setCodeError(''); }}
-                            className={`w-full text-left pl-3 pr-2.5 py-2.5 rounded-lg border border-l-2 transition-all ${tone.edge} ${open ? 'bg-white/[0.09] border-white/25' : 'bg-white/[0.035] border-white/[0.07] hover:bg-white/[0.06] hover:border-white/20'}`}
+                            onClick={sendCodeRequest}
+                            disabled={!codePrompt.trim() || codeBusy}
+                            className="ml-auto px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-35 disabled:hover:bg-purple-600 text-white text-[12px] font-semibold transition-colors"
                           >
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} />
-                              <span className={`text-[9px] font-bold uppercase tracking-widest ${tone.text}`}>{job.status === 'pending' ? 'queued' : job.status}</span>
-                              <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded border ${tone.chip}`}>{job.provider === 'copilot' ? 'copilot' : 'claude'}</span>
-                            </div>
-                            <p className="text-[11.5px] text-white/80 leading-snug line-clamp-2 break-words">{job.prompt}</p>
-                            <p className="text-[10px] text-white/25 mt-1.5">{codeAgo(job.ts)}</p>
+                            {codeBusy ? 'running' : 'run'}
                           </button>
-                        );
-                      })}
+                        </div>
+                      </div>
+                      {!codePc && (
+                        <p className="mt-2 text-[11px] text-amber-300/70">
+                          Start the agent on your machine to run changes: <span className="font-mono text-amber-200/90">npm run bridge</span>
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
