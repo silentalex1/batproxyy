@@ -79,7 +79,7 @@ function Dashboard() {
           navigate('/');
         } else {
           setIsAdmin(!!data.isAdmin);
-          setIsMod(!!(data.isMod || data.rank === 'moderator'));
+          setIsMod(!!(data.isMod || (data.rank && data.rank !== 'user')));
           if (isAboutBlankTabEnabled()) {
             launchAboutBlankCloak();
           }

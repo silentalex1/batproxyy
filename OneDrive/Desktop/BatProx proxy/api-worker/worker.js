@@ -366,7 +366,7 @@ function blockedHost(host){
       let rank='user';
       try{ const rawU=kv?await kv.get('users'):null; const arr=rawU?JSON.parse(rawU||'[]'):[]; const f=arr.find(x=>x.username===payload.username); if(f&&f.rank) rank=f.rank; }catch{}
       const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json');
-      return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin, rank, isMod:rank==='moderator'||!!payload.isAdmin}),{headers:h});
+      return new Response(JSON.stringify({user:{id:payload.id||1, username:payload.username||'user'}, isAdmin:!!payload.isAdmin, rank, isMod:(rank&&rank!=='user')||!!payload.isAdmin}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid token'}),{status:403});}
   }
   if(url.pathname==='/api/account/share' || url.pathname==='/api/account/shares' || url.pathname==='/api/account/switch' || url.pathname==='/api/account/unshare'){
@@ -754,13 +754,13 @@ function blockedHost(host){
   if(url.pathname==='/api/drops/rename' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
-      let body:any={}; try{ body=await request.json(); }catch{ return new Response(JSON.stringify({error:'Invalid JSON'}),{status:400, headers:h}); }
+      let body={}; try{ body=await request.json(); }catch{ return new Response(JSON.stringify({error:'Invalid JSON'}),{status:400, headers:h}); }
       const u=String(body.user||'').trim().slice(0,32);
       const di=String(body.id||'').slice(0,80);
       const nn=String(body.name||'').trim().slice(0,120);
       if(!u||!di||!nn) return new Response(JSON.stringify({error:'Missing fields'}),{status:400, headers:h});
       if(di.indexOf(u+'-')!==0) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
-      let rows:any[]=[];
+      let rows=[];
       try{
         const raw=kv?await kv.get('drops_'+u):null;
         if(raw && typeof raw==='string' && raw.trim()){
@@ -772,7 +772,7 @@ function blockedHost(host){
       if(!found) return new Response(JSON.stringify({error:'Not found'}),{status:404, headers:h});
       try{ if(kv) await kv.put('drops_'+u, JSON.stringify(rows)); }catch(e){ return new Response(JSON.stringify({error:'KV put failed'}),{status:500, headers:h}); }
       return new Response(JSON.stringify({success:true}),{headers:h});
-    }catch(e:any){ return new Response(JSON.stringify({error:'Invalid', detail:String(e&&e.message||e).slice(0,200)}),{status:400, headers:h});}
+    }catch(e){ return new Response(JSON.stringify({error:'Invalid', detail:String(e&&e.message||e).slice(0,200)}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/drops/delete' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
@@ -838,17 +838,17 @@ function blockedHost(host){
       }
       const history=Array.isArray(body.messages)?body.messages.filter(m=>m&&m.role&&m.content).slice(-12).map(m=>({role:String(m.role)==='assistant'?'assistant':'user', content:String(m.content).slice(0,4000)})):[];
       let messages=history.length?history:[{role:'user', content:q}];
-      const imgs=Array.isArray(body.images)?body.images.filter((x:string)=>typeof x==='string'&&x.startsWith('data:image/')).slice(0,4):[];
+      const imgs=Array.isArray(body.images)?body.images.filter((x)=>typeof x==='string'&&x.startsWith('data:image/')).slice(0,4):[];
       if(imgs.length){
         const last=messages[messages.length-1];
         if(last && last.role==='user'){
           const arr=[{type:'text', text:String(last.content||q)}];
           for(const u of imgs) arr.push({type:'image_url', image_url:{url:u}});
-          (last as any).content=arr;
+          last.content=arr;
         } else {
           const arr=[{type:'text', text:q}];
           for(const u of imgs) arr.push({type:'image_url', image_url:{url:u}});
-          messages.push({role:'user', content:arr as any});
+          messages.push({role:'user', content:arr });
         }
       }
       if(/\b(how long|hours|time on|leaderboard)\b/i.test(q)){
@@ -856,17 +856,17 @@ function blockedHost(host){
           let hours=0;
           const rawG=kv?await kv.get('gamestats'):null; const mapG=rawG?JSON.parse(rawG):{};
           const per=mapG[aiUser]||{};
-          hours=Object.values(per).reduce((a:number,b:any)=>a+Number(b||0),0)/3600;
+          hours=Object.values(per).reduce((a,b)=>a+Number(b||0),0)/3600;
           const rawT=kv?await kv.get('usertime'):null; const tm=rawT?JSON.parse(rawT):{};
           const u=tm[aiUser]; const total=u&&typeof u==='object'?Number(u.total||0):Number(u||0);
           if(total) hours=Math.max(hours, total/3600);
           const rawP=kv?await kv.get('presence'):null; const mp=rawP?JSON.parse(rawP):{};
           const pr=mp[aiUser]; if(pr&&pr.total) hours=Math.max(hours, Number(pr.total||0)/3600);
           const hrsStr=hours<0.1?`${Math.round(hours*60)}m`:`${hours.toFixed(1)}h`;
-          messages.unshift({role:'system', content:`User ${aiUser} leaderboard time: ${hrsStr} (${Math.round(hours*3600)}s). No cap — hours can exceed 177h, keep counting. If asked about image, you DID receive ${imgs.length} image(s) and can describe it.`} as any);
+          messages.unshift({role:'system', content:`User ${aiUser} leaderboard time: ${hrsStr} (${Math.round(hours*3600)}s). No cap — hours can exceed 177h, keep counting. If asked about image, you DID receive ${imgs.length} image(s) and can describe it.`} );
         }catch{}
       } else if(imgs.length){
-        messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} as any);
+        messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} );
       }
       const {text,backend}=await askBatprox(kv, env, messages);
       if(!text){
@@ -1570,7 +1570,7 @@ function blockedHost(host){
           try{
             const rawU=kv?await kv.get('users'):null;
             let arr=rawU?JSON.parse(rawU):[];
-            const u=arr.find((x:any)=>x.username===cu);
+            const u=arr.find((x)=>x.username===cu);
             if(!u){ const after=await chatGet('chat_messages',[]); const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1; after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"I couldn't find your account — are you logged in as "+cu+"? Try logging out and back in.", ts:Date.now()}); await chatPut('chat_messages',trimRooms(after)); return new Response(JSON.stringify({success:true, id}),{headers:h}); }
             u.invite_code=newPw;
             if(kv) await kv.put('users', JSON.stringify(arr));

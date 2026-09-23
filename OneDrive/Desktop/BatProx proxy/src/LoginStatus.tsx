@@ -20,7 +20,7 @@ export default function LoginStatus() {
   const [reportUser, setReportUser] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchWithTimeout = async (input: string, init: RequestInit, ms = 8000) => {
+  const fetchWithTimeout = async (input: string, init: RequestInit, ms = 20000) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
     try {
@@ -39,7 +39,7 @@ export default function LoginStatus() {
         others = (d.users || []).filter((u: any) => u.active).length;
       }
     } catch {}
-    const API_BASES = ['', 'https://api.stealthybat.org'];
+    const API_BASES = ['', 'https://api.' + location.hostname.replace(/^www\./, ''), 'https://api.stealthybat.org'];
     const BLOCKED = 'Your wifi or filter is returning its own page instead of the login server. The login itself is fine - try a phone hotspot or a different network.';
     let sawHtml = false;
     const readJson = async (r: Response) => {
@@ -104,19 +104,16 @@ export default function LoginStatus() {
           }
           loginUp = true;
           break;
-        } catch {
-          lastErr = 'Server error (404). Please try again.';
+        } catch (e) {
+          const aborted = e instanceof DOMException && e.name === 'AbortError';
+          lastErr = aborted
+            ? 'The login server took too long to answer. Your network may be slow or filtered. Try again, or use a different network.'
+            : 'Could not reach the login server from this network. Try again, or use a different network.';
         }
       }
       if (loginUp) break;
     }
-    if (!loginUp) return { up: false, others, reason: lastErr || 'Server error (404). Please try again.' };
-    try {
-      const r = await fetchWithTimeout('https://api.stealthybat.org/health', { cache: 'no-store' } as any, 6000);
-      if (!r.ok) return { up: false, others, reason: `Server error (${r.status}). Please try again.` };
-    } catch {
-      return { up: false, others, reason: 'Server error (404). Please try again.' };
-    }
+    if (!loginUp) return { up: false, others, reason: lastErr || 'Could not reach the login server from this network.' };
     return { up: true, others, reason: '' };
   }, []);
 
