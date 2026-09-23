@@ -56,6 +56,51 @@ interface ChatHistory {
 }
 interface Model { id: string; name: string; badge?: string; status: string; }
 
+const revealSpeed = (len: number) => {
+  const target = len < 240 ? 1.1 : len < 900 ? 1.8 : 2.8;
+  return Math.max(90, Math.min(1400, len / target));
+};
+
+function streamInto(
+  text: string,
+  from: number,
+  onTick: (s: string) => void,
+  onDone: () => void,
+  holder: { current: number | null }
+) {
+  if (holder.current) cancelAnimationFrame(holder.current);
+  const reduced = typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+  if (reduced || text.length - from <= 0) {
+    onTick(text);
+    onDone();
+    return;
+  }
+  const cps = revealSpeed(text.length - from);
+  const started = performance.now();
+  let shown = from;
+  const step = (now: number) => {
+    const want = from + Math.floor(((now - started) / 1000) * cps);
+    if (want > shown) {
+      let end = Math.min(text.length, want);
+      if (end < text.length) {
+        const nextSpace = text.indexOf(' ', end);
+        if (nextSpace > -1 && nextSpace - end < 12) end = nextSpace;
+      }
+      shown = end;
+      onTick(text.slice(0, shown));
+    }
+    if (shown < text.length) {
+      holder.current = requestAnimationFrame(step);
+    } else {
+      holder.current = null;
+      onDone();
+    }
+  };
+  holder.current = requestAnimationFrame(step);
+}
+
 export default function AIWork() {
   const navigate = useNavigate();
   const [_localOnline, setLocalOnline] = useState<boolean | null>(null);
@@ -105,7 +150,7 @@ export default function AIWork() {
   const [streamText, setStreamText] = useState('');
   const [fullResponse, setFullResponse] = useState('');
   const [showContinue, setShowContinue] = useState(false);
-  const typingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typingRef = useRef<number | null>(null);
 
   const applyCustomGradient = (a: string, b: string) => {
     setCustomA(a); setCustomB(b);
@@ -211,23 +256,14 @@ export default function AIWork() {
       return;
     }
     setFullResponse(text); setStreamText(''); setShowContinue(false);
-    let idx = 0;
-    if (typingRef.current) clearInterval(typingRef.current);
-    typingRef.current = setInterval(() => {
-      if (idx < text.length) {
-        idx = Math.min(text.length, idx + 3);
-        setStreamText(text.slice(0, idx));
-        if (idx >= text.length) {
-          if (typingRef.current) clearInterval(typingRef.current);
-          setIsThinking(false);
-          if (isTruncated(text)) setShowContinue(true);
-          else { const userContent = lastUserRef.current; const imgs = lastImgsRef.current; saveChatToHistory([...messages, { role: 'user' as const, content: userContent, imgs: imgs } as any, { role: 'assistant' as const, content: text } as any]); setMessages(prev => [...prev, { role: 'assistant' as const, content: text }]); setStreamText(''); setFullResponse(''); }
-        }
-      }
-    }, 22);
+    streamInto(text, 0, setStreamText, () => {
+      setIsThinking(false);
+      if (isTruncated(text)) setShowContinue(true);
+      else { const userContent = lastUserRef.current; const imgs = lastImgsRef.current; saveChatToHistory([...messages, { role: 'user' as const, content: userContent, imgs: imgs } as any, { role: 'assistant' as const, content: text } as any]); setMessages(prev => [...prev, { role: 'assistant' as const, content: text }]); setStreamText(''); setFullResponse(''); }
+    }, typingRef);
   };
   const handleStop = () => {
-    if (typingRef.current) clearInterval(typingRef.current);
+    if (typingRef.current) cancelAnimationFrame(typingRef.current);
     setIsThinking(false);
     const me = (() => { try { return localStorage.getItem('batprox-user') || 'user'; } catch { return 'user'; } })();
     const stopped = streamText || fullResponse;
@@ -337,11 +373,7 @@ export default function AIWork() {
       if (r.ok) { const d = await r.json(); const extra = (d.response || '').trim(); if (extra) {
         const combined = base + '\n\n' + extra;
         setFullResponse(combined);
-        let idx = base.length;
-        if (typingRef.current) clearInterval(typingRef.current);
-        typingRef.current = setInterval(() => {
-          if (idx < combined.length) { idx = Math.min(combined.length, idx + 4); setStreamText(combined.slice(0, idx)); if (idx >= combined.length) { if (typingRef.current) clearInterval(typingRef.current); setIsThinking(false); if (isTruncated(combined)) setShowContinue(true); else { setMessages(prev => [...prev, { role: 'assistant' as const, content: combined }]); saveChatToHistory([...messages, { role: 'assistant' as const, content: combined }]); setStreamText(''); setFullResponse(''); } } }
-        }, 18);
+        streamInto(combined, base.length, setStreamText, () => { setIsThinking(false); if (isTruncated(combined)) setShowContinue(true); else { setMessages(prev => [...prev, { role: 'assistant' as const, content: combined }]); saveChatToHistory([...messages, { role: 'assistant' as const, content: combined }]); setStreamText(''); setFullResponse(''); } }, typingRef);
         return;
       } }
     } catch {}

@@ -297,7 +297,7 @@ export function SideRail({ onSettings }: { onSettings?: () => void }) {
             ? 'chat'
             : path === '/ai-work'
               ? 'ai'
-              : path === '/music' || path === '/movies'
+              : path === '/music-page' || path === '/movies'
                 ? 'music'
                 : path === '/apps' || path === '/my-scripts'
                   ? 'apps'
@@ -310,7 +310,7 @@ export function SideRail({ onSettings }: { onSettings?: () => void }) {
     if (id === 'movies') navigate('/movies');
     if (id === 'chat') navigate('/chatting');
     if (id === 'ai') navigate('/ai-work');
-    if (id === 'music') navigate('/movies');
+    if (id === 'music') navigate('/music-page');
     if (id === 'apps') navigate('/apps');
     if (id === 'settings') onSettings?.();
   };

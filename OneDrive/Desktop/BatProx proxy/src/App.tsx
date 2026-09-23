@@ -27,6 +27,7 @@ import Advertisement from './Advertisement';
 import MyScripts from './MyScripts';
 import Apps from './Apps';
 import FileDropper from './FileDropper';
+import MusicPage from './MusicPage';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -201,8 +202,8 @@ function Dashboard() {
         targetUrl = 'https://open.spotify.com';
         break;
       case 'Music':
-        targetUrl = 'https://music.octavestreaming.com/';
-        break;
+        navigate('/music-page');
+        return;
       case 'Movies':
         navigate('/movies');
         return;
@@ -575,6 +576,7 @@ export default function App() {
         <Route path="/advertisement" element={<Advertisement />} />
         <Route path="/my-scripts" element={<MyScripts />} />
         <Route path="/apps" element={<Apps />} />
+        <Route path="/music-page" element={<MusicPage />} />
         <Route path="/file-dropper" element={<FileDropper />} />
         <Route path="/file-dropper/:user/dashboard" element={<FileDropper />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
