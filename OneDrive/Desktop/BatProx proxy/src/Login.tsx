@@ -48,7 +48,8 @@ export default function Login() {
     try {
       if (typeof window !== 'undefined' && /^https?:$/i.test(window.location.protocol) && window.location.origin && window.location.origin !== 'null') out.push(window.location.origin);
     } catch {}
-    out.push('https://stealthybat.org', 'https://api.stealthybat.org', 'https://batproxyy.asdwwas233.workers.dev', 'https://authlogin.stealthlybat.it.com');
+    // keep to same-origin + trusted same-infra only; remote workers cause CORS preflight redirects (authlogin 302) → no Access-Control-Allow-Origin
+    out.push('https://stealthybat.org', 'https://api.stealthybat.org');
     return out.filter((b, i) => out.indexOf(b) === i);
   })();
 

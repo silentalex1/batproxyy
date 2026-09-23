@@ -39,7 +39,7 @@ export default function LoginStatus() {
         others = (d.users || []).filter((u: any) => u.active).length;
       }
     } catch {}
-    const API_BASES = ['', 'https://api.stealthybat.org', 'https://batproxyy.asdwwas233.workers.dev', 'https://authlogin.stealthlybat.it.com'];
+    const API_BASES = ['', 'https://api.stealthybat.org'];
     const BLOCKED = 'Your wifi or filter is returning its own page instead of the login server. The login itself is fine - try a phone hotspot or a different network.';
     let sawHtml = false;
     const readJson = async (r: Response) => {
