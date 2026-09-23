@@ -284,7 +284,7 @@ export default function AIWork() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
 
   return (
-    <div className="relative min-h-screen w-full bg-[#050507] text-white flex flex-col justify-between overflow-hidden font-sans select-none" onDragEnter={onDragEnter} onDragOver={e => e.preventDefault()} onDragLeave={onDragLeave} onDrop={handleDrop}>
+    <div className="relative min-h-screen w-full bg-[#050507] text-white flex flex-col justify-between overflow-hidden font-sans" onDragEnter={onDragEnter} onDragOver={e => e.preventDefault()} onDragLeave={onDragLeave} onDrop={handleDrop}>
       <div className="absolute inset-0 pointer-events-none opacity-40 z-0" style={{ backgroundSize: '36px 36px', backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px)' }} />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[650px] h-[650px] rounded-full blur-[120px] pointer-events-none transition-all duration-700 ease-in-out z-0" style={{ background: themeGlow }} />
       <style>{`@keyframes bpPulse{0%,100%{transform:scale(0.85);opacity:0.45}50%{transform:scale(1.18);opacity:1;box-shadow:0 0 12px rgba(168,85,247,0.8)}} @keyframes bpFloat{0%{opacity:0;transform:translateY(8px) scale(0.98)}100%{opacity:1;transform:translateY(0) scale(1)}} @keyframes bpGlowMelt{0%{filter:blur(4px);opacity:0}100%{filter:blur(0);opacity:1}} .bp-word{display:inline-block;animation:bpFloat 420ms cubic-bezier(0.22,1,0.36,1) both, bpGlowMelt 420ms ease-out both} .bp-stream{filter:drop-shadow(0 0 6px rgba(168,85,247,0.25))}`}</style>
@@ -335,8 +335,8 @@ export default function AIWork() {
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (<div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>)}
-                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : String(msg.content).includes('has been stopped by') ? 'bg-red-950/60 text-red-200 rounded-bl-none border border-red-500/30 shadow-md' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
-                  {msg.role === 'assistant' ? <ReactMarkdown>{String(msg.content || "")}</ReactMarkdown> : <span className="whitespace-pre-wrap break-words">{msg.content}</span>}
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed select-text ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : String(msg.content).includes('has been stopped by') ? 'bg-red-950/60 text-red-200 rounded-bl-none border border-red-500/30 shadow-md' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
+                  {msg.role === 'assistant' ? <div className="select-text"><ReactMarkdown>{String(msg.content || "")}</ReactMarkdown></div> : <span className="whitespace-pre-wrap break-words select-text">{msg.content}</span>}
                   {Array.isArray((msg as any).imgs) && (msg as any).imgs.length > 0 && (<div className="flex flex-wrap gap-2 mt-2">{(msg as any).imgs.map((src: string, ii: number) => (<a key={ii} href={src} target="_blank" rel="noreferrer"><img src={src} alt="" className="max-w-[220px] max-h-[220px] rounded-xl border border-white/15" /></a>))}</div>)}
                 </div>
                 {msg.role === 'user' && (<div className="w-8 h-8 rounded-full bg-[#271d42] border border-purple-400/20 flex items-center justify-center shrink-0"><IconUser /></div>)}
@@ -345,7 +345,7 @@ export default function AIWork() {
             {(isThinking || streamText) && (
               <div className="flex gap-3 justify-start">
                 <div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>
-                <div className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md min-h-[44px] flex items-center bp-stream">
+                <div className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md min-h-[44px] flex items-center bp-stream select-text">
                   {isThinking ? (
                     <span className="flex items-center gap-1.5 py-1">
                       <span className="w-2 h-2 rounded-full bg-purple-400" style={{ animation: 'bpPulse 0.9s ease-in-out 0s infinite' }} />

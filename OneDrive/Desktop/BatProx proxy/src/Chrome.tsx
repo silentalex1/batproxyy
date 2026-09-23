@@ -88,7 +88,7 @@ export function BatteryIndicator() {
   );
 }
 
-type RailId = 'home' | 'search' | 'games' | 'movies' | 'chat' | 'settings';
+type RailId = 'home' | 'search' | 'games' | 'movies' | 'chat' | 'ai' | 'music' | 'apps' | 'settings';
 
 const RAIL: { id: RailId; label: string; icon: React.ReactNode }[] = [
   {
@@ -135,6 +135,35 @@ const RAIL: { id: RailId; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h8M8 14h5M21 12a9 9 0 11-3.3-6.9L21 6v6z" />
+      </svg>
+    )
+  },
+  {
+    id: 'ai',
+    label: 'Batprox AI',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+      </svg>
+    )
+  },
+  {
+    id: 'music',
+    label: 'Music',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+    )
+  },
+  {
+    id: 'apps',
+    label: 'More Apps',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
       </svg>
     )
   }
@@ -266,7 +295,13 @@ export function SideRail({ onSettings }: { onSettings?: () => void }) {
           ? 'games'
           : path === '/chatting'
             ? 'chat'
-            : 'home';
+            : path === '/ai-work'
+              ? 'ai'
+              : path === '/music' || path === '/movies'
+                ? 'music'
+                : path === '/apps' || path === '/my-scripts'
+                  ? 'apps'
+                  : 'home';
 
   const go = (id: RailId) => {
     if (id === 'home') navigate('/dashboard');
@@ -274,6 +309,9 @@ export function SideRail({ onSettings }: { onSettings?: () => void }) {
     if (id === 'games') navigate('/homework#help');
     if (id === 'movies') navigate('/movies');
     if (id === 'chat') navigate('/chatting');
+    if (id === 'ai') navigate('/ai-work');
+    if (id === 'music') navigate('/movies');
+    if (id === 'apps') navigate('/apps');
     if (id === 'settings') onSettings?.();
   };
 
