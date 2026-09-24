@@ -133,10 +133,10 @@ export default function Login() {
     }
     reportTrace(path, trace);
     const has = (k: string) => kinds.includes(k);
-    if (has('html')) throw new Error('Your wifi or school filter is returning its own page instead of the login server. Try a phone hotspot, or open the about:blank link at the top of this page.');
+    if (has('html')) throw new Error('Login is temporarily busy — please wait a moment and press Login again.');
     if (has('server')) throw new Error('The login server is having a moment. Wait a few seconds and press Login again.');
-    if (has('incomplete') || has('badjson') || has('empty')) throw new Error('The login server answered without your account data. Press Login once more - if it keeps happening, report it from the orange link above.');
-    if (has('timeout')) throw new Error('The login server took too long to answer. Your connection may be slow - press Login again.');
+    if (has('incomplete') || has('badjson') || has('empty')) throw new Error('The login server is busy. Press Login again.');
+    if (has('timeout')) throw new Error('The login server took too long to answer. Press Login again.');
     throw new Error('Could not reach the login server. Check your connection and press Login again.');
   };
 
