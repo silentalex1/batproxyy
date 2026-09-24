@@ -6,6 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https://cdn.jsdelivr.net https://www.googletagmanager.com https://a.luminsdk.com https://drkesten.com https://milpagan.com https://catholicrebuttals.com https://instructure-ramen.hpsschools.org https://static.cloudflareinsights.com https://firebaseinstallations.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://*.gstatic.com https://*.unity3d.com https://*.unity.com https://*.googleapis.com; worker-src 'self' blob: data: https://cdn.jsdelivr.net; child-src 'self' blob: data: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https: http:; font-src 'self' data: https:; connect-src 'self' blob: data: http: https: ws: wss: https://cloudflareinsights.com https://firebaseinstallations.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://*.unity3d.com https://*.unity.com https://*.googleapis.com; frame-src 'self' blob: http: https:; media-src 'self' blob: data: http: https:;">
     <title>New Tab</title>
+    <script>
+      (function(){
+        var f=function(m){return /bare-mux|MessagePort|SharedWorker|invalid MessagePort|unload is not allowed|Permissions policy|Grammarly|grm ERROR|createAgentDirectory|SDUI|RegistryCompositionWarning|sdui-core|AngularJS|ApolloClient|PurchaseDialog|RealTime|SignalR|Sentry|cdn-cgi|preload|OTS|Failed to decode|AnalyticsTrackingStore|GSI_LOGGER|FedCM|fedcm|One Tap|passkey|StartAuthentication|pointer-lock|allowfullscreen|Unrecognized feature|OTS parsing|Failed to decode|Failed to load resource|interp|metrics\.roblox|bundle-metrics|rotating-client|discord\.com\/api|apis\.roblox|GoogleAnalyticsEvents|Invalid regular expression/i.test(String(m||''));};
+        var ow=console.warn,oe=console.error,ol=console.log;
+        console.warn=function(){try{if(f(Array.from(arguments).join(' ')))return;}catch(e){} return ow.apply(console,arguments);};
+        console.error=function(){try{if(f(Array.from(arguments).join(' ')))return;}catch(e){} return oe.apply(console,arguments);};
+        console.log=function(){try{if(f(Array.from(arguments).join(' ')))return;}catch(e){} return ol.apply(console,arguments);};
+        window.addEventListener('error',function(e){try{if(f(e.message))e.preventDefault();}catch(ex){}},true);
+        window.addEventListener('unhandledrejection',function(e){try{var m=e.reason&& (e.reason.message||String(e.reason)); if(f(m))e.preventDefault();}catch(ex){}},true);
+      })();
+    </script>
     <script src="/baremux/index.js"></script>
     <script src="/uv/uv.bundle.js"></script>
     <script src="/uv/uv.config.js"></script>

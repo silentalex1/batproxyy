@@ -15,11 +15,14 @@ export const THEMES: Theme[] = [
   { name: 'Aurora Borealis', accent: '#63f2c5', accent2: '#a78bfa', glow: '99, 242, 197', preview: 'linear-gradient(135deg, #3ef0a0, #63f2c5 40%, #a78bfa)' },
   { name: 'Cherry Blossom', accent: '#f9a8d4', accent2: '#fb7185', glow: '244, 114, 182', preview: 'linear-gradient(135deg, #fecdd3, #f9a8d4, #c084fc)' },
   { name: 'Midnight Silver', accent: '#c0c6d0', accent2: '#8fa3b8', glow: '192, 198, 208', preview: 'linear-gradient(135deg, #14161a, #c0c6d0)' },
-  { name: 'Golden Hour', accent: '#ffc53d', accent2: '#e8871e', glow: '255, 197, 61', preview: 'linear-gradient(135deg, #1a120b, #ffc53d)' }
+  { name: 'Golden Hour', accent: '#ffc53d', accent2: '#e8871e', glow: '255, 197, 61', preview: 'linear-gradient(135deg, #1a120b, #ffc53d)' },
+  { name: 'Moon', accent: '#38bdf8', accent2: '#e2e8f0', glow: '56, 189, 248', preview: 'linear-gradient(135deg, #0f172a 0%, #38bdf8 50%, #e2e8f0 100%)' },
+  { name: 'Blood Moon', accent: '#ef4444', accent2: '#f97316', glow: '239, 68, 68', preview: 'linear-gradient(135deg, #180509 0%, #991b1b 60%, #ef4444 100%)' }
 ];
 
 export function applyTheme(name: string) {
-  const theme = THEMES.find(t => t.name === name) || THEMES[0];
+  const n = name === 'Red Moon' ? 'Blood Moon' : name;
+  const theme = THEMES.find(t => t.name === n) || THEMES[0];
   const root = document.documentElement;
   root.style.filter = 'none';
   document.body.style.filter = 'none';
@@ -34,7 +37,8 @@ export function applyTheme(name: string) {
 export function getSavedTheme() {
   try {
     const s = JSON.parse(localStorage.getItem('batprox-settings') || '{}');
-    return s.theme || 'Bat Purple';
+    const t = s.theme || 'Bat Purple';
+    return t === 'Red Moon' ? 'Blood Moon' : t;
   } catch {
     return 'Bat Purple';
   }

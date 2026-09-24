@@ -12,7 +12,6 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// ---- BatProx Daily Reminder notifications ----
 let bpReminders = [];
 let bpTimer = null;
 function bpDayStamp(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
@@ -80,38 +79,21 @@ self.addEventListener('fetch', (event) => {
   }
   if (routed) {
     event.respondWith((async () => {
-      try {
-        const res = await uv.fetch(event);
-        if (res.status === 403 || res.status === 500 || res.status === 502 || res.status === 503) {
-          try {
-            const enc = event.request.url.split('/uv/service/')[1]?.split('?')[0]?.split('#')[0];
-            if (enc && self.__uv$config && self.__uv$config.decodeUrl) {
-              const dec = self.__uv$config.decodeUrl(enc);
-              const alt = await fetch('/proxy?url=' + encodeURIComponent(btoa(unescape(encodeURIComponent(dec)))));
-              if (alt.ok) return alt;
-            }
-          } catch {}
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await uv.fetch(event);
+        } catch {
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
         }
-        try {
-          const ct = res.headers.get('content-type') || '';
-          if (ct.includes('javascript') && res.url && res.url.includes('uv/service/')) {
-            const t = await res.clone().text().catch(() => '');
-            if (t.includes('Keep your account safe')) {
-              return new Response('self.Sentry={init:function(){},captureException:function(){},captureMessage:function(){},captureEvent:function(){},addBreadcrumb:function(){},withScope:function(c){try{c({})}catch(e){}}};window.Sentry=self.Sentry;window.__SENTRY__={hub:{}};', { status: 200, headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' } });
-            }
-          }
-        } catch {}
-        return res;
-      } catch {
-        try {
-          const enc = event.request.url.split('/uv/service/')[1]?.split('?')[0]?.split('#')[0];
-          if (enc && self.__uv$config && self.__uv$config.decodeUrl) {
-            const dec = self.__uv$config.decodeUrl(enc);
-            return await fetch('/proxy?url=' + encodeURIComponent(btoa(unescape(encodeURIComponent(dec)))));
-          }
-        } catch {}
-        return new Response('', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
+      if (event.request.mode === 'navigate') {
+        return new Response(bpRetryPage(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      }
+      return new Response('', { status: 502, statusText: 'Proxy transport unavailable' });
     })());
   }
 });
+
+function bpRetryPage() {
+  return '<!doctype html><html><head><meta charset="utf-8"><title>Reconnecting</title><style>html,body{margin:0;height:100%;background:#07070b;color:#e5e5f0;font-family:system-ui,sans-serif}body{display:flex;align-items:center;justify-content:center}.c{text-align:center}.s{width:34px;height:34px;border:3px solid #7c3aed;border-top-color:transparent;border-radius:50%;margin:0 auto 14px;animation:r .8s linear infinite}@keyframes r{to{transform:rotate(360deg)}}p{margin:4px 0;font-size:14px}.m{color:#8b8ba0;font-size:12px}</style></head><body><div class="c"><div class="s"></div><p>Reconnecting to the proxy</p><p class="m">This page will reload on its own.</p></div><script>setTimeout(function(){location.reload()},2500)<\/script></body></html>';
+}

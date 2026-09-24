@@ -14,6 +14,7 @@ export default function AutoLogout() {
       }
     };
     const logoutAndRedirect = () => {
+      if (window.location.pathname === '/advertisement') return;
       if (!enabled()) return;
       if (!localStorage.getItem('batprox-token')) return;
       localStorage.removeItem('batprox-token');

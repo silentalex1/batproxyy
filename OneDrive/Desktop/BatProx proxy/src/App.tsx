@@ -28,6 +28,7 @@ import MyScripts from './MyScripts';
 import Apps from './Apps';
 import FileDropper from './FileDropper';
 import MusicPage from './MusicPage';
+import VotePrompt from './VotePrompt';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -198,9 +199,6 @@ function Dashboard() {
       case 'Roblox':
         targetUrl = 'https://roblox.com';
         break;
-      case 'Spotify':
-        targetUrl = 'https://open.spotify.com';
-        break;
       case 'Music':
         navigate('/music-page');
         return;
@@ -266,7 +264,6 @@ function Dashboard() {
     { label: 'Youtube', image: '/assets/youtube.png', tint: 'bg-[#ff0000]' },
     { label: 'Discord', image: '/assets/discord.png', tint: 'bg-[#5865F2]' },
     { label: 'Roblox', image: '/assets/robloxcom.png', tint: 'bg-[#1a1a1a]' },
-    { label: 'Spotify', image: '/assets/spotify.png', tint: 'bg-[#1DB954]' },
     { label: 'Music', image: '/assets/musiclogo2.png', tint: 'bg-[#7c3aed]' },
     { label: 'Movies', image: null, tint: 'bg-[#ef4444]' },
     { label: 'AI', image: null, tint: 'bg-[#8b5cf6]' },
@@ -279,6 +276,7 @@ function Dashboard() {
     <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
       <AmbientBg />
       <SideRail onSettings={() => setShowSettingsModal(true)} />
+      <VotePrompt />
 
       <main className="relative z-10 flex flex-col items-center min-h-screen px-4 sm:pl-20 sm:pr-6">
         <DashNav
@@ -384,7 +382,15 @@ function Dashboard() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                     </svg>
                   )}
-                  {item.label === 'AI' && <span className="absolute -top-1.5 -right-1.5 text-[7px] font-extrabold tracking-widest px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white border border-white/20 shadow-lg shadow-emerald-500/30 backdrop-blur-md">updated</span>}
+                  {item.label === 'AI' && (
+                    <span className="absolute -top-2 -right-3 pointer-events-none select-none flex items-center gap-1 pl-1.5 pr-2 py-[3px] rounded-full text-[9px] font-semibold leading-none tracking-tight text-emerald-50 bg-emerald-500/90 ring-1 ring-emerald-300/40 shadow-[0_2px_10px_rgba(16,185,129,0.45)] backdrop-blur-sm">
+                      <span className="relative flex w-[5px] h-[5px]">
+                        <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-200 opacity-70 animate-ping" />
+                        <span className="relative inline-flex w-[5px] h-[5px] rounded-full bg-white" />
+                      </span>
+                      updated
+                    </span>
+                  )}
                 </span>
                 <span className="text-[11px] text-white/70 group-hover:text-white">{item.label}</span>
               </button>
@@ -553,6 +559,7 @@ function Dashboard() {
 }
 
 export default function App() {
+  useEffect(() => { startPresence(); }, []);
   return (
     <Router>
       <AutoLogout />

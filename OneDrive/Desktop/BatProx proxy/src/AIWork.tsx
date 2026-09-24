@@ -5,7 +5,11 @@ import Cookies from 'js-cookie';
 import Settings from './Settings';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
-import { applyTheme } from './theme';
+import { applyTheme, THEMES } from './theme';
+import { applyBackground, BACKGROUNDS } from './background';
+import { applyTabCloak, TAB_CLOAKS } from './tabcloak';
+
+type PendingSetting = { key: string; value: any; label: string; desc: string };
 
 const IconChevron = ({ open }: { open?: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${open ? 'rotate-180' : ''} transition-transform`}><path d="M6 9l6 6 6-6" /></svg>
@@ -125,6 +129,7 @@ export default function AIWork() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [versionFor, setVersionFor] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [startTime] = useState<number>(Date.now());
   const [siteTime, setSiteTime] = useState<string>('0 seconds');
@@ -133,6 +138,7 @@ export default function AIWork() {
   const [customA, setCustomA] = useState('#c084fc');
   const [customB, setCustomB] = useState('#6366f1'); void customA;
   const [pendingTheme, setPendingTheme] = useState<{ a: string; b: string; label: string } | null>(null);
+  const [pendingSetting, setPendingSetting] = useState<PendingSetting | null>(null);
   const [alwaysAllow, setAlwaysAllow] = useState(() => { try { return localStorage.getItem('bp-ai-always-allow') === '1'; } catch { return false; } });
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   useEffect(() => {
@@ -145,6 +151,7 @@ export default function AIWork() {
   const availableModels: Model[] = [
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
     { id: 'inferforge-code', name: 'Inferforge-code', badge: 'Code', status: 'online' },
+    { id: 'prysmis-ai', name: 'PrysmisAI beta', badge: 'Beta', status: 'online' },
   ];
   const [isThinking, setIsThinking] = useState(false);
   const [streamText, setStreamText] = useState('');
@@ -170,6 +177,68 @@ export default function AIWork() {
     if (alwaysAllow) { applyCustomGradient(a, b); return true; }
     setPendingTheme({ a, b, label });
     return false;
+  };
+
+  const grantAlwaysAllow = () => {
+    try { localStorage.setItem('bp-ai-always-allow', '1'); } catch {}
+    setAlwaysAllow(true);
+    const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
+    if (u) fetch('/api/ai/permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, alwaysAllow: true }) }).catch(() => {});
+  };
+
+  const applySettingValue = (key: string, value: any) => {
+    let next: any = {};
+    try { next = JSON.parse(localStorage.getItem('batprox-settings') || '{}'); } catch {}
+    next[key] = value;
+    try { localStorage.setItem('batprox-settings', JSON.stringify(next)); } catch {}
+    if (key === 'theme') applyTheme(String(value));
+    if (key === 'background' || key === 'backgroundUpload') applyBackground();
+    if (key === 'tabCloak') applyTabCloak();
+    const token = (() => { try { return localStorage.getItem('batprox-token'); } catch { return null; } })();
+    if (token) fetch('/api/user/settings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(next) }).catch(() => {});
+    window.dispatchEvent(new CustomEvent('bp-theme'));
+  };
+
+  const parseSettingRequest = (raw: string): PendingSetting | null => {
+    const n = raw.toLowerCase().replace(/["'.]/g, '');
+    if (!/\b(change|set|turn|enable|disable|switch|make|update|use|apply|cloak)\b/.test(n)) return null;
+    const off = /\b(off|disable|disabled|remove|stop|hide|dont|do not)\b/.test(n);
+    const on = !off;
+    const state = on ? 'on' : 'off';
+
+    if (/typing animation/.test(n)) return { key: 'disableTypingAnimation', value: !on, label: 'typing animation', desc: state };
+    if (/auto ?login/.test(n)) return { key: 'autoLoginPage', value: on, label: 'auto login page', desc: state };
+    if (/about ?:? ?blank/.test(n)) return { key: 'aboutBlankTab', value: on, label: 'about:blank tab', desc: state };
+    if (/close protection|closing protection|confirm before clos/.test(n)) return { key: 'closeProtection', value: on, label: 'close protection', desc: state };
+    if (/skip loading|loading screen/.test(n)) return { key: 'skipLoading', value: on, label: 'skip the loading screen', desc: state };
+    if (/message notif|notify me|notifications/.test(n)) return { key: 'notifyMsgs', value: on, label: 'message notifications', desc: state };
+
+    if (/panic/.test(n)) {
+      const url = raw.match(/https?:\/\/[^\s"']+/i)?.[0];
+      if (url) return { key: 'panicUrl', value: url, label: 'panic url', desc: url };
+      const k = raw.match(/panic (?:key|button)\s*(?:to|=|:)?\s*([a-z0-9])\b/i)?.[1];
+      if (k) return { key: 'panicKey', value: k.toLowerCase(), label: 'panic key', desc: k.toLowerCase() };
+    }
+    if (/cloak|tab title|tab icon|disguise/.test(n)) {
+      const c = TAB_CLOAKS.find(t => n.includes(t.id) || n.includes(t.title.toLowerCase()));
+      if (c) return { key: 'tabCloak', value: c.id, label: 'tab cloak', desc: c.title };
+    }
+    if (/background|wallpaper|scenery/.test(n)) {
+      const b = BACKGROUNDS.find(x => x.id !== 'upload' && x.id !== 'theme' && (n.includes(x.id) || n.includes(x.name.toLowerCase())));
+      if (b) return { key: 'background', value: b.id, label: 'background', desc: b.name };
+    }
+    if (/theme/.test(n)) {
+      const t = THEMES.find(x => n.includes(x.name.toLowerCase()));
+      if (t) return { key: 'theme', value: t.name, label: 'theme', desc: t.name };
+    }
+    return null;
+  };
+
+  const confirmSetting = (p: PendingSetting, always: boolean) => {
+    if (always) grantAlwaysAllow();
+    applySettingValue(p.key, p.value);
+    setPendingSetting(null);
+    setMessages(prev => [...prev, { role: 'assistant' as const, content: `Done, your ${p.label} is now ${p.desc}.${always ? ' I will apply future setting changes without asking.' : ''}` }]);
   };
 
   useEffect(() => {
@@ -309,6 +378,25 @@ export default function AIWork() {
   const handleSendMessage = async (textOverride?: string) => {
     const raw = (textOverride ?? inputValue).trim();
     if (!raw && images.length === 0) return;
+    const settingRequested = parseSettingRequest(raw);
+    if (settingRequested) {
+      const userMessage = raw;
+      const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
+      setMessages(newMessages); lastUserRef.current = userMessage;
+      setInputValue(''); setImages([]); setAttachedFiles([]);
+      if (alwaysAllow) {
+        applySettingValue(settingRequested.key, settingRequested.value);
+        const done = `Done, your ${settingRequested.label} is now ${settingRequested.desc}.`;
+        setMessages(prev => [...prev, { role: 'assistant' as const, content: done }]);
+        saveChatToHistory([...newMessages, { role: 'assistant' as const, content: done }]);
+        return;
+      }
+      const ask = `I can set your ${settingRequested.label} to ${settingRequested.desc}. Do you allow me to change that setting?`;
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: ask }]);
+      saveChatToHistory([...newMessages, { role: 'assistant' as const, content: ask }]);
+      setPendingSetting(settingRequested);
+      return;
+    }
     let themeRequested = parseThemeRequest(raw);
     if (themeRequested) {
       const ok = requestThemeChange(themeRequested.a, themeRequested.b, themeRequested.label);
@@ -317,7 +405,7 @@ export default function AIWork() {
         const newMessages = [...messages, { role: 'user' as const, content: userMessage, imgs: shots.length ? shots : undefined }];
         setMessages(newMessages); lastUserRef.current = userMessage; lastImgsRef.current = shots.length ? shots : undefined;
         setInputValue(''); setImages([]); setAttachedFiles([]);
-        const ask = `I can change your background to "${themeRequested.label}" — do you allow me to update your website colors?`;
+        const ask = `I can change your background to "${themeRequested.label}" - do you allow me to update your website colors?`;
         setMessages(prev => [...prev, { role: 'assistant' as const, content: ask }]);
         saveChatToHistory([...newMessages, { role: 'assistant' as const, content: ask }]);
         return;
@@ -354,7 +442,7 @@ export default function AIWork() {
         const a = themeName === 'Moon' ? '#38bdf8' : '#e5e7eb'; const b = '#6366f1';
         setPendingTheme({ a, b, label: themeName });
         setIsThinking(false);
-        startFluidStream(reply + `\n\nI can switch you to "${themeName}" — allow me to update your settings?`);
+        startFluidStream(reply + `\n\nI can switch you to "${themeName}" - allow me to update your settings?`);
         return;
       }
     }
@@ -438,7 +526,7 @@ export default function AIWork() {
               <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (<div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>)}
                 <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed select-text ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : String(msg.content).includes('has been stopped by') ? 'bg-red-950/60 text-red-200 rounded-bl-none border border-red-500/30 shadow-md' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
-                  {msg.role === 'assistant' ? <div className="select-text prose prose-invert max-w-none"><ReactMarkdown components={{ code({ inline, className, children, ...props }: any) { const txt = String(children).replace(/\n$/, ''); if (inline) return <code className="px-1 py-0.5 rounded bg-white/10 text-purple-200 text-xs" {...props}>{children}</code>; const id = txt.slice(0, 40); return <div className="relative group my-2 rounded-xl overflow-hidden border border-white/10 bg-black/40"><div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/10"><span className="text-[10px] tracking-widest text-white/30">{(className || '').replace('language-', '') || 'code'}</span><button onClick={() => { navigator.clipboard.writeText(txt).then(() => { setCopiedCode(id); setTimeout(() => setCopiedCode(null), 1500); }); }} className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white/70 hover:text-white text-[11px] border border-white/10 transition">{copiedCode === id ? 'copied' : 'copy code'}</button></div><pre className="p-3 overflow-x-auto text-xs leading-relaxed"><code className={className} {...props}>{txt}</code></pre></div>; } }}>{String(msg.content || "")}</ReactMarkdown></div> : <span className="whitespace-pre-wrap break-words select-text">{msg.content}</span>}
+                  {msg.role === 'assistant' ? <div className="select-text prose prose-invert max-w-none"><ReactMarkdown components={{ code({ inline, className, children, ...props }: any) { const txt = String(children).replace(/\n$/, ''); if (inline || (!className && !txt.includes('\n'))) return <code className="px-1 py-0.5 rounded bg-white/10 text-purple-200 text-xs" {...props}>{children}</code>; const id = txt.slice(0, 40); return <div className="relative group my-2 rounded-xl overflow-hidden border border-white/10 bg-black/40"><div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/10"><span className="text-[10px] tracking-widest text-white/30">{(className || '').replace('language-', '') || 'code'}</span><button onClick={() => { navigator.clipboard.writeText(txt).then(() => { setCopiedCode(id); setTimeout(() => setCopiedCode(null), 1500); }); }} className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white/70 hover:text-white text-[11px] border border-white/10 transition">{copiedCode === id ? 'copied' : 'copy code'}</button></div><pre className="p-3 overflow-x-auto text-xs leading-relaxed"><code className={className} {...props}>{txt}</code></pre></div>; } }}>{String(msg.content || "")}</ReactMarkdown></div> : <span className="whitespace-pre-wrap break-words select-text">{msg.content}</span>}
                   {Array.isArray((msg as any).imgs) && (msg as any).imgs.length > 0 && (<div className="flex flex-wrap gap-2 mt-2">{(msg as any).imgs.map((src: string, ii: number) => (<a key={ii} href={src} target="_blank" rel="noreferrer"><img src={src} alt="" className="max-w-[220px] max-h-[220px] rounded-xl border border-white/15" /></a>))}</div>)}
                 </div>
                 {msg.role === 'user' && (<div className="w-8 h-8 rounded-full bg-[#271d42] border border-purple-400/20 flex items-center justify-center shrink-0"><IconUser /></div>)}
@@ -452,7 +540,21 @@ export default function AIWork() {
                   <div className="flex gap-2">
                     <button onClick={() => { applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Background updated to ${pendingTheme.label}.` }]); }} className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold">Allow permission</button>
                     <button onClick={() => setPendingTheme(null)} className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 text-xs border border-white/10">Decline permission</button>
-                    <button onClick={() => { try { localStorage.setItem('bp-ai-always-allow', '1'); setAlwaysAllow(true); } catch {}; const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })(); if (u) fetch('/api/ai/permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, alwaysAllow: true }) }).catch(() => {}); applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Always allowed — background updated to ${pendingTheme.label} and future changes will apply automatically.` }]); }} className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Always Allow</button>
+                    <button onClick={() => { try { localStorage.setItem('bp-ai-always-allow', '1'); setAlwaysAllow(true); } catch {}; const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })(); if (u) fetch('/api/ai/permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, alwaysAllow: true }) }).catch(() => {}); applyCustomGradient(pendingTheme.a, pendingTheme.b); setPendingTheme(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: `Always allowed - background updated to ${pendingTheme.label} and future changes will apply automatically.` }]); }} className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Always Allow</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {pendingSetting && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>
+                <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-[#120e1e] border border-[#2d2248] shadow-md">
+                  <p className="text-[10px] uppercase tracking-widest text-purple-300/50 mb-1.5">permission request</p>
+                  <p className="text-xs text-purple-200 mb-3">Allow BatProx AI to set your <span className="font-semibold text-white">{pendingSetting.label}</span> to <span className="font-semibold text-white">{pendingSetting.desc}</span>?</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => confirmSetting(pendingSetting, false)} className="px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold">Allow permission</button>
+                    <button onClick={() => { setPendingSetting(null); setMessages(prev => [...prev, { role: 'assistant' as const, content: 'No problem, I left that setting alone.' }]); }} className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 text-xs border border-white/10">Decline permission</button>
+                    <button onClick={() => confirmSetting(pendingSetting, true)} className="px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Always Allow</button>
                   </div>
                 </div>
               </div>
@@ -492,16 +594,40 @@ export default function AIWork() {
         <div className="relative bg-[#0d0a14]/90 backdrop-blur-xl border border-[#231a38] rounded-2xl p-4 shadow-2xl flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div className="relative inline-block">
-              <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className="flex items-center gap-2 bg-[#171126] hover:bg-[#231a38] border border-[#2f234a] rounded-lg px-3 py-1.5 text-xs text-purple-200 transition">
+              <button onClick={() => { setIsModelMenuOpen(!isModelMenuOpen); setVersionFor(null); }} className="flex items-center gap-2 bg-[#171126] hover:bg-[#231a38] border border-[#2f234a] rounded-lg px-3 py-1.5 text-xs text-purple-200 transition">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="font-medium">{selectedModel.id}</span><IconChevron open={isModelMenuOpen} />
               </button>
             {isModelMenuOpen && (
-              <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50">
+              <div onMouseLeave={() => setVersionFor(null)} className="absolute bottom-full left-0 mb-2 w-64 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50">
                 <div className="text-[11px] font-semibold text-purple-400/60 px-3 py-1 uppercase tracking-wider">Our AI models</div>
                 <div className="space-y-1">{availableModels.map(m => (
-                  <button key={m.id} onClick={() => { if (m.status === 'online') { setSelectedModel(m); setIsModelMenuOpen(false); } }} className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition ${selectedModel.id === m.id ? 'bg-[#281c45] text-purple-100 font-medium' : 'text-purple-300/70 hover:bg-[#1a1330] hover:text-purple-200'} ${m.status === 'offline' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                    <span className="flex items-center gap-2"><span className={`w-1.5 h-1.5 rounded-full ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'}`} />{m.name}</span>{m.badge && <span className="text-[10px] bg-purple-950 border border-purple-700/40 text-purple-300 px-1.5 py-0.5 rounded">{m.badge}</span>}
-                  </button>
+                  <div key={m.id} className="relative" onContextMenu={e => { if (m.id !== 'batprox-ai') return; e.preventDefault(); setVersionFor(versionFor === m.id ? null : m.id); }}>
+                    <div className={`w-full rounded-lg text-xs flex items-center transition ${selectedModel.id === m.id ? 'bg-[#281c45] text-purple-100 font-medium' : 'text-purple-300/70 hover:bg-[#1a1330] hover:text-purple-200'} ${m.status === 'offline' ? 'opacity-50' : ''}`}>
+                      <button onClick={() => { if (m.status === 'online') { setSelectedModel(m); setIsModelMenuOpen(false); setVersionFor(null); } }} className={`flex-1 min-w-0 text-left pl-3 pr-2 py-2 flex items-center justify-between gap-2 ${m.status === 'offline' ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <span className="flex items-center gap-2 min-w-0"><span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'}`} /><span className="truncate">{m.name}</span></span>{m.badge && <span className="shrink-0 text-[10px] bg-purple-950 border border-purple-700/40 text-purple-300 px-1.5 py-0.5 rounded">{m.badge}</span>}
+                      </button>
+                      {m.id === 'batprox-ai' ? (
+                        <button
+                          onMouseEnter={() => setVersionFor(m.id)}
+                          onClick={() => setVersionFor(versionFor === m.id ? null : m.id)}
+                          aria-label="Other versions"
+                          className={`mr-1 w-6 h-6 shrink-0 rounded-md flex items-center justify-center transition ${versionFor === m.id ? 'bg-purple-500/25 text-purple-100' : 'text-purple-300/60 hover:text-purple-100 hover:bg-white/10'}`}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+                        </button>
+                      ) : <span className="mr-1 w-6 shrink-0" />}
+                    </div>
+                    {versionFor === m.id && (
+                      <div className="absolute left-full top-0 ml-2 w-60 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50" style={{ animation: 'bpFly .16s ease-out' }}>
+                        <style>{'@keyframes bpFly{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}'}</style>
+                        <div className="text-[11px] font-semibold text-purple-400/60 px-3 py-1 uppercase tracking-wider">Model versions</div>
+                        <div className="px-3 py-2 rounded-lg text-xs flex items-center justify-between gap-2 text-purple-300/55 cursor-not-allowed select-none">
+                          <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500" />BatProx AI v2.0</span>
+                          <span className="text-[10px] bg-purple-950/70 border border-purple-700/30 text-purple-300/70 px-1.5 py-0.5 rounded whitespace-nowrap">coming soon</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ))}</div>
               </div>
             )}

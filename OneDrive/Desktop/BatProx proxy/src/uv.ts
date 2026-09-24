@@ -122,6 +122,67 @@ export function decodeProxiedLocation(href: string): string | null {
   return null;
 }
 
+function wispList(): string[] {
+  const self = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/';
+  const pub = [
+    'wss://wisp.mercurywork.shop/wisp/',
+    'wss://wisp.terbiumon.top/wisp/',
+    'wss://nebulaproxy.io/wisp/',
+    'wss://anura.terbium.work/wisp/'
+  ];
+  const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  return isLocal ? [self, ...pub] : [...pub, self];
+}
+
+let connection: { setTransport: (path: string, args: unknown[]) => Promise<void> } | null = null;
+let watchdog: number | null = null;
+let switching = false;
+
+async function pickTransport(skip = ''): Promise<boolean> {
+  if (!connection) connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
+  const list = wispList().filter((u) => u !== skip);
+  for (const wispUrl of list) {
+    if (!(await probeWisp(wispUrl))) continue;
+    try {
+      await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
+      lastWisp = wispUrl;
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
+function startWatchdog() {
+  if (watchdog !== null) return;
+  watchdog = window.setInterval(async () => {
+    if (switching || !lastWisp || document.visibilityState !== 'visible') return;
+    if (await probeWisp(lastWisp, 5000)) return;
+    switching = true;
+    try { await pickTransport(lastWisp); } finally { switching = false; }
+  }, 20000);
+}
+
+async function ensureWorker() {
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(registrations.filter((r) => {
+    const s = (r.active || r.waiting || r.installing)?.scriptURL || '';
+    return !s.endsWith('/uv-sw.js');
+  }).map((r) => r.unregister()));
+  const reg = await navigator.serviceWorker.register('/uv-sw.js', { scope: '/' });
+  reg.update().catch(() => {});
+  await waitForWorker(reg.active || reg.installing || reg.waiting);
+  if (!reg.active) await waitForWorker(reg.installing || reg.waiting);
+  if (!navigator.serviceWorker.controller) {
+    await new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(resolve, 1500);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+  }
+}
+
 export function initUltraviolet(): Promise<void> {
   if (!uvReady) {
     uvReady = (async () => {
@@ -131,62 +192,14 @@ export function initUltraviolet(): Promise<void> {
       if (typeof SharedWorker === 'undefined') {
         throw new Error('SharedWorker unavailable');
       }
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((r) => r.unregister()));
-      const reg = await navigator.serviceWorker.register('/uv-sw.js', { scope: '/' });
-      await reg.update();
-      await waitForWorker(reg.active || reg.installing || reg.waiting);
-      if (!reg.active) {
-        await waitForWorker(reg.installing || reg.waiting);
+      await ensureWorker();
+      if (!(await pickTransport())) {
+        const fallback = wispList()[0];
+        if (!connection) connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
+        await connection.setTransport('/epoxy/index.mjs', [{ wisp: fallback }]);
+        lastWisp = fallback;
       }
-      if (!navigator.serviceWorker.controller) {
-        await new Promise<void>((resolve) => {
-          const timeout = window.setTimeout(resolve, 1500);
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            window.clearTimeout(timeout);
-            resolve();
-          }, { once: true });
-        });
-      }
-      // self-host first only if localhost; in production (batnight.org / stealthybat etc) public wisps are more reliable
-      const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-      const wispUrls = isLocal ? [
-        'wss://' + location.host + '/wisp/',
-        'wss://wisp.mercurywork.shop/wisp/',
-        'wss://anura.terbium.work/wisp/',
-        'wss://wisp.run.place/wisp/',
-        'wss://wisp.terbiumon.top/wisp/',
-        'wss://wisp.whimsy.run/wisp/'
-      ] : [
-        'wss://wisp.mercurywork.shop/wisp/',
-        'wss://anura.terbium.work/wisp/',
-        'wss://wisp.run.place/wisp/',
-        'wss://wisp.terbiumon.top/wisp/',
-        'wss://wisp.whimsy.run/wisp/',
-        'wss://' + location.host + '/wisp/'
-      ];
-      const connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
-      let connected = false;
-      for (const wispUrl of wispUrls) {
-        if (!(await probeWisp(wispUrl))) continue;
-        try {
-          await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
-          lastWisp = wispUrl;
-          connected = true;
-          break;
-        } catch {}
-      }
-      if (!connected) {
-        for (const wispUrl of wispUrls) {
-          try {
-            await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
-            lastWisp = wispUrl;
-            connected = true;
-            break;
-          } catch {}
-        }
-      }
-      if (!connected) throw new Error('Transport unavailable');
+      startWatchdog();
     })().catch((err) => {
       uvReady = null;
       throw err;

@@ -5,7 +5,8 @@ export const SEARCH_ENGINES = [
   'Bing',
   'DuckDuckGo',
   'Yahoo',
-  'Ask'
+  'Ask',
+  'Scry engine'
 ] as const;
 
 export type SearchEngineName = (typeof SEARCH_ENGINES)[number];
@@ -61,36 +62,41 @@ export function getSelectedEngine(): SearchEngineName {
   return 'BatNight Engine';
 }
 
+function localSearch(engine: string, query: string): string {
+  const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
+  return origin + '/api/search?engine=' + encodeURIComponent(engine) + '&q=' + encodeURIComponent(query);
+}
+
 function batNightTarget(query: string): string {
   const q = sanitizeQuery(query);
-  if (!q) return 'https://duckduckgo.com/';
+  if (!q) return localSearch('batnight', '');
   if (isWebUrl(q)) return canonicalizeUrl(q);
-  const bang = q.match(/^!([a-z0-9]+)(?:\s+|$)(.*)$/i);
-  if (bang) {
-    return 'https://duckduckgo.com/?q=' + encodeURIComponent(q) + '&ia=web';
-  }
-  return (
-    'https://duckduckgo.com/?q=' +
-    encodeURIComponent(q) +
-    '&ia=web&kp=-1&k1=-1&kad=en_US&kae=d'
-  );
+  return localSearch('batnight', q);
 }
 
 function scremjetTarget(query: string): string {
   const q = sanitizeQuery(query);
-  if (!q) return 'https://search.brave.com/';
+  if (!q) return localSearch('scremjet', '');
   if (isWebUrl(q)) return canonicalizeUrl(q);
-  return 'https://search.brave.com/search?q=' + encodeURIComponent(q) + '&source=web';
+  return localSearch('scremjet', q);
+}
+
+function scryTarget(query: string): string {
+  const q = sanitizeQuery(query);
+  if (!q) return localSearch('scry', '');
+  if (isWebUrl(q)) return canonicalizeUrl(q);
+  return localSearch('scry', q);
 }
 
 const ENGINE_PREFIX: Record<SearchEngineName, string> = {
   'BatNight Engine': '',
   Scremjet: '',
-  Google: 'https://www.google.com/search?q=',
+  Google: 'https://www.bing.com/search?q=',
   Bing: 'https://www.bing.com/search?q=',
-  DuckDuckGo: 'https://duckduckgo.com/?q=',
+  DuckDuckGo: '',
   Yahoo: 'https://search.yahoo.com/search?p=',
-  Ask: 'https://www.ask.com/web?q='
+  Ask: '',
+  'Scry engine': ''
 };
 
 export function buildSearchUrl(query: string, engineName?: string): string {
@@ -100,7 +106,12 @@ export function buildSearchUrl(query: string, engineName?: string): string {
   const engine = (engineName as SearchEngineName) || getSelectedEngine();
   if (engine === 'BatNight Engine') return batNightTarget(q);
   if (engine === 'Scremjet') return scremjetTarget(q);
-  const prefix = ENGINE_PREFIX[engine] || ENGINE_PREFIX['BatNight Engine'];
+  if (engine === 'Scry engine') return scryTarget(q);
+  if (engine === 'DuckDuckGo') return localSearch('ddg', q);
+  if (engine === 'Google') return localSearch('google', q);
+  if (engine === 'Ask') return localSearch('ask', q);
+  if (engine === 'Yahoo') return localSearch('yahoo', q);
+  const prefix = ENGINE_PREFIX[engine] || '';
   if (!prefix) return batNightTarget(q);
   return prefix + encodeURIComponent(q);
 }

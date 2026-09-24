@@ -100,7 +100,7 @@ if (!bridge) {
 
 step(5, "Checking it responds");
 await new Promise(r => setTimeout(r, 4000));
-for (const u of [`https://${domain}/`, `https://api.${domain}/api/admin/users`]) {
+for (const u of [`https://${domain}/`, `https://api.${domain}/api/presence`]) {
   try {
     const r = await fetch(u, { redirect: "follow" });
     console.log(`    ${r.status === 200 ? "ok   " : "wait "} ${u} -> ${r.status}`);

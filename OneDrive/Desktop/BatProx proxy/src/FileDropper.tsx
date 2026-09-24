@@ -55,11 +55,11 @@ const Backdrop = () => (
   </>
 );
 
-// helpers for folder drop
 async function getAllFilesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
-  const items = Array.from(dt.items || []);
+  const direct = Array.from(dt.files || []);
+  const items = Array.from(dt.items || []).filter(it => it.kind === 'file');
   if (!items.length || !items[0].webkitGetAsEntry) {
-    return Array.from(dt.files || []);
+    return direct;
   }
   const entries = items.map((it: any) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
   const files: File[] = [];
@@ -82,7 +82,7 @@ async function getAllFilesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
     }
   }
   for (const e of entries) await traverse(e, '');
-  if (!files.length) return Array.from(dt.files || []);
+  if (!files.length) return direct;
   return files;
 }
 
@@ -100,11 +100,11 @@ function buildAboutBlankHtml(drop: Drop, bundle: BundleFile[] | null, directUrl:
     </div>
   `).join('') : `
     <div class="preview-wrap">
-      <p class="hint">${drop.mime.startsWith('image/')?`<img src="${directUrl}" style="max-width:100%;border-radius:12px;border:1px solid #ffffff18"/>` : drop.kind==='text' ? 'Text note — open to view raw.' : 'Click download to get your file.'}</p>
+      <p class="hint">${drop.mime.startsWith('image/')?`<img src="${directUrl}" style="max-width:100%;border-radius:12px;border:1px solid #ffffff18"/>` : drop.kind==='text' ? 'Text note, open to view raw.' : 'Click download to get your file.'}</p>
     </div>
   `;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} — BatProx</title>
+<title>${title} | BatProx</title>
 <style>
 *{box-sizing:border-box}html,body{margin:0;background:#07060d;color:#fff;font-family:system-ui,sans-serif}
 .top{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #ffffff14;background:#0b0b14;position:sticky;top:0;z-index:2}
@@ -170,9 +170,7 @@ document.querySelectorAll('.dl').forEach(b=>{
     if(bundle && bundle[i]) downloadDataUrl(bundle[i].data, bundle[i].name.split('/').pop()||bundle[i].name);
   });
 });
-// allow opening image inline if single image bundle
 if(!bundle && kind!=='folder'){
-  // try show image preview for images
   fetch(directUrl).then(r=>r.blob()).then(blob=>{
     if(blob.type.startsWith('image/')){
       const url=URL.createObjectURL(blob);
@@ -201,7 +199,6 @@ export default function FileDropper() {
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
-  // rename (click rename button or right-click to edit instantly)
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState('');
 
@@ -215,6 +212,47 @@ export default function FileDropper() {
   }, [me]);
 
   useEffect(() => { load(); }, [load]);
+
+  const filesRef = useRef<(files: File[]) => void>(() => {});
+  const dragDepth = useRef(0);
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current += 1;
+      setDragging(true);
+    };
+    const over = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragging(false);
+    };
+    const drop = async (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      if (!e.dataTransfer) return;
+      const files = await getAllFilesFromDataTransfer(e.dataTransfer);
+      filesRef.current(files);
+    };
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+    };
+  }, []);
 
   const saveOne = async (name: string, kind: 'file' | 'text' | 'folder', mime: string, data: string, text: string) => {
     const r = await fetch('/api/drops', {
@@ -233,7 +271,6 @@ export default function FileDropper() {
     setBusy(true);
     setError('');
     try {
-      // check for zip files to auto-unzip
       const expanded: { name: string; files: BundleFile[] }[] = [];
       const singles: File[] = [];
       for (const f of files) {
@@ -258,7 +295,6 @@ export default function FileDropper() {
               const folderName = f.name.replace(/\.zip$/i, '') || 'unzipped';
               expanded.push({ name: folderName, files: bundle });
             } else {
-              // empty zip -> save original
               singles.push(f);
             }
           } catch {
@@ -269,7 +305,6 @@ export default function FileDropper() {
         }
       }
 
-      // save folder drops from folder selections (files with webkitRelativePath) -> bundle together if they share a root folder
       const folderGroups = new Map<string, File[]>();
       const remainingSingles: File[] = [];
       for (const f of singles) {
@@ -284,7 +319,6 @@ export default function FileDropper() {
       }
 
       let idx = 0;
-      // save folder groups as folder drops
       for (const [root, flist] of folderGroups) {
         setProgress(`Saving folder ${root} (${flist.length} files)...`);
         const bundle: BundleFile[] = [];
@@ -306,7 +340,6 @@ export default function FileDropper() {
         }
       }
 
-      // save expanded zips as folder drops
       for (const z of expanded) {
         setProgress(`Saving unzipped ${z.name} (${z.files.length} files)...`);
         const payload = JSON.stringify({ files: z.files, bundle: true });
@@ -314,7 +347,6 @@ export default function FileDropper() {
         idx++;
       }
 
-      // save remaining singles normally
       for (let i = 0; i < remainingSingles.length; i++) {
         const f = remainingSingles[i];
         setProgress(`Saving ${i + 1} of ${remainingSingles.length}: ${f.name}`);
@@ -337,6 +369,8 @@ export default function FileDropper() {
     setBusy(false);
     setProgress('');
   };
+
+  filesRef.current = handleFiles;
 
   const saveNote = async () => {
     const v = note.trim();
@@ -385,7 +419,6 @@ export default function FileDropper() {
 
   const openViewer = async (d: Drop) => {
     const direct = `/api/drops/file/${encodeURIComponent(d.id)}`;
-    // for folder/zip open about:blank with file list
     if (d.kind === 'folder') {
       try {
         const r = await fetch(direct);
@@ -402,10 +435,8 @@ export default function FileDropper() {
         return;
       }
     }
-    // file/text -> also open about:blank viewer with download
     const w = window.open('about:blank', '_blank');
     if (!w) { window.open(direct, '_blank'); return; }
-    // need to know bundle null but fetch to see if it's zip that wasn't auto-unzipped? handle inline
     let bundle: BundleFile[] | null = null;
     if (d.name.toLowerCase().endsWith('.zip') || d.mime.includes('zip')) {
       try {
@@ -426,12 +457,28 @@ export default function FileDropper() {
     w.document.close();
   };
 
+  const dragOverlay = dragging ? (
+    <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="absolute inset-4 rounded-3xl border-2 border-dashed border-purple-400/70" />
+      <div className="relative flex flex-col items-center text-center">
+        <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'rgba(124,58,237,0.25)', border: '1px solid rgba(167,139,250,0.5)' }}>
+          <svg className="w-10 h-10 text-purple-200" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+          </svg>
+        </div>
+        <p className="text-2xl font-semibold text-white">Drop to upload</p>
+        <p className="text-sm text-white/50 mt-1.5">files, zips and folders all work</p>
+      </div>
+    </div>
+  ) : null;
+
   if (onDashboard) {
     const totalSize = drops.reduce((n, d) => n + (d.size || 0), 0);
     return (
       <div className="min-h-screen w-full text-white font-sans">
         <Backdrop />
         <Nav me={me} onHome={() => navigate('/dashboard')} />
+        {dragOverlay}
         <main className="relative z-10 max-w-5xl mx-auto px-6 py-8">
           <div className="flex items-center justify-between gap-4 mb-6">
             <div>
@@ -513,15 +560,9 @@ export default function FileDropper() {
     <div className="min-h-screen w-full text-white font-sans">
       <Backdrop />
       <Nav me={me} onHome={() => navigate('/dashboard')} />
+      {dragOverlay}
       <main className="relative z-10 max-w-3xl mx-auto px-6 py-10">
         <div
-          onDragOver={e => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={async e => {
-            e.preventDefault(); setDragging(false);
-            const files = await getAllFilesFromDataTransfer(e.dataTransfer);
-            handleFiles(files);
-          }}
           onClick={() => fileRef.current?.click()}
           className={`rounded-3xl border-2 border-dashed cursor-pointer transition-all py-20 flex flex-col items-center justify-center text-center ${dragging ? 'border-purple-400 bg-purple-500/10 scale-[1.01]' : 'border-white/15 bg-white/[0.03] hover:border-white/30'}`}
         >
@@ -531,7 +572,7 @@ export default function FileDropper() {
             </svg>
           </div>
           <p className="text-xl font-semibold">{busy ? 'Saving..' : 'drop your files here'}</p>
-          <p className="text-xs text-white/40 mt-2">{busy ? progress : 'drag and drop files, zip or folders — zip auto-unzips'}</p>
+          <p className="text-xs text-white/40 mt-2">{busy ? progress : 'drop anywhere on this page. files, zips and folders all work'}</p>
           {busy && (
             <div className="mt-5 w-56 h-1 rounded-full bg-white/10 overflow-hidden">
               <div className="h-full w-1/3 bg-purple-400 animate-[dropslide_1s_ease-in-out_infinite]" />

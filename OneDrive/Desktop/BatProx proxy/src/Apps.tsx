@@ -69,14 +69,6 @@ export default function Apps() {
       icon: <img src="/assets/robloxcom.png" alt="Roblox" className="w-7 h-7 object-contain" />
     },
     {
-      id: 'spotify',
-      label: 'Spotify',
-      desc: 'music proxy',
-      route: '/search-engine?url=' + encodeURIComponent('https://open.spotify.com'),
-      tint: 'bg-[#1DB954]',
-      icon: <img src="/assets/spotify.png" alt="Spotify" className="w-7 h-7 object-contain" />
-    },
-    {
       id: 'movies',
       label: 'Movies',
       desc: 'watch films',

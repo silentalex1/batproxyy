@@ -399,7 +399,8 @@ export default function Chatting() {
     const optimistic: Msg = { id: -Date.now(), room: room.id, user: me, display: dispOf(me), text: t, ts: Date.now(), replyTo, localImgs: pending };
     setMessages(prev => [...prev, optimistic]);
     try {
-      await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo, images: shots }) });
+      const tok = (() => { try { return localStorage.getItem('batprox-token') || ''; } catch { return ''; } })();
+      await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo, images: shots }) });
       loadMessages(room.id);
       if (AI_MENTION.test(t)) {
         const target = room.id;

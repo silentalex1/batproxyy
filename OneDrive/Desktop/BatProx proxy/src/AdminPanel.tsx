@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 
 interface Feedback {
   id: number;
@@ -43,11 +44,84 @@ const codeAgo = (ts: number) => {
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
+type AdminTab = 'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo' | 'votes';
+
+interface VoteItem {
+  id: string;
+  title: string;
+  options: string[];
+  images: string[];
+  created: number;
+  closed: boolean;
+  counts: number[];
+  total: number;
+}
+
+const shrinkImage = (file: File, max: number, quality: number) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error('read'));
+  reader.onload = () => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('decode'));
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * scale));
+      c.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = c.getContext('2d');
+      if (!ctx) { reject(new Error('canvas')); return; }
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.src = String(reader.result || '');
+  };
+  reader.readAsDataURL(file);
+});
+
+function WorkspaceReply({ text }: { text: string }) {
+  const [copied, setCopied] = useState(-1);
+  let block = 0;
+  return (
+    <div className="text-[13px] leading-relaxed text-white/80 [&_p]:my-2 [&_ul]:my-2 [&_ul]:pl-5 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:pl-5 [&_ol]:list-decimal [&_li]:my-0.5 [&_strong]:text-white [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_a]:text-purple-300">
+      <ReactMarkdown
+        components={{
+          pre({ children }: any) {
+            const child = Array.isArray(children) ? children[0] : children;
+            const cls = String(child?.props?.className || '');
+            const src = String(child?.props?.children ?? '').replace(/\n$/, '');
+            const lang = cls.replace('language-', '') || 'code';
+            const me = block++;
+            return (
+              <div className="my-3 rounded-xl overflow-hidden border border-white/[0.08] bg-[#0c0c13]">
+                <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-white/[0.06] bg-white/[0.025]">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/35">{lang}</span>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(src).then(() => { setCopied(me); setTimeout(() => setCopied(-1), 1400); }).catch(() => {}); }}
+                    className="text-[11px] text-white/45 hover:text-white px-2 py-0.5 rounded-md hover:bg-white/10 transition-colors"
+                  >
+                    {copied === me ? 'copied' : 'copy'}
+                  </button>
+                </div>
+                <pre className="p-3.5 overflow-x-auto text-[12px] leading-relaxed font-mono text-white/85"><code>{src}</code></pre>
+              </div>
+            );
+          },
+          code({ children }: any) {
+            return <code className="px-1.5 py-0.5 rounded-md bg-white/[0.08] text-purple-200 text-[12px] font-mono">{children}</code>;
+          }
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const navigate = useNavigate();
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo'>('feedbacks');
+  const [tab, setTab] = useState<AdminTab>('feedbacks');
   const [problems, setProblems] = useState<{ votes: Array<{ user: string; working: boolean; ts: number }>; reports: Array<{ user: string; error: string; ts: number }>; resets: Array<{ user: string; ts: number }> }>({ votes: [], reports: [], resets: [] });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const SERVICES = ['Website API', 'Search Proxy', 'Wisp Transport', 'AI Service', 'Games Service', 'Database'];
@@ -82,6 +156,17 @@ export default function AdminPanel() {
   const [codeHost, setCodeHost] = useState('');
   const [codeJobs, setCodeJobs] = useState<CodeJob[]>([]);
   const [codeOpen, setCodeOpen] = useState('');
+  const [codeAsked, setCodeAsked] = useState('');
+  const [aiOnline, setAiOnline] = useState(true);
+  const [votes, setVotes] = useState<VoteItem[]>([]);
+  const [voteModal, setVoteModal] = useState(false);
+  const [voteTitle, setVoteTitle] = useState('');
+  const [voteQ1, setVoteQ1] = useState('');
+  const [voteQ2, setVoteQ2] = useState('');
+  const [voteImgs, setVoteImgs] = useState<string[]>(['', '']);
+  const [voteError, setVoteError] = useState('');
+  const [voteBusy, setVoteBusy] = useState(false);
+  const voteFileRef = useRef<HTMLInputElement>(null);
 
   const getToken = () => localStorage.getItem('batprox-token') || '';
 
@@ -107,9 +192,9 @@ export default function AdminPanel() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setExportMsg(`${label} downloaded — ${count} records`);
+      setExportMsg(`${label} downloaded, ${count} records`);
       setTimeout(() => setExportMsg(''), 5000);
-    } catch { setExportMsg(`${label} failed — network error`); }
+    } catch { setExportMsg(`${label} failed, network error`); }
     setExporting('');
   };
   const [replyTarget, setReplyTarget] = useState<Feedback | null>(null);
@@ -400,7 +485,7 @@ export default function AdminPanel() {
         const job: CodeJob | undefined = data.job;
         if (!job) continue;
         setCodePc(!!data.pc);
-        if (job.status === 'running') setCodeStage('Your PC picked it up and is working on it...');
+        if (job.status === 'running') setCodeStage('The local agent is applying the change..');
         if (job.status === 'done') { setCodeOut(job.reply || 'Done.'); setCodeBusy(false); setCodeStage(''); loadCodeJobs(); return; }
         if (job.status === 'error') { setCodeError(job.reply || 'The request failed.'); setCodeBusy(false); setCodeStage(''); loadCodeJobs(); return; }
       } catch {}
@@ -413,25 +498,35 @@ export default function AdminPanel() {
   const sendCodeRequest = async () => {
     const prompt = codePrompt.trim();
     if (!prompt || codeBusy) return;
+    const prev = codeJobs.find(j => j.id === codeOpen);
+    const history = prev && prev.status === 'done' ? [{ role: 'user', content: prev.prompt }, { role: 'assistant', content: prev.reply || '' }] : [];
     setCodeBusy(true);
     setCodeError('');
     setCodeOut('');
-    setCodeStage('Sending to your PC...');
+    setCodeAsked(prompt);
+    setCodePrompt('');
+    setCodeStage(codePc ? 'Sending it to the local agent..' : 'batprox-ai is writing the code..');
     try {
-      const response = await fetch('/api/admin/code-request', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ provider: codeProvider, prompt }) });
+      const response = await fetch('/api/admin/code-request', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ provider: codeProvider, prompt, history }) });
       const data = await response.json();
       if (!data.success) {
         setCodeError(data.error || 'Request failed.');
-        if (data.offline) setCodePc(false);
         setCodeBusy(false);
         setCodeStage('');
         loadCodeJobs();
         return;
       }
-      setCodePrompt('');
       setCodeOpen(data.id);
+      if (data.job) {
+        if (data.job.status === 'done') setCodeOut(data.job.reply || 'Done.');
+        else setCodeError(data.job.reply || 'The request failed.');
+        setCodeBusy(false);
+        setCodeStage('');
+        loadCodeJobs();
+        return;
+      }
       loadCodeJobs();
-      setCodeStage('Waiting for your PC to pick it up...');
+      setCodeStage('Waiting for the local agent..');
       pollCodeJob(data.id);
     } catch {
       setCodeError('Network error while sending the request.');
@@ -446,6 +541,93 @@ export default function AdminPanel() {
     const id = setInterval(loadCodeJobs, 5000);
     return () => clearInterval(id);
   }, [isAuthed, tab]);
+
+  const loadVotes = async () => {
+    try {
+      const response = await fetch('/api/votes', { cache: 'no-store' });
+      const data = await response.json();
+      if (response.ok) setVotes(data.votes || []);
+    } catch {}
+  };
+
+  const openVoteModal = () => {
+    setVoteTitle('');
+    setVoteQ1('');
+    setVoteQ2('');
+    setVoteImgs(['', '']);
+    setVoteError('');
+    setVoteModal(true);
+  };
+
+  const addVoteImage = async (file: File) => {
+    if (!file.type.startsWith('image/')) { setVoteError('That file is not an image.'); return; }
+    try {
+      const data = await shrinkImage(file, 900, 0.82);
+      setVoteImgs(prev => {
+        const n = [...prev];
+        const slot = n[0] ? (n[1] ? -1 : 1) : 0;
+        if (slot >= 0) n[slot] = data;
+        return n;
+      });
+      setVoteError('');
+    } catch { setVoteError('Could not read that image.'); }
+  };
+
+  const submitVote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voteTitle.trim() || !voteQ1.trim() || !voteQ2.trim()) { setVoteError('Fill in the title and both questions.'); return; }
+    setVoteBusy(true);
+    setVoteError('');
+    try {
+      const response = await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ title: voteTitle.trim(), q1: voteQ1.trim(), q2: voteQ2.trim(), images: voteImgs.filter(Boolean) }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) { setVoteError(data.error || 'Could not publish the vote.'); setVoteBusy(false); return; }
+      setVoteModal(false);
+      setMessage('Vote published');
+      setTimeout(() => setMessage(''), 2200);
+      loadVotes();
+    } catch { setVoteError('Network error while publishing the vote.'); }
+    setVoteBusy(false);
+  };
+
+  const voteAction = async (kind: 'close' | 'delete', id: string) => {
+    try {
+      const response = await fetch(`/api/votes/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ id }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setError(data.error || 'Vote update failed'); return; }
+      setMessage(kind === 'delete' ? 'Vote deleted' : data.closed ? 'Vote closed' : 'Vote reopened');
+      setTimeout(() => setMessage(''), 2000);
+      loadVotes();
+    } catch { setError('Network error'); }
+  };
+
+  useEffect(() => {
+    if (!isAuthed) return;
+    loadVotes();
+    if (tab !== 'votes') return;
+    const id = setInterval(loadVotes, 6000);
+    return () => clearInterval(id);
+  }, [isAuthed, tab]);
+
+  useEffect(() => {
+    if (!isAuthed || tab !== 'coderequest') return;
+    let alive = true;
+    const check = async () => {
+      try { const r = await fetch('/api/ai/status', { cache: 'no-store' }); const d = await r.json(); if (alive) setAiOnline(!!d.online); } catch { if (alive) setAiOnline(false); }
+    };
+    check();
+    const id = setInterval(check, 20000);
+    return () => { alive = false; clearInterval(id); };
+  }, [isAuthed, tab]);
+
+  const newCodeSession = () => {
+    setCodeOpen('');
+    setCodeAsked('');
+    setCodeOut('');
+    setCodeError('');
+    setCodeStage('');
+    setCodePrompt('');
+  };
 
   const handleSetRank = async (username: string, rank: string) => {
     try {
@@ -504,76 +686,109 @@ export default function AdminPanel() {
   const fnadFeedbacks = feedbacks.filter(f => live(f) && isFnad(f));
   const filteredUsers = users.filter(u => u.username.toLowerCase().includes(userSearch.toLowerCase()));
 
+  const me = (() => { try { return localStorage.getItem('batprox-user') || 'admin'; } catch { return 'admin'; } })();
+  const NAV: Array<{ group: string; items: Array<{ id: AdminTab; label: string; d: string; badge?: number; tone?: string }> }> = [
+    {
+      group: 'Community',
+      items: [
+        { id: 'feedbacks', label: 'Feedback Suggestions', d: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z', badge: pendingFeedbacks.length },
+        { id: 'fnadfeedback', label: '6th nights game, suggestions', d: 'M15 10h.01M9 10h.01M7 16h10a4 4 0 004-4V9a4 4 0 00-4-4H7a4 4 0 00-4 4v3a4 4 0 004 4zm-2 5l2-5m12 5l-2-5', badge: fnadFeedbacks.length, tone: 'amber' },
+        { id: 'votes', label: 'Voting System', d: 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z', badge: votes.filter(v => !v.closed).length, tone: 'emerald' }
+      ]
+    },
+    {
+      group: 'Accounts',
+      items: [
+        { id: 'accounts', label: 'Create user accounts', d: 'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3' },
+        { id: 'ranks', label: 'User ranks', d: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+        { id: 'paylater', label: 'Pay-later reminder', d: 'M12 8c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0 0V6m0 8v2m-7-4a7 7 0 1114 0 7 7 0 01-14 0z' },
+        { id: 'loginprobs', label: 'Login problems', d: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z', badge: problems.reports.length + problems.resets.length, tone: 'orange' }
+      ]
+    },
+    {
+      group: 'Site',
+      items: [
+        { id: 'status', label: 'Status change', d: 'M13 10V3L4 14h7v7l9-11h-7z' },
+        { id: 'commands', label: 'Command panel', d: 'M6.75 7.5l3 2.25-3 2.25m4.5 0h3M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z' },
+        { id: 'coderequest', label: 'Code request', d: 'M17.25 6.75L21 10.5l-3.75 3.75M6.75 17.25L3 13.5l3.75-3.75M14.25 4.5l-4.5 15' },
+        { id: 'datainfo', label: 'Data information', d: 'M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75' }
+      ]
+    }
+  ];
+  const currentNav = NAV.flatMap(g => g.items).find(i => i.id === tab);
+  const wide = tab === 'coderequest';
+  const badgeTone: Record<string, string> = {
+    amber: 'bg-amber-500/20 text-amber-200',
+    emerald: 'bg-emerald-500/20 text-emerald-200',
+    orange: 'bg-orange-500/20 text-orange-200'
+  };
+
   return (
-    <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
+    <div className="relative h-screen w-full bg-black overflow-hidden font-sans text-white">
       {background}
-      <main className="relative z-10 flex min-h-screen">
-        <div className="w-60 shrink-0 bg-black/50 border-r border-white/10 backdrop-blur-md p-4 flex flex-col">
-          <div className="flex items-center gap-2.5 mb-8 px-1">
-            <div className="w-8 h-8 rounded-lg bg-purple-600/20 border border-purple-500/30 flex items-center justify-center">
-              <svg className="w-4 h-4 text-purple-300" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+      <main className="relative z-10 flex h-screen">
+        <aside className="w-64 shrink-0 h-screen flex flex-col border-r border-white/[0.06] bg-[#08080d]/90 backdrop-blur-xl">
+          <div className="h-14 shrink-0 px-5 flex items-center gap-3 border-b border-white/[0.05]">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/30 to-indigo-500/20 border border-purple-400/25 flex items-center justify-center">
+              <svg className="w-4 h-4 text-purple-200" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white leading-tight">Admin Panel</h2>
-              <p className="text-[10px] text-white/30">nightbat control</p>
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-white leading-tight">Admin Panel</p>
+              <p className="text-[10px] text-white/30">batprox control center</p>
             </div>
           </div>
-          <nav className="space-y-1">
-            <button onClick={() => setTab('feedbacks')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'feedbacks' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-              Feedback Suggestions
-              {pendingFeedbacks.length > 0 && <span className="ml-auto text-[10px] bg-purple-600/40 text-purple-200 px-1.5 py-0.5 rounded-full">{pendingFeedbacks.length}</span>}
-            </button>
-            <button onClick={() => setTab('fnadfeedback')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'fnadfeedback' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10h.01M9 10h.01M7 16h10a4 4 0 004-4V9a4 4 0 00-4-4H7a4 4 0 00-4 4v3a4 4 0 004 4zm-2 5l2-5m12 5l-2-5" /></svg>
-              6th nights game, suggestions
-              {fnadFeedbacks.length > 0 && <span className="ml-auto text-[10px] bg-amber-600/40 text-amber-200 px-1.5 py-0.5 rounded-full">{fnadFeedbacks.length}</span>}
-            </button>
-            <button onClick={() => setTab('accounts')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'accounts' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6-4a3 3 0 11-3-3" /></svg>
-              Create user accounts
-            </button>
-            <button onClick={() => setTab('status')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'status' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              Status change
-            </button>
-            <button onClick={() => setTab('paylater')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'paylater' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0 0V6m0 8v2m-7-4a7 7 0 1114 0 7 7 0 01-14 0z" /></svg>
-              Pay-later reminder
-            </button>
-            <button onClick={() => setTab('commands')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'commands' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              Command panel
-            </button>
-            <button onClick={() => setTab('ranks')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'ranks' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-              User ranks
-            </button>
-            <button onClick={() => setTab('coderequest')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'coderequest' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L21 10.5l-3.75 3.75M6.75 17.25L3 13.5l3.75-3.75M14.25 4.5l-4.5 15" /></svg>
-              Code request
-            </button>
-            <button onClick={() => setTab('loginprobs')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'loginprobs' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-              Login problems
-              {(problems.reports.length + problems.resets.length) > 0 && <span className="ml-auto text-[10px] bg-orange-600/40 text-orange-200 px-1.5 py-0.5 rounded-full">{problems.reports.length + problems.resets.length}</span>}
-            </button>
-            <button onClick={() => setTab('datainfo')} className={`w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium transition-colors flex items-center gap-2.5 ${tab === 'datainfo' ? 'bg-white/[0.07] text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75" /></svg>
-              Data information
-            </button>
+          <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
+            {NAV.map(g => (
+              <div key={g.group}>
+                <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/25">{g.group}</p>
+                <div className="space-y-0.5">
+                  {g.items.map(it => {
+                    const on = tab === it.id;
+                    return (
+                      <button
+                        key={it.id}
+                        onClick={() => setTab(it.id)}
+                        className={`group relative w-full flex items-center gap-2.5 pl-3 pr-2.5 py-2 rounded-lg text-left text-[13px] transition-colors ${on ? 'bg-white/[0.07] text-white' : 'text-white/50 hover:text-white/90 hover:bg-white/[0.035]'}`}
+                      >
+                        {on && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-purple-400" />}
+                        <svg className={`w-4 h-4 shrink-0 transition-colors ${on ? 'text-purple-300' : 'text-white/35 group-hover:text-white/60'}`} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d={it.d} /></svg>
+                        <span className="truncate">{it.label}</span>
+                        {!!it.badge && <span className={`ml-auto shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badgeTone[it.tone || ''] || 'bg-purple-500/25 text-purple-200'}`}>{it.badge}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
-          <div className="mt-auto space-y-1">
-            <button onClick={() => navigate('/dashboard')} className="w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors">Back to Dashboard</button>
-            <button onClick={logout} className="w-full px-3.5 py-2.5 rounded-lg text-left text-[13px] font-medium text-red-400/80 hover:text-red-300 hover:bg-red-600/10 transition-colors">Logout</button>
+          <div className="shrink-0 p-3 border-t border-white/[0.05]">
+            <div className="flex items-center gap-2.5 px-2 py-2 mb-1.5 rounded-lg bg-white/[0.03]">
+              <div className="w-7 h-7 rounded-full bg-purple-600/30 border border-purple-400/25 flex items-center justify-center text-[11px] font-bold text-purple-100 uppercase">{me.charAt(0)}</div>
+              <div className="min-w-0">
+                <p className="text-[12px] text-white/85 font-medium truncate">{me}</p>
+                <p className="text-[10px] text-emerald-300/70">admin</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button onClick={() => navigate('/dashboard')} className="px-2 py-2 rounded-lg text-[12px] font-medium text-white/60 hover:text-white bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.06] transition-colors">Dashboard</button>
+              <button onClick={logout} className="px-2 py-2 rounded-lg text-[12px] font-medium text-red-300/80 hover:text-red-200 bg-red-500/[0.04] hover:bg-red-500/10 border border-red-500/15 transition-colors">Logout</button>
+            </div>
           </div>
-        </div>
-        <div className="flex-1 p-8 overflow-y-auto">
-          <div className="max-w-4xl mx-auto">
-            {message && <div className="mb-5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-3 py-1.5 rounded-full inline-flex items-center gap-1.5"><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>{message}</div>}
-            {error && <div className="mb-5 text-xs text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-full inline-block">{error}</div>}
+        </aside>
+        <section className="flex-1 min-w-0 flex flex-col h-screen">
+          <header className="h-14 shrink-0 px-6 lg:px-8 flex items-center gap-2.5 border-b border-white/[0.06] bg-black/40 backdrop-blur-xl">
+            <span className="text-[12px] text-white/35">Admin</span>
+            <svg className="w-3 h-3 text-white/20" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+            <span className="text-[13px] font-medium text-white">{currentNav?.label || 'Overview'}</span>
+            <div className="ml-auto flex items-center gap-2 min-w-0">
+              {message && <div className="text-xs text-green-300 bg-green-500/10 border border-green-500/20 px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 truncate"><svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>{message}</div>}
+              {error && <button onClick={() => setError('')} className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-full truncate max-w-[420px]">{error}</button>}
+            </div>
+          </header>
+          <div className={`flex-1 min-h-0 ${wide ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+            <div className={wide ? 'h-full' : 'max-w-5xl mx-auto px-6 lg:px-8 py-7'}>
             {tab === 'feedbacks' && (
               <div>
                 <h2 className="text-lg font-bold text-white mb-5">Users Feedback Suggestions</h2>
@@ -757,125 +972,143 @@ export default function AdminPanel() {
               </div>
             )}
             {tab === 'coderequest' && (
-              <div className="h-[calc(100vh-4rem)] -m-8 flex flex-col bg-[#0a0a10] rounded-none">
-                <div className="flex items-center gap-3 px-4 h-11 border-b border-white/[0.07] bg-[#0d0d14] shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+              <div className="h-full flex bg-[#09090e]">
+                <div className="w-64 shrink-0 border-r border-white/[0.06] bg-[#0b0b11] flex flex-col">
+                  <div className="p-3">
+                    <button
+                      onClick={newCodeSession}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[12px] font-semibold transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" /></svg>
+                      New session
+                    </button>
                   </div>
-                  <span className="text-[12px] text-white/70 font-medium ml-1">batprox workspace</span>
-                  <span className="text-[11px] text-white/25">~/batprox-proxy</span>
-                  <div className="ml-auto flex items-center gap-2">
-                    <span className={`text-[11px] px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${codePc ? 'text-emerald-300 border-emerald-500/25 bg-emerald-500/10' : 'text-white/40 border-white/10 bg-white/[0.03]'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${codePc ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
-                      {codePc ? `agent connected${codeHost ? ` · ${codeHost}` : ''}` : 'agent not running'}
-                    </span>
+                  <div className="px-3 pb-3 border-b border-white/[0.06]">
+                    <p className="px-1 mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/25">Model</p>
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => setCodeProvider('claude')}
+                        className="w-full text-left px-3 py-2.5 rounded-lg border bg-purple-600/[0.12] border-purple-500/30 transition-colors"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span className="text-[12px] font-medium text-white">BatProx Agentic</span>
+                          <span className="ml-auto text-[9px] font-semibold uppercase tracking-wider text-purple-200/70">selected</span>
+                        </span>
+                        <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">powered by batprox-ai</span>
+                      </button>
+                      <div className="w-full px-3 py-2.5 rounded-lg border border-white/[0.05] bg-white/[0.015] opacity-55 cursor-not-allowed select-none">
+                        <span className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white/25" />
+                          <span className="text-[12px] font-medium text-white/60">InferForge codex</span>
+                        </span>
+                        <span className="block text-[10px] text-white/30 mt-0.5 pl-3.5">(coming soon)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-h-0 flex flex-col px-3 pt-3">
+                    <p className="px-1 mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/25">Sessions</p>
+                    <div className="flex-1 overflow-y-auto space-y-0.5 pb-3">
+                      {codeJobs.length === 0 && <p className="text-[11px] text-white/25 px-1">No sessions yet.</p>}
+                      {codeJobs.map(j => (
+                        <button
+                          key={j.id}
+                          onClick={() => { setCodeOpen(j.id); setCodeAsked(j.prompt); setCodeOut(j.status === 'done' ? (j.reply || '') : ''); setCodeError(j.status === 'error' ? (j.reply || 'The request failed.') : ''); }}
+                          className={`w-full text-left px-2.5 py-2 rounded-lg transition-colors ${codeOpen === j.id ? 'bg-white/[0.07]' : 'hover:bg-white/[0.035]'}`}
+                        >
+                          <span className="flex items-center gap-1.5 mb-0.5">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${j.status === 'done' ? 'bg-emerald-400' : j.status === 'error' ? 'bg-red-400' : 'bg-amber-400 animate-pulse'}`} />
+                            <span className="text-[10px] text-white/30">{codeAgo(j.ts)}</span>
+                          </span>
+                          <span className="block text-[12px] text-white/70 leading-snug line-clamp-2">{j.prompt}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex-1 flex min-h-0">
-                  <div className="w-60 shrink-0 border-r border-white/[0.07] bg-[#0b0b12] flex flex-col">
-                    <div className="px-3 py-2.5 border-b border-white/[0.06]">
-                      <p className="text-[10px] uppercase tracking-widest text-white/25 mb-2">model</p>
-                      <div className="space-y-1">
-                        <button
-                          onClick={() => setCodeProvider('claude')}
-                          className={`w-full text-left px-2.5 py-2 rounded-lg border transition-colors ${codeProvider === 'claude' ? 'bg-purple-600/15 border-purple-500/35' : 'bg-white/[0.02] border-white/[0.07] hover:border-white/15'}`}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                            <span className="text-[12px] font-medium text-white">BatProx Agentic</span>
-                          </span>
-                          <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">edits the site from your prompt</span>
-                        </button>
-                        <button
-                          disabled
-                          className="w-full text-left px-2.5 py-2 rounded-lg border border-white/[0.06] bg-white/[0.01] opacity-50 cursor-not-allowed"
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-white/25" />
-                            <span className="text-[12px] font-medium text-white/60">InferForge codex</span>
-                          </span>
-                          <span className="block text-[10px] text-white/30 mt-0.5 pl-3.5">coming soon</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="px-3 py-2.5 flex-1 min-h-0 flex flex-col">
-                      <p className="text-[10px] uppercase tracking-widest text-white/25 mb-2">history</p>
-                      <div className="flex-1 overflow-y-auto space-y-1 -mx-1 px-1">
-                        {codeJobs.length === 0 && <p className="text-[11px] text-white/25 px-1">nothing yet</p>}
-                        {codeJobs.map(j => (
-                          <button
-                            key={j.id}
-                            onClick={() => { setCodeOpen(j.id); setCodeOut(j.reply || ''); }}
-                            className={`w-full text-left px-2.5 py-2 rounded-lg border transition-colors ${codeOpen === j.id ? 'bg-white/[0.06] border-white/15' : 'bg-transparent border-transparent hover:bg-white/[0.03]'}`}
-                          >
-                            <span className="flex items-center gap-1.5 mb-0.5">
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${j.status === 'done' ? 'bg-emerald-400' : j.status === 'error' ? 'bg-red-400' : 'bg-amber-400 animate-pulse'}`} />
-                              <span className="text-[10px] text-white/30">{codeAgo(j.ts)}</span>
-                            </span>
-                            <span className="block text-[11px] text-white/70 leading-snug line-clamp-2">{j.prompt}</span>
-                          </button>
-                        ))}
-                      </div>
+                <div className="flex-1 min-w-0 flex flex-col">
+                  <div className="h-12 shrink-0 px-5 flex items-center gap-3 border-b border-white/[0.06] bg-[#0b0b11]/60">
+                    <svg className="w-4 h-4 text-purple-300/80" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L21 10.5l-3.75 3.75M6.75 17.25L3 13.5l3.75-3.75M14.25 4.5l-4.5 15" /></svg>
+                    <span className="text-[13px] font-medium text-white/85">batprox workspace</span>
+                    <span className="text-[11px] text-white/25 font-mono">~/batprox-proxy</span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className={`text-[11px] px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${aiOnline ? 'text-emerald-300 border-emerald-500/25 bg-emerald-500/10' : 'text-amber-300 border-amber-500/25 bg-amber-500/10'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${aiOnline ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                        {aiOnline ? 'batprox-ai online' : 'batprox-ai reconnecting'}
+                      </span>
+                      {codePc && (
+                        <span className="text-[11px] px-2.5 py-1 rounded-full border text-sky-300 border-sky-500/25 bg-sky-500/10">
+                          applying to repo{codeHost ? ` · ${codeHost}` : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex-1 flex flex-col min-w-0">
-                    <div className="flex-1 overflow-y-auto p-5 min-h-0">
-                      {codeError && (
-                        <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/25 text-[12px] text-red-300">{codeError}</div>
-                      )}
-                      {!codeOut && !codeBusy && !codeError && (
-                        <div className="h-full flex flex-col items-center justify-center text-center">
-                          <div className="w-14 h-14 rounded-2xl bg-purple-600/12 border border-purple-500/25 flex items-center justify-center mb-4">
-                            <svg className="w-7 h-7 text-purple-300/80" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
-                            </svg>
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto px-6 py-7 space-y-5">
+                      {!codeAsked && !codeBusy && !codeError && (
+                        <div className="pt-16 flex flex-col items-center text-center">
+                          <div className="w-14 h-14 rounded-2xl bg-purple-600/[0.12] border border-purple-500/25 flex items-center justify-center mb-4">
+                            <svg className="w-7 h-7 text-purple-300/80" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" /></svg>
                           </div>
-                          <p className="text-[13px] text-white/50">Describe a change and the agent will make it.</p>
-                          <p className="text-[11px] text-white/25 mt-1.5">It runs on your machine and edits this repo directly.</p>
+                          <p className="text-[15px] font-medium text-white/80">What should we build?</p>
+                          <p className="text-[12px] text-white/35 mt-1.5 max-w-sm">Describe a change to the site. batprox-ai plans it and writes the code for every file it touches.</p>
+                          <div className="mt-6 flex flex-wrap justify-center gap-2 max-w-lg">
+                            {['Add a dark mode toggle to settings', 'Make the dashboard cards rounder', 'Add a word counter to the chat box'].map(s => (
+                              <button key={s} onClick={() => setCodePrompt(s)} className="px-3 py-1.5 rounded-full text-[11px] text-white/55 hover:text-white bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.08] transition-colors">{s}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {codeAsked && (
+                        <div className="flex justify-end">
+                          <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md bg-purple-600/20 border border-purple-500/25 text-[13px] text-white/90 whitespace-pre-wrap break-words">{codeAsked}</div>
                         </div>
                       )}
                       {codeBusy && !codeOut && (
                         <div className="flex items-center gap-2.5 text-[12px] text-white/50">
                           <span className="w-3.5 h-3.5 rounded-full border-2 border-purple-400/30 border-t-purple-400 animate-spin" />
-                          {codeStage || 'working...'}
+                          {codeStage || 'batprox-ai is working on it'}
                         </div>
                       )}
+                      {codeError && (
+                        <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/25 text-[12px] text-red-300">{codeError}</div>
+                      )}
                       {codeOut && (
-                        <pre className="text-[12px] leading-relaxed text-white/80 whitespace-pre-wrap break-words font-mono">{codeOut}</pre>
+                        <div className="flex gap-3">
+                          <div className="w-7 h-7 shrink-0 rounded-lg bg-purple-600/20 border border-purple-500/25 flex items-center justify-center mt-0.5">
+                            <svg className="w-3.5 h-3.5 text-purple-200" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z" /></svg>
+                          </div>
+                          <div className="flex-1 min-w-0"><WorkspaceReply text={codeOut} /></div>
+                        </div>
                       )}
                     </div>
+                  </div>
 
-                    <div className="border-t border-white/[0.07] bg-[#0b0b12] p-3 shrink-0">
-                      <div className="rounded-xl border border-white/10 bg-[#0e0e16] focus-within:border-purple-500/40 transition-colors">
+                  <div className="shrink-0 border-t border-white/[0.06] bg-[#0b0b11]/60 px-6 py-4">
+                    <div className="max-w-3xl mx-auto">
+                      <div className="rounded-2xl border border-white/10 bg-[#0e0e16] focus-within:border-purple-500/40 transition-colors">
                         <textarea
                           value={codePrompt}
                           onChange={e => setCodePrompt(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCodeRequest(); } }}
-                          rows={3}
-                          placeholder="make the dashboard cards rounder, add a dark toggle to settings.."
-                          className="w-full px-4 py-3 bg-transparent text-white text-[13px] placeholder-white/25 resize-none outline-none font-mono leading-relaxed"
+                          rows={2}
+                          placeholder="Describe the change you want.."
+                          className="w-full px-4 pt-3 pb-1 bg-transparent text-white text-[13px] placeholder-white/25 resize-none outline-none leading-relaxed"
                         />
                         <div className="flex items-center gap-3 px-3 pb-2.5">
                           <span className="text-[10px] text-white/25">enter to run · shift+enter for a new line</span>
                           <button
                             onClick={sendCodeRequest}
                             disabled={!codePrompt.trim() || codeBusy}
-                            className="ml-auto px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-35 disabled:hover:bg-purple-600 text-white text-[12px] font-semibold transition-colors"
+                            className="ml-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-35 disabled:hover:bg-purple-600 text-white text-[12px] font-semibold transition-colors"
                           >
-                            {codeBusy ? 'running' : 'run'}
+                            {codeBusy ? 'Running' : 'Run'}
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M13 5l7 7-7 7" /></svg>
                           </button>
                         </div>
                       </div>
-                      {!codePc && (
-                        <p className="mt-2 text-[11px] text-amber-300/70">
-                          Start the agent on your machine to run changes: <span className="font-mono text-amber-200/90">npm run bridge</span>
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -978,6 +1211,63 @@ export default function AdminPanel() {
                 )}
               </div>
             )}
+            {tab === 'votes' && (
+              <div>
+                <div className="flex items-start justify-between gap-4 mb-6">
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Voting System</h2>
+                    <p className="text-[13px] text-white/40 mt-1">Publish votes and everyone on BatProx gets to pick an answer.</p>
+                  </div>
+                  <button onClick={openVoteModal} className="shrink-0 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[13px] font-semibold shadow-lg shadow-purple-900/40 transition-colors">+ Create a new vote</button>
+                </div>
+                {votes.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] py-14 flex flex-col items-center text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center mb-3">
+                      <svg className="w-6 h-6 text-white/40" fill="none" stroke="currentColor" strokeWidth={1.7} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <p className="text-[14px] text-white/70 font-medium">No votes yet</p>
+                    <p className="text-[12px] text-white/35 mt-1">Create one and it shows up for users on their dashboard.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {votes.map(v => (
+                      <div key={v.id} className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-5">
+                        <div className="flex items-start gap-3 mb-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[15px] font-semibold text-white leading-snug break-words">{v.title}</p>
+                            <p className="text-[11px] text-white/35 mt-1">{codeAgo(v.created)} · {v.total} vote{v.total === 1 ? '' : 's'}</p>
+                          </div>
+                          <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${v.closed ? 'bg-white/[0.06] text-white/40' : 'bg-emerald-500/15 text-emerald-300'}`}>{v.closed ? 'closed' : 'live'}</span>
+                        </div>
+                        <div className="space-y-2.5">
+                          {v.options.map((o, i) => {
+                            const pct = v.total ? Math.round((v.counts[i] / v.total) * 100) : 0;
+                            const img = v.images.find(u => u.endsWith('/' + i));
+                            return (
+                              <div key={i} className="relative overflow-hidden rounded-xl border border-white/[0.07] bg-black/30">
+                                <div className="absolute inset-y-0 left-0 bg-purple-500/[0.14] transition-all" style={{ width: pct + '%' }} />
+                                <div className="relative flex items-center gap-3 p-2.5">
+                                  {img ? <img src={img} alt="" className="w-11 h-11 rounded-lg object-cover border border-white/10 shrink-0" /> : <div className="w-11 h-11 rounded-lg bg-white/[0.04] border border-white/[0.06] shrink-0 flex items-center justify-center text-[11px] text-white/30">{i + 1}</div>}
+                                  <p className="flex-1 min-w-0 text-[13px] text-white/85 break-words">{o}</p>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-[13px] font-semibold text-white">{pct}%</p>
+                                    <p className="text-[10px] text-white/35">{v.counts[i]}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                          <button onClick={() => voteAction('close', v.id)} className="flex-1 px-3 py-2 rounded-lg text-[12px] font-medium bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/70 hover:text-white transition-colors">{v.closed ? 'Reopen vote' : 'Close vote'}</button>
+                          <button onClick={() => { if (window.confirm('Delete this vote and all of its results?')) voteAction('delete', v.id); }} className="px-3 py-2 rounded-lg text-[12px] font-medium bg-red-500/[0.06] hover:bg-red-500/15 border border-red-500/20 text-red-300/90 transition-colors">Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {tab === 'commands' && (
               <div>
                 <div className="flex items-center gap-2 mb-3">
@@ -990,7 +1280,7 @@ export default function AdminPanel() {
                 <div className="bg-black border border-purple-500/30 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(139,92,246,0.25)]">
                   <div className="bg-white/[0.04] border-b border-white/10 px-4 py-2 flex items-center gap-2">
                     <span className="text-xs font-mono text-purple-300">command panel</span>
-                    <span className="text-xs text-white/30">— {users.length} users loaded</span>
+                    <span className="text-xs text-white/30"> · {users.length} users loaded</span>
                   </div>
                   <div className="p-4 h-80 overflow-y-auto font-mono text-sm bg-[#050508]">
                     {cmdLog.map((l, i) => <div key={i} className={l.startsWith('>') ? 'text-purple-300' : l.startsWith('Available') || l.includes(':') ? 'text-green-300' : 'text-white/70'} style={{ whiteSpace: 'pre-wrap' }}>{l}</div>)}
@@ -1004,8 +1294,9 @@ export default function AdminPanel() {
                 <p className="text-[11px] text-white/25 mt-2 font-mono">Tip: "show quick-access codes" reveals all invite codes</p>
               </div>
             )}
+            </div>
           </div>
-        </div>
+        </section>
       </main>
       {replyTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -1033,6 +1324,67 @@ export default function AdminPanel() {
               <button type="button" disabled={replyBusy} onClick={sendReply} className="px-5 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm font-semibold transition-all">{replyBusy ? 'Sending..' : 'Approve & send'}</button>
             </div>
           </div>
+        </div>
+      )}
+      {voteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <form onSubmit={submitVote} className="bg-[#0d0d12] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
+            <div className="px-7 pt-6 pb-4 border-b border-white/[0.06] flex items-center">
+              <div>
+                <h3 className="text-base font-semibold text-white">Create a new vote</h3>
+                <p className="text-[11px] text-white/35 mt-0.5">Users pick between question 1 and question 2.</p>
+              </div>
+              <button type="button" onClick={() => setVoteModal(false)} className="ml-auto w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <div className="px-7 py-5 overflow-y-auto space-y-4">
+              <div>
+                <label className="block text-xs text-white/55 mb-1.5">Enter vote title:</label>
+                <input value={voteTitle} onChange={e => setVoteTitle(e.target.value)} maxLength={120} placeholder="What should we add next?" className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all" />
+              </div>
+              <div>
+                <label className="block text-xs text-white/55 mb-1.5">Enter vote question (question 1)</label>
+                <input value={voteQ1} onChange={e => setVoteQ1(e.target.value)} maxLength={160} placeholder="First option" className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all" />
+              </div>
+              <div>
+                <label className="block text-xs text-white/55 mb-1.5">Enter vote question (question 2)</label>
+                <input value={voteQ2} onChange={e => setVoteQ2(e.target.value)} maxLength={160} placeholder="Second option" className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/60 transition-all" />
+              </div>
+              <div>
+                <div className="flex items-center mb-1.5">
+                  <label className="text-xs text-white/55">Images</label>
+                  <span className="ml-auto text-[10px] text-white/30">{voteImgs.filter(Boolean).length}/2</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {[0, 1].map(i => (
+                    <div key={i} className="group relative aspect-[4/3] rounded-xl overflow-hidden border border-white/10 bg-white/[0.03]">
+                      {voteImgs[i] ? (
+                        <>
+                          <img src={voteImgs[i]} alt="" className="w-full h-full object-cover" />
+                          <button type="button" onClick={() => setVoteImgs(prev => { const n = [...prev]; n[i] = ''; return n; })} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white/80 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg>
+                          </button>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-white/25">
+                          <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" /></svg>
+                          <span className="text-[11px]">image for question {i + 1}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <input ref={voteFileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) addVoteImage(f); }} />
+                <button type="button" disabled={voteImgs.filter(Boolean).length >= 2} onClick={() => voteFileRef.current?.click()} className="mt-3 w-full px-4 py-2.5 rounded-lg border border-dashed border-white/15 hover:border-purple-400/50 text-[12px] font-medium text-white/60 hover:text-white disabled:opacity-40 disabled:hover:border-white/15 disabled:hover:text-white/60 transition-colors">add image</button>
+              </div>
+              {voteError && <p className="text-red-400 text-xs">{voteError}</p>}
+            </div>
+            <div className="px-7 py-4 border-t border-white/[0.06] flex gap-2.5 justify-end">
+              <button type="button" onClick={() => setVoteModal(false)} className="px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-all">Cancel</button>
+              <button type="submit" disabled={voteBusy} className="px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-semibold transition-all">{voteBusy ? 'Publishing..' : 'submit vote'}</button>
+            </div>
+          </form>
         </div>
       )}
       {showCreateModal && (

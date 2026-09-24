@@ -79,13 +79,19 @@ export function startPresence() {
   beat();
   restartTimer();
   document.addEventListener('visibilitychange', beat);
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('focus', beat);
+  window.addEventListener('online', beat);
+  const leave = () => {
     try {
       const u = username();
       if (!u) return;
-      fetch('/api/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, visible: false, game: '', sessionStart: sessionStart() }), keepalive: true });
+      const body = JSON.stringify({ username: u, visible: false, game: '', sessionStart: sessionStart() });
+      if (navigator.sendBeacon) { navigator.sendBeacon('/api/presence', new Blob([body], { type: 'application/json' })); return; }
+      fetch('/api/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
     } catch {}
-  });
+  };
+  window.addEventListener('pagehide', leave);
+  window.addEventListener('beforeunload', leave);
 }
 
 export function trackGameSeconds(game: string, seconds: number) {

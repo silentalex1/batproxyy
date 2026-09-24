@@ -1,4 +1,17 @@
 const AI_BOT='batprox-ai';
+const FILTER_WORD=/^n+[il]+g{2,}[e]+r+[sz]?$/;
+function isFilteredText(text){
+  const low=String(text||'').normalize('NFKD').replace(/[\u0300-\u036f\u200B-\u200D\uFEFF]/g,'').toLowerCase()
+    .replace(/[1!|]/g,'i').replace(/3/g,'e').replace(/[@4]/g,'a').replace(/0/g,'o').replace(/\$/g,'s');
+  const words=low.split(/\s+/).map(w=>w.replace(/[^a-z]/g,'')).filter(Boolean);
+  if(words.some(w=>FILTER_WORD.test(w))) return true;
+  let run='';
+  for(const w of words){
+    if(w.length===1){ run+=w; if(FILTER_WORD.test(run)) return true; }
+    else run='';
+  }
+  return FILTER_WORD.test(low.replace(/[^a-z]/g,'')) && low.replace(/[^a-z]/g,'').length<=12;
+}
 const VALID_CODES = new Set(['BATPROX-2026','WELCOME-BAT','NIGHT-PROX','FOX-CORE','batprox-admin$$']);
 function b64url(s){ return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function sign(payload, secret){
@@ -81,7 +94,7 @@ async function collectSearch(q){
   return items.slice(0,12);
 }
 function searchPage(engine, q, items){
-  const names={batnight:'BatNight Engine',scry:'Scry engine',scremjet:'Scremjet',google:'Google',ddg:'DuckDuckGo',ask:'Ask'};
+  const names={batnight:'BatNight Engine',scry:'Scry engine',scremjet:'Scremjet',google:'Google',ddg:'DuckDuckGo',ask:'Ask',yahoo:'Yahoo'};
   const name=names[engine]||'BatNight Engine';
   const accent=engine==='scry'?'#22d3ee':engine==='scremjet'?'#fb923c':engine==='google'?'#60a5fa':'#c084fc';
   const rows=items.map(it=>{
@@ -107,6 +120,21 @@ async function hmacVerify(token, secret){
     if(!ok) return null;
     return JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
   }catch{ return null; }
+}
+async function tokenPayload(request, env){
+  const token=(request.headers.get('Authorization')||'').split(' ')[1]||'';
+  if(!token) return null;
+  const secret=env.JWT_SECRET||'stealthybat-fallback-secret';
+  let p=await hmacVerify(token, secret);
+  if(!p){
+    try{
+      const legacy=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+      if(sign({id:legacy.id||1, username:legacy.username, isAdmin:!!legacy.isAdmin}, secret)===token) p=legacy;
+    }catch{}
+  }
+  if(!p||!p.username) return null;
+  if(p.exp&&p.exp<Math.floor(Date.now()/1000)) return null;
+  return p;
 }
 const RL_MAP=new Map();
 function rl(key, limit, winMs){
@@ -213,7 +241,7 @@ function expireCodeJobs(jobs){
   for(const j of jobs){
     if((j.status==='running'||j.status==='pending') && now-(j.startedAt||j.ts||now)>900000){
       j.status='error';
-      j.reply='Your PC never picked this request up. Make sure the BatProx bridge is running on it.';
+      j.reply=j.target==='ai'?'batprox-ai timed out on this request. Send it again.':'The local agent never picked this request up.';
       j.doneAt=now;
       changed=true;
     }
@@ -508,6 +536,17 @@ function blockedHost(host){
     await saveCodeJobs(kv, jobs);
     return new Response(JSON.stringify({success:true}),{headers:jh()});
   }
+  if(url.pathname.startsWith('/api/admin/') && url.pathname!=='/api/admin/code-request' && request.method!=='OPTIONS'){
+    const ap=await tokenPayload(request, env);
+    let adminOk=!!(ap&&ap.isAdmin);
+    if(ap&&!adminOk){
+      try{ const rawU=kv?await kv.get('users'):null; const arr=rawU?JSON.parse(rawU):[]; const f=arr.find(x=>x.username===ap.username); adminOk=!!(f&&(f.admin===true||f.rank==='admin'||f.rank==='owner')); }catch{}
+    }
+    if(!adminOk){
+      const hh=cors(new Headers(), request.headers.get('Origin')); hh.set('Content-Type','application/json'); hh.set('Cache-Control','no-store');
+      return new Response(JSON.stringify({error:ap?'Admin only':'Admin token required'}),{status:ap?403:401, headers:hh});
+    }
+  }
   if(url.pathname==='/api/admin/code-request'){
     const jh=()=>{ const hb=cors(new Headers(), request.headers.get('Origin')); hb.set('Content-Type','application/json'); return hb; };
     const auth=request.headers.get('Authorization')||'';
@@ -542,7 +581,26 @@ function blockedHost(host){
       const provider=String(body.provider||'claude').toLowerCase();
       const prompt=String(body.prompt||'').trim();
       if(!prompt) return new Response(JSON.stringify({success:false, error:'Type the request you want'}),{status:200, headers:jh()});
-      if(!pcLive) return new Response(JSON.stringify({success:false, offline:true, error:'Your PC is offline, so there is no Claude account to send this to. Start the bridge on your PC with npm run bridge, then send it again.'}),{status:200, headers:jh()});
+      if(!pcLive){
+        const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider:'batprox-ai', prompt:prompt.slice(0,8000), status:'running', target:'ai', reply:'', startedAt:Date.now()};
+        let jobs=await loadCodeJobs(kv);
+        expireCodeJobs(jobs);
+        jobs.push(job);
+        await saveCodeJobs(kv, jobs);
+        const sys='You are BatProx Agentic, the coding agent for the BatProx website. The frontend is Vite, React, TypeScript and Tailwind in src/. The backend is a Cloudflare Worker in api-worker/worker.js backed by KV and D1. Pages Functions live in functions/. The admin describes a change. Reply with a short plan of one to three sentences, then the exact code for every file you would add or change. Put the file path on its own line right before each fenced code block. Never write code comments. Keep everything else short.';
+        const history=(Array.isArray(body.history)?body.history:[]).slice(-6).map(m=>({role:m&&m.role==='assistant'?'assistant':'user', content:String((m&&m.content)||'').slice(0,4000)})).filter(m=>m.content);
+        let out='';
+        try{ const r=await askBatprox(kv, env, [{role:'system', content:sys}].concat(history, [{role:'user', content:prompt.slice(0,8000)}])); out=String(r.text||''); }catch{}
+        jobs=await loadCodeJobs(kv);
+        const saved=jobs.find(x=>x.id===job.id);
+        const target=saved||job;
+        target.status=out?'done':'error';
+        target.reply=out?out.slice(0,20000):'batprox-ai did not answer. Try again in a moment.';
+        target.doneAt=Date.now();
+        if(!saved) jobs.push(target);
+        await saveCodeJobs(kv, jobs);
+        return new Response(JSON.stringify({success:true, id:job.id, status:target.status, target:'ai', job:target}),{headers:jh()});
+      }
       const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider, prompt:prompt.slice(0,8000), status:'pending', target:'pc', reply:''};
       const jobs=await loadCodeJobs(kv);
       expireCodeJobs(jobs);
@@ -1472,6 +1530,88 @@ function blockedHost(host){
     hi.set('X-Content-Type-Options','nosniff');
     return new Response(buf,{headers:hi});
   }
+  if(url.pathname==='/api/votes' || url.pathname.startsWith('/api/votes/')){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const jr=(o,s)=>new Response(JSON.stringify(o),{status:s||200, headers:h});
+    const loadVotes=async()=>{ try{ const r=kv?await kv.get('votes'):null; const a=r?JSON.parse(r):[]; return Array.isArray(a)?a:[]; }catch{ return []; } };
+    const saveVotes=async(a)=>{ if(kv) await kv.put('votes', JSON.stringify(a)); };
+    const loadBallots=async(id)=>{ try{ const r=kv?await kv.get('vote_ballots_'+id):null; return r?JSON.parse(r):{}; }catch{ return {}; } };
+    const isStaffAdmin=async(p)=>{
+      if(!p) return false;
+      if(p.isAdmin) return true;
+      try{ const rawU=kv?await kv.get('users'):null; const arr=rawU?JSON.parse(rawU):[]; const f=arr.find(x=>x.username===p.username); return !!(f&&(f.admin===true||f.rank==='admin'||f.rank==='owner')); }catch{ return false; }
+    };
+    const imgMatch=url.pathname.match(/^\/api\/votes\/image\/([a-z0-9]+)\/([01])$/);
+    if(imgMatch && request.method==='GET'){
+      const raw=kv?await kv.get('vote_img_'+imgMatch[1]+'_'+imgMatch[2]):null;
+      if(!raw) return new Response('',{status:404, headers:{'Access-Control-Allow-Origin':'*'}});
+      const m=String(raw).match(/^data:([^;]+);base64,(.*)$/);
+      if(!m) return new Response('',{status:404, headers:{'Access-Control-Allow-Origin':'*'}});
+      const bin=Uint8Array.from(atob(m[2]), c=>c.charCodeAt(0));
+      return new Response(bin,{headers:{'Content-Type':m[1],'Cache-Control':'public, max-age=86400','Access-Control-Allow-Origin':'*'}});
+    }
+    if(url.pathname==='/api/votes' && request.method==='GET'){
+      const me=String(url.searchParams.get('user')||'').trim();
+      const all=await loadVotes();
+      const out=[];
+      for(const v of all){
+        const b=await loadBallots(v.id);
+        const counts=[0,0];
+        for(const k of Object.keys(b)){ if(b[k]===0||b[k]===1) counts[b[k]]++; }
+        out.push({id:v.id, title:v.title, options:v.options, images:(v.images||[]).map(n=>'/api/votes/image/'+v.id+'/'+n), created:v.created, createdBy:v.createdBy, closed:!!v.closed, counts, total:counts[0]+counts[1], mine:me&&(me in b)?b[me]:null});
+      }
+      out.sort((a,b)=>b.created-a.created);
+      return jr({votes:out});
+    }
+    if(request.method!=='POST') return jr({error:'Method not allowed'},405);
+    const p=await tokenPayload(request, env);
+    let body={};
+    try{ body=await request.json(); }catch{ return jr({error:'Invalid'},400); }
+    if(url.pathname==='/api/votes'){
+      if(!(await isStaffAdmin(p))) return jr({error:'Admins only'},403);
+      const title=String(body.title||'').trim().slice(0,120);
+      const o1=String(body.q1||'').trim().slice(0,160);
+      const o2=String(body.q2||'').trim().slice(0,160);
+      if(!title||!o1||!o2) return jr({error:'Title and both questions are required'},400);
+      const imgs=(Array.isArray(body.images)?body.images:[]).filter(x=>typeof x==='string'&&/^data:image\/(png|jpe?g|gif|webp);base64,/.test(x)&&x.length<1500000).slice(0,2);
+      const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      const idx=[];
+      for(let i=0;i<imgs.length;i++){ if(kv) await kv.put('vote_img_'+id+'_'+i, imgs[i]); idx.push(i); }
+      const all=await loadVotes();
+      all.push({id, title, options:[o1,o2], images:idx, created:Date.now(), createdBy:p.username, closed:false});
+      await saveVotes(all.slice(-60));
+      return jr({success:true, id});
+    }
+    if(url.pathname==='/api/votes/cast'){
+      if(!p) return jr({error:'Log in to vote'},401);
+      const id=String(body.id||'');
+      const choice=Number(body.choice);
+      if(choice!==0&&choice!==1) return jr({error:'Invalid choice'},400);
+      const all=await loadVotes();
+      const v=all.find(x=>x.id===id);
+      if(!v) return jr({error:'Vote not found'},404);
+      if(v.closed) return jr({error:'This vote is closed'},400);
+      const b=await loadBallots(id);
+      b[p.username]=choice;
+      if(kv) await kv.put('vote_ballots_'+id, JSON.stringify(b));
+      return jr({success:true});
+    }
+    if(url.pathname==='/api/votes/close' || url.pathname==='/api/votes/delete'){
+      if(!(await isStaffAdmin(p))) return jr({error:'Admins only'},403);
+      const id=String(body.id||'');
+      let all=await loadVotes();
+      const v=all.find(x=>x.id===id);
+      if(!v) return jr({error:'Vote not found'},404);
+      if(url.pathname==='/api/votes/close'){ v.closed=!v.closed; }
+      else {
+        all=all.filter(x=>x.id!==id);
+        if(kv){ for(const n of (v.images||[])) await kv.put('vote_img_'+id+'_'+n, ''); await kv.put('vote_ballots_'+id, ''); }
+      }
+      await saveVotes(all);
+      return jr({success:true, closed:!!v.closed});
+    }
+    return jr({error:'Not found'},404);
+  }
   if(url.pathname==='/api/chat/messages' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const room=String(url.searchParams.get('room')||'community').slice(0,80);
@@ -1492,6 +1632,7 @@ function blockedHost(host){
       const m=all.find(x=>x.id===mid);
       if(!m) return new Response(JSON.stringify({error:'Gone'}),{status:404, headers:h});
       if(m.user!==cu) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      if(isFilteredText(t)) return new Response(JSON.stringify({error:'That word is filtered.', filtered:true}),{status:400, headers:h});
       m.text=t;
       m.edited=Date.now();
       await chatPut('chat_messages',all);
@@ -1537,107 +1678,79 @@ function blockedHost(host){
       const names=await chatGet('chat_names',{});
       const all=await chatGet('chat_messages',[]);
       const id=all.length?Math.max(...all.map(m=>m.id||0))+1:1;
+      if(cu!==AI_BOT && isFilteredText(t)){
+        all.push({id, room:rm, user:AI_BOT, display:AI_BOT, text:'@'+cu+' that word is filtered! Please dont say that.', ts:Date.now()});
+        await chatPut('chat_messages',trimRooms(all));
+        return new Response(JSON.stringify({success:false, filtered:true, error:'That word is filtered.'}),{headers:h});
+      }
       const rt=replyTo&&typeof replyTo==='object'?{user:String(replyTo.user||'').slice(0,20), text:String(replyTo.text||'').slice(0,200)}:null;
+      const isAiDm=rm.startsWith('dm:')&&rm.split(':').includes(AI_BOT);
+      const stKey='pwreset_'+cu;
+      let st=null;
+      if(isAiDm && cu!==AI_BOT){
+        try{ const raw=kv?await kv.get(stKey):null; st=raw?JSON.parse(raw):null; }catch{ st=null; }
+        if(st&&(!st.ts||Date.now()-st.ts>900000)) st=null;
+      }
+      const hidePw=!!(st&&st.stage===3);
       const imgIds=[];
       for(let i=0;i<pics.length;i++){
         const iid=id+'-'+i;
         try{ if(kv) await kv.put('chat_img_'+iid, pics[i]); imgIds.push(iid); }catch{}
       }
-      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:t, ts:Date.now(), replyTo:rt, imgs:imgIds.length?imgIds:undefined});
+      all.push({id, room:rm, user:cu, display:names[cu]||cu, text:hidePw?'(new password hidden)':t, ts:Date.now(), replyTo:rt, imgs:imgIds.length?imgIds:undefined});
       await chatPut('chat_messages',trimRooms(all));
-      const isAiDm=rm.startsWith('dm:')&&rm.split(':').includes(AI_BOT);
       const repliedToAi=!!(rt&&rt.user===AI_BOT);
-      // --- batprox-ai DM password reset state machine ---
-      if(isAiDm && cu!==AI_BOT){
-        const stKey='pwreset_'+cu;
-        let st=null;
-        try{ const raw=kv?await kv.get(stKey):null; st=raw?JSON.parse(raw):null; }catch{}
-        const lower=t.toLowerCase();
-        const wantsReset=/\b(reset|change).{0,20}password\b/.test(lower) || /\bforgot.*password\b/.test(lower);
-        // if already waiting for new password (stage 3)
-        if(st && st.stage===3){
+      const aiSay=async(msg, quote)=>{
+        const after=await chatGet('chat_messages',[]);
+        const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+        after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:msg, ts:Date.now(), replyTo:quote?{user:cu, text:String(quote).slice(0,80)}:undefined});
+        await chatPut('chat_messages',trimRooms(after));
+      };
+      const ok=()=>new Response(JSON.stringify({success:true, id}),{headers:h});
+      const lower=t.toLowerCase();
+      const wantsReset=/\b(reset|change).{0,20}password\b/.test(lower) || /\bforgot.*password\b/.test(lower);
+      if(isAiDm && cu!==AI_BOT && (wantsReset || st)){
+        const who=await tokenPayload(request, env);
+        const verified=!!(who&&String(who.username).toLowerCase()===cu.toLowerCase());
+        if(!verified){
+          if(kv) await kv.put(stKey,'');
+          await aiSay('I can only change the password for the account you are signed in as. Log out, log back in, then ask me again here.', t);
+          return ok();
+        }
+        if(st&&st.stage===3){
           const newPw=t.trim();
-          // validate
-          if(newPw.length<3 || newPw.length>20){ 
-            const after=await chatGet('chat_messages',[]);
-            const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-            after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"That doesn't look right — pick a new invite code 3-20 characters. What password do you want it to change?", ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
-            await chatPut('chat_messages',trimRooms(after));
-            if(ctx&&ctx.waitUntil) ctx.waitUntil(Promise.resolve()); else {}
-            return new Response(JSON.stringify({success:true, id}),{headers:h});
+          if(newPw.length<3||newPw.length>20||/\s/.test(newPw)){
+            await aiSay('That does not look right. Pick a new invite code between 3 and 20 characters with no spaces. What password do you want it to change to?');
+            return ok();
           }
-          // update users KV
           try{
             const rawU=kv?await kv.get('users'):null;
-            let arr=rawU?JSON.parse(rawU):[];
-            const u=arr.find((x)=>x.username===cu);
-            if(!u){ const after=await chatGet('chat_messages',[]); const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1; after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"I couldn't find your account — are you logged in as "+cu+"? Try logging out and back in.", ts:Date.now()}); await chatPut('chat_messages',trimRooms(after)); return new Response(JSON.stringify({success:true, id}),{headers:h}); }
+            const arr=rawU?JSON.parse(rawU):[];
+            const u=arr.find(x=>x.username===cu);
+            if(!u){
+              if(kv) await kv.put(stKey,'');
+              await aiSay('I could not find your account. Log out and back in, then try again.');
+              return ok();
+            }
             u.invite_code=newPw;
             if(kv) await kv.put('users', JSON.stringify(arr));
             try{ VALID_CODES.add(newPw); }catch{}
-            if(kv) await kv.put(stKey, JSON.stringify(null));
-            // clear state
-            try{ if(kv) await kv.put(stKey, ''); }catch{}
-            const after=await chatGet('chat_messages',[]);
-            const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-            after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Done! Your password was updated to \""+newPw+"\". You can now log in with it — and the admin panel shows the new code too.", ts:Date.now(), replyTo:{user:cu, text:"***"}});
-            await chatPut('chat_messages',trimRooms(after));
-          }catch(e){
-            const after=await chatGet('chat_messages',[]);
-            const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-            after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Something went wrong saving your new password. Try again in a moment.", ts:Date.now()});
-            await chatPut('chat_messages',trimRooms(after));
+            if(kv) await kv.put(stKey,'');
+            await aiSay('Done! Your password was updated. Use your new invite code the next time you log in.');
+          }catch{
+            await aiSay('Something went wrong saving your new password. Try again in a moment.');
           }
-          return new Response(JSON.stringify({success:true, id}),{headers:h});
+          return ok();
         }
-        if(st && st.stage===2){
-          // second check done -> ask final question
-          if(kv) await kv.put(stKey, JSON.stringify({stage:3, ts:Date.now()}));
-          const after=await chatGet('chat_messages',[]);
-          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Got it. What password do you want it to change? Reply with your new invite code (3-20 characters) and I'll update it right away.", ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
-          await chatPut('chat_messages',trimRooms(after));
-          return new Response(JSON.stringify({success:true, id}),{headers:h});
-        }
-        if(st && st.stage===1){
-          // user answered first check
-          if(kv) await kv.put(stKey, JSON.stringify({stage:2, ts:Date.now()}));
-          const after=await chatGet('chat_messages',[]);
-          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:"Thanks. Quick second check: what's a recent invite code you've used, or just type \"skip\" to continue.", ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
-          await chatPut('chat_messages',trimRooms(after));
-          return new Response(JSON.stringify({success:true, id}),{headers:h});
-        }
-        if(wantsReset || (st && st.stage)){
-          // start flow
-          if(!st) { if(kv) await kv.put(stKey, JSON.stringify({stage:1, ts:Date.now()})); }
-          const after=await chatGet('chat_messages',[]);
-          const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-          const txt=!st ? "Let's reset your password. I'll ask 2 quick checks first. 1) Are you logged in as \""+cu+"\"? Reply \"yes\" to continue." : (st.stage===1?"Are you logged in as \""+cu+"\"? Reply \"yes\".":"What password do you want it to change?");
-          after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:txt, ts:Date.now(), replyTo:{user:cu, text:t.slice(0,80)}});
-          await chatPut('chat_messages',trimRooms(after));
-          return new Response(JSON.stringify({success:true, id}),{headers:h});
-        }
+        if(kv) await kv.put(stKey, JSON.stringify({stage:3, ts:Date.now()}));
+        await aiSay('Sure. What password do you want it to change to? Reply with your new invite code (3 to 20 characters) and I will update it right away.', t);
+        return ok();
       }
       if(cu!==AI_BOT && (isAiDm || repliedToAi || /@(batprox-ai|mochaai)\b/i.test(t))){
         const work=(async()=>{
-          // If anyone asks about password reset in chatroom or DM (not yet in reset flow), guide them to DMs
-          const lowerCheck=t.toLowerCase();
-          const wantsResetEarly=/\b(reset|change).{0,20}password\b/.test(lowerCheck) || /\bforgot.*password\b/.test(lowerCheck);
-          if(wantsResetEarly){
-            // Check if already in staged flow (handled above for DM) — but for chatroom/early DM answer with hint
-            let skipHint=false;
-            if(isAiDm){
-              try{ const raw=kv?await kv.get('pwreset_'+cu):null; const st=raw?JSON.parse(raw):null; if(st && st.stage) skipHint=true; }catch{}
-            }
-            if(!skipHint){
-              const hint="To reset your password, go to DMs and start a chat with **batprox-ai** — then follow what I say there. I'll ask 2 quick checks and then \"What password do you want it to change?\" — just type your new invite code and I'll update it instantly.";
-              const after=await chatGet('chat_messages',[]);
-              const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
-              after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text:hint, ts:Date.now(), replyTo:{user:cu, text:t.slice(0,120)}});
-              await chatPut('chat_messages',trimRooms(after));
-              return;
-            }
+          if(wantsReset && !isAiDm){
+            await aiSay('To reset your password, open DMs with **batprox-ai** and ask me there. I will ask what you want your new password to be and update it for you.', t.slice(0,120));
+            return;
           }
           const cleaned=t.replace(/@(batprox-ai|mochaai)\b/ig,'').replace(/\s+/g,' ').trim();
           const shot=pics.length?' They also attached an image, which you cannot see, so ask them to describe it if it matters.':'';
@@ -1661,8 +1774,8 @@ function blockedHost(host){
         })().catch(()=>{});
         if(ctx&&ctx.waitUntil) ctx.waitUntil(work); else await work;
       }
-      return new Response(JSON.stringify({success:true, id}),{headers:h});
-    }catch(e){ return new Response(JSON.stringify({error:'DBG:'+((e&&e.message)||e)}),{status:400, headers:h});}
+      return ok();
+    }catch(e){ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/chat/messages/clear' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
