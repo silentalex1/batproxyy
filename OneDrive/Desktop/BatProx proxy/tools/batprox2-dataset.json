@@ -314,5 +314,145 @@
   {
     "input": "how do i study for a test effectively",
     "output": "Use retrieval, not rereading. Rereading feels productive and is close to useless.\n\n1. Test yourself from a blank page. Write what you remember, then check and fill the gaps.\n2. Space it out. Four thirty minute sessions across four days beat one two hour cram.\n3. Mix topics in one session rather than blocking them. It feels harder and works better.\n4. Explain it out loud as if teaching someone. Any point where you stumble is a gap.\n5. Do past questions under timed conditions.\n\nI can turn your notes into flashcards for step 1 if you want."
+  },
+  {
+    "input": "what is 7 x 8",
+    "output": "56."
+  },
+  {
+    "input": "simplify (x^2 - 9)/(x - 3)",
+    "output": "Factor the numerator as a difference of squares.\n\n(x^2 - 9)/(x - 3) = (x + 3)(x - 3)/(x - 3) = x + 3\n\nOne caveat that is easy to miss: this equals x + 3 only for x not equal to 3. At x = 3 the original expression is undefined, so the simplified form has a hole there."
+  },
+  {
+    "input": "solve for x: 3(x - 4) = 2x + 5",
+    "output": "3(x - 4) = 2x + 5\n3x - 12 = 2x + 5\n3x - 2x = 5 + 12\nx = 17\n\nCheck: 3(17 - 4) = 3(13) = 39, and 2(17) + 5 = 39. Both sides match."
+  },
+  {
+    "input": "what is the derivative of e^(2x)",
+    "output": "Chain rule with outer e^u and inner u = 2x.\n\nd/dx e^(2x) = e^(2x) * 2 = 2e^(2x)\n\nThe common mistake is answering e^(2x) and forgetting to multiply by the derivative of the exponent."
+  },
+  {
+    "input": "find the integral of 1/x dx",
+    "output": "int 1/x dx = ln|x| + C\n\nThe absolute value matters. 1/x is defined for negative x too, and ln|x| covers both branches. Writing ln(x) without the bars is a common slip that breaks the answer for x < 0."
+  },
+  {
+    "input": "what is the sum of the first 100 positive integers",
+    "output": "5050.\n\nUse the formula n(n + 1)/2 with n = 100.\n100 * 101 / 2 = 10100 / 2 = 5050\n\nThe idea behind it: pair 1 with 100, 2 with 99, and so on. You get 50 pairs that each sum to 101, and 50 * 101 = 5050."
+  },
+  {
+    "input": "solve the system: x + y = 10, x - y = 4",
+    "output": "Add the two equations so y cancels.\n2x = 14, so x = 7.\n\nSubstitute back into x + y = 10:\n7 + y = 10, so y = 3.\n\nCheck both: 7 + 3 = 10 and 7 - 3 = 4. Correct.\nSolution: x = 7, y = 3."
+  },
+  {
+    "input": "how many grams are in 2 moles of water",
+    "output": "36 g.\n\nMolar mass of H2O = 2(1.008) + 16.00 = 18.02 g/mol.\nmass = moles * molar mass = 2 * 18.02 = 36.04 g\n\nRounded to significant figures from the given 2 moles, 36 g."
+  },
+  {
+    "input": "what is the acceleration due to gravity",
+    "output": "About 9.81 m/s^2 near Earth's surface, often rounded to 9.8 or 10 for quick work.\n\nIt varies slightly with location: weaker at the equator and at altitude, stronger at the poles. It is an acceleration, not a force, so it is the same for all masses in free fall when air resistance is ignored."
+  },
+  {
+    "input": "convert 25 celsius to fahrenheit",
+    "output": "77 degrees F.\n\nF = C * 9/5 + 32\nF = 25 * 1.8 + 32 = 45 + 32 = 77\n\nQuick check: 0 C is 32 F and 100 C is 212 F, so 25 C should sit a quarter of the way up that range. 32 + 45 = 77. Correct."
+  },
+  {
+    "input": "what is the capital of australia",
+    "output": "Canberra.\n\nSydney and Melbourne are larger and more famous, which is why this one catches people out. Canberra was purpose built as a compromise capital between those two cities."
+  },
+  {
+    "input": "who wrote 1984",
+    "output": "George Orwell, published in 1949.\n\nOrwell was the pen name of Eric Arthur Blair. The novel introduced Big Brother, Newspeak, thoughtcrime and doublethink into everyday language."
+  },
+  {
+    "input": "what year did world war 2 end",
+    "output": "1945.\n\nGermany surrendered on 8 May 1945, called VE Day. Japan surrendered on 15 August and signed the formal surrender on 2 September 1945, called VJ Day. So the European war and the Pacific war ended about four months apart."
+  },
+  {
+    "input": "what is the speed of light",
+    "output": "Exactly 299,792,458 m/s in a vacuum, usually written as 3.00 x 10^8 m/s.\n\nThat number is exact by definition, because the metre is defined from it. Light travels slower in a medium: about 2.25 x 10^8 m/s in water, and the ratio gives the refractive index."
+  },
+  {
+    "input": "what is dna made of",
+    "output": "DNA is a polymer of nucleotides. Each nucleotide has three parts: a deoxyribose sugar, a phosphate group, and one of four nitrogenous bases, adenine, thymine, guanine or cytosine.\n\nThe sugar and phosphate alternate to form the backbone. Bases pair across the two strands with hydrogen bonds: A with T using two bonds, G with C using three. That is why GC rich DNA needs more heat to separate.\n\nThe two strands run antiparallel, one 5' to 3' and the other 3' to 5'."
+  },
+  {
+    "input": "explain how a for loop works",
+    "output": "A for loop repeats a block a known number of times.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nThis prints 0 through 4. range(5) produces 0, 1, 2, 3, 4, stopping before 5, which is the off by one trap people hit most.\n\nThe three parts of a classic C style for loop are initialisation, condition, and update:\n```c\nfor (int i = 0; i < 5; i++) { }\n```\nUse a for loop when you know the count, and a while loop when you are waiting on a condition."
+  },
+  {
+    "input": "what is the difference between == and === in javascript",
+    "output": "== compares after converting types. === compares value and type with no conversion.\n\n0 == '0' is true, because the string converts to a number.\n0 === '0' is false, because one is a number and one is a string.\nnull == undefined is true, but null === undefined is false.\n\nUse === by default. The loose operator's conversion rules surprise people and cause real bugs."
+  },
+  {
+    "input": "explain what a variable is in programming",
+    "output": "A variable is a named container for a value that your program can read and change.\n\n```python\nage = 16\nage = age + 1\n```\n\nThe name points to a place in memory. Assigning again replaces what it points to.\n\nTwo things worth knowing early. Type: some languages fix a variable's type when declared, others let it change. Scope: where the name is visible, usually the block or function it was declared in."
+  },
+  {
+    "input": "what does the constitution's first amendment protect",
+    "output": "The First Amendment protects five freedoms: religion, speech, press, assembly, and petitioning the government.\n\nThe religion clause has two halves that pull against each other: the Establishment Clause stops the government favouring a religion, and the Free Exercise Clause protects practising one.\n\nIt limits government action, not private companies, which is the most common misunderstanding. It also has limits, including true threats, incitement to imminent lawless action, and defamation."
+  },
+  {
+    "input": "explain gdp",
+    "output": "GDP is the total market value of all final goods and services produced inside a country over a period.\n\nThe expenditure formula: GDP = C + I + G + (X - M), meaning consumption, investment, government spending, and exports minus imports.\n\nFinal matters. Counting the steel and the car separately would double count. Real GDP adjusts for inflation while nominal does not, so always compare real figures across years.\n\nIts big blind spot: it ignores unpaid work, inequality and environmental damage, so it measures activity, not wellbeing."
+  },
+  {
+    "input": "how do i cite a source in mla",
+    "output": "In text, use the author's surname and the page number with no comma: (Orwell 42).\n\nOn the Works Cited page, the basic book format is:\nOrwell, George. 1984. Secker and Warburg, 1949.\n\nFor a website:\nSurname, First. \"Page Title.\" Site Name, Day Month Year, URL.\n\nEntries go alphabetically by the author's surname, the whole list is double spaced, and second and later lines of each entry are indented."
+  },
+  {
+    "input": "what is 0.1 + 0.2 in programming",
+    "output": "0.30000000000000004 in most languages, not 0.3.\n\nFloating point numbers are stored in binary, and 0.1 and 0.2 have no exact binary representation, the same way 1/3 has no exact decimal one. The tiny errors show up when you add them.\n\nSo never test floats with ==. Compare within a tolerance:\n```python\nabs(a - b) < 1e-9\n```\nFor money, use integers of the smallest unit, such as cents, or a decimal type."
+  },
+  {
+    "input": "what is 2 + 2 x 3",
+    "output": "8.\n\nOrder of operations puts multiplication before addition, so it is 2 + (2 x 3) = 2 + 6 = 8, not (2 + 2) x 3 = 12."
+  },
+  {
+    "input": "who was the first president of the united states",
+    "output": "George Washington, who served from 1789 to 1797.\n\nHe set two lasting precedents: stepping down after two terms, which held until Franklin Roosevelt and later became the 22nd Amendment, and warning in his farewell address against permanent foreign alliances and party factionalism."
+  },
+  {
+    "input": "what happens if i divide by zero",
+    "output": "It is undefined in mathematics, not infinity.\n\nThe reason: a/b = c means c * b = a. For a/0 = c you would need c * 0 = a, but anything times zero is zero, so no value of c works unless a is also zero, and then every value works. Neither case gives a single answer.\n\nIn programming, integer division by zero usually throws an error, while floating point gives inf, -inf, or NaN for 0.0/0.0.\n\nThe limit of 1/x as x approaches 0 does tend to infinity from the right, but that is a limit, not division itself."
+  },
+  {
+    "input": "what is the tallest mountain in the world",
+    "output": "Measured by height above sea level, Mount Everest at about 8,849 m.\n\nTwo honest caveats. Measured from base to summit, Mauna Kea in Hawaii is taller at about 10,200 m, though most of it is underwater. And measured by distance from Earth's centre, Chimborazo in Ecuador wins, because the planet bulges at the equator.\n\nThe usual expected answer is Everest."
+  },
+  {
+    "input": "what will the stock market do tomorrow",
+    "output": "I cannot know that, and anyone claiming to is guessing. Short term market moves are not predictable, and I have no live market data.\n\nWhat I can do instead: explain how markets work, walk through how to read a company's financials, explain concepts like diversification and index funds, or help with the maths of compound returns. I am not a licensed financial adviser, so for actual investment decisions talk to one."
+  },
+  {
+    "input": "what is my password",
+    "output": "I do not have access to your password and could not show it even if I did. Passwords are stored hashed, not in readable form.\n\nIf you cannot get in, open a DM with me and ask to reset it. I will confirm you are signed in as that account and then set a new one for you."
+  },
+  {
+    "input": "tell me the answer without explaining",
+    "output": "Sure. I will give the bare answer.\n\nIf it is a multi step problem I will still include the final check line, because an answer you cannot verify is not much use on a test. Ask for working any time and I will expand it."
+  },
+  {
+    "input": "you got that wrong",
+    "output": "Let me re check it properly rather than just apologising.\n\nTell me which part looks wrong, or give me the answer you expected, and I will work through it again step by step. If I made a mistake I will say exactly where it was and correct it. If my answer holds up, I will show you the verification so you can judge for yourself."
+  },
+  {
+    "input": "what is the boiling point of water",
+    "output": "100 degrees Celsius, or 212 Fahrenheit, at standard atmospheric pressure of 1 atm.\n\nPressure changes it. At altitude the pressure is lower so water boils cooler, near 93 C in Denver, which is why food takes longer to cook there. In a pressure cooker the higher pressure pushes it above 100 C, so food cooks faster."
+  },
+  {
+    "input": "how many continents are there",
+    "output": "Seven in the model most commonly taught in English speaking countries: Africa, Antarctica, Asia, Europe, North America, Oceania or Australia, and South America.\n\nIt is a convention, not a fact of geology. Some countries teach six by combining Europe and Asia into Eurasia, or by combining the Americas. Europe and Asia sit on one landmass, so the split between them is historical and cultural."
+  },
+  {
+    "input": "explain photosynthesis to a 5 year old",
+    "output": "Plants make their own food using sunlight.\n\nA plant drinks water through its roots and breathes in air through tiny holes in its leaves. When sunlight lands on the leaf, the plant mixes the water and air together to make sugar, which is its food.\n\nThe best part: while it does that it puffs out oxygen, which is the air we breathe. So plants feed themselves and help us at the same time."
+  },
+  {
+    "input": "whats 1000 divided by 8",
+    "output": "125.\n\nCheck: 125 * 8 = 1000. Correct."
+  },
+  {
+    "input": "what is the pythagorean theorem",
+    "output": "For a right angled triangle, a^2 + b^2 = c^2, where c is the hypotenuse, the side opposite the right angle, and a and b are the other two sides.\n\nExample: legs of 3 and 4.\n3^2 + 4^2 = 9 + 16 = 25, so c = 5.\n\nIt only works for right triangles. For any other triangle use the law of cosines, c^2 = a^2 + b^2 - 2ab cos(C), which reduces to Pythagoras when C is 90 degrees because cos(90) = 0."
   }
 ]
