@@ -6,6 +6,7 @@ import Settings from './Settings';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 import { applyTheme, THEMES } from './theme';
+import DeckBuild, { type DeckItem, type DeckJob } from './DeckBuild';
 import { applyBackground, BACKGROUNDS } from './background';
 import { applyTabCloak, TAB_CLOAKS } from './tabcloak';
 
@@ -105,6 +106,14 @@ function streamInto(
   holder.current = requestAnimationFrame(step);
 }
 
+const SUGGESTIONS: Array<{ text: string; icon: React.ReactNode }> = [
+  { text: 'How long was i on this website for?', icon: <IconClock /> },
+  { text: 'Change my background theme design to ____', icon: <IconBrush /> },
+  { text: 'What did chatroom talked about?', icon: <IconMsg /> },
+  { text: "Generate me flashcards, of the words that i've told you about, so i can pass my next test.", icon: <IconLayers /> },
+  { text: 'Save ____ that, into my notes.', icon: <IconFolder /> },
+  { text: 'Set a daily reminder, to remind me about ____', icon: <IconClock /> }
+];
 export default function AIWork() {
   const navigate = useNavigate();
   const [_localOnline, setLocalOnline] = useState<boolean | null>(null);
@@ -134,13 +143,18 @@ export default function AIWork() {
   const [startTime] = useState<number>(Date.now());
   const [siteTime, setSiteTime] = useState<string>('0 seconds');
   const [themeGlow, setThemeGlow] = useState<string>('rgba(147, 51, 234, 0.18)');
-  const [selectedModel, setSelectedModel] = useState<Model>({ id: 'batprox-ai', name: 'BatProx AI', status: 'online' });
+  const [selectedModel, setSelectedModel] = useState<Model>({ id: 'batprox-ai-2.0', name: 'BatProx AI 2.0', status: 'online' });
   const [customA, setCustomA] = useState('#c084fc');
   const [customB, setCustomB] = useState('#6366f1'); void customA;
   const [pendingTheme, setPendingTheme] = useState<{ a: string; b: string; label: string } | null>(null);
   const [pendingSetting, setPendingSetting] = useState<PendingSetting | null>(null);
   const [alwaysAllow, setAlwaysAllow] = useState(() => { try { return localStorage.getItem('bp-ai-always-allow') === '1'; } catch { return false; } });
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [usage, setUsage] = useState<{ percent: number; unlimited: boolean; resetInMs: number }>({ percent: 0, unlimited: false, resetInMs: 0 });
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [deckJob, setDeckJob] = useState<DeckJob | null>(null);
+  const meRef = useRef<string>((() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })());
+  const greeting = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; })();
   useEffect(() => {
     const u = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
     if (!u) return;
@@ -148,7 +162,18 @@ export default function AIWork() {
       if (d && typeof d.alwaysAllow === 'boolean') { setAlwaysAllow(!!d.alwaysAllow); try { localStorage.setItem('bp-ai-always-allow', d.alwaysAllow ? '1' : '0'); } catch {} }
     }).catch(() => {});
   }, []);
+  const loadUsage = () => {
+    const u = meRef.current;
+    if (!u) return;
+    fetch(`/api/ai/usage?user=${encodeURIComponent(u)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (d && typeof d.percent === 'number') setUsage({ percent: d.percent, unlimited: !!d.unlimited, resetInMs: Number(d.resetInMs) || 0 }); })
+      .catch(() => {});
+  };
+  useEffect(() => { loadUsage(); }, []);
+
   const availableModels: Model[] = [
+    { id: 'batprox-ai-2.0', name: 'BatProx AI 2.0', badge: 'New', status: 'online' },
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
     { id: 'inferforge-code', name: 'Inferforge-code', badge: 'Code', status: 'online' },
     { id: 'prysmis-ai', name: 'PrysmisAI beta', badge: 'Beta', status: 'online' },
@@ -375,6 +400,32 @@ export default function AIWork() {
     if (hex) return { a: hex, b: customB, label: hex };
     return null;
   };
+  const deckKind = (raw: string): 'slides' | 'flashcards' | null => {
+    const n = raw.toLowerCase();
+    if (/(flash ?cards?|flashcards?)/.test(n) && /(make|generate|build|create|give|turn)/.test(n)) return 'flashcards';
+    if (/(google )?slides?|slide deck|presentation|powerpoint/.test(n) && /(make|generate|build|create|turn)/.test(n)) return 'slides';
+    return null;
+  };
+
+  const parseDeck = (text: string, kind: 'slides' | 'flashcards'): DeckItem[] => {
+    const items: DeckItem[] = [];
+    const lines = String(text || '').split(/\r?\n/);
+    let cur: DeckItem | null = null;
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      const head = line.match(/^(?:#{1,4}\s*|\*\*)?(?:slide|card|q(?:uestion)?)\s*\d*\s*[:.)-]\s*(.+?)\*{0,2}$/i)
+        || line.match(/^#{1,4}\s+(.+)$/)
+        || line.match(/^\*\*(.+?)\*\*:?$/);
+      const ans = line.match(/^(?:\*\*)?(?:a(?:nswer)?|back|definition)\s*[:.)-]\s*(.+?)\*{0,2}$/i);
+      if (ans && cur) { cur.body = (cur.body ? cur.body + '\n' : '') + ans[1].trim(); continue; }
+      if (head) { if (cur && (cur.head || cur.body)) items.push(cur); cur = { head: head[1].replace(/\*\*/g, '').trim(), body: '' }; continue; }
+      if (!cur) cur = { head: kind === 'flashcards' ? 'Card ' + (items.length + 1) : 'Slide ' + (items.length + 1), body: '' };
+      cur.body = (cur.body ? cur.body + '\n' : '') + line.replace(/^[-*]\s*/, '');
+    }
+    if (cur && (cur.head || cur.body)) items.push(cur);
+    return items.filter(it => it.head || it.body).slice(0, 40);
+  };
   const handleSendMessage = async (textOverride?: string) => {
     const raw = (textOverride ?? inputValue).trim();
     if (!raw && images.length === 0) return;
@@ -419,11 +470,40 @@ export default function AIWork() {
     let reply = 'batprox-ai could not answer right now.';
     try {
       const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 45000);
-      const payload: any = { prompt: userMessage || 'The user sent an image.', messages: newMessages.slice(-12).map(mm => ({ role: mm.role, content: mm.content })), user: localStorage.getItem('batprox-user') || 'anonymous', model: selectedModel.id, images: shots };
+      const wantDeck = deckKind(raw);
+      const ctxLine = await (async () => {
+        const u = meRef.current;
+        if (!u || !/chatroom|talked about|activity|leaderboard|my notes|active user/i.test(raw)) return '';
+        try {
+          const cr = await fetch(`/api/ai/context?user=${encodeURIComponent(u)}`, { cache: 'no-store' });
+          if (!cr.ok) return '';
+          const cd = await cr.json();
+          const chat = (cd.chatroom || []).map((m: any) => `${m.user}: ${m.text}`).join('\n');
+          const act = (cd.activity || []).map((a: any) => `${a.user}: ${a.hours}h`).join(', ');
+          const notes = (cd.notes || []).map((n: any) => `- ${n.text}`).join('\n');
+          return `Live BatProx data you can use.\nRecent community chatroom messages:\n${chat}\nUser activity leaderboard (time on site): ${act}\nSaved notes for ${u}:\n${notes}`;
+        } catch { return ''; }
+      })();
+      const outMsgs = newMessages.slice(-12).map(mm => ({ role: mm.role, content: mm.content }));
+      if (ctxLine) outMsgs.unshift({ role: 'user' as const, content: ctxLine });
+      if (wantDeck) outMsgs.unshift({ role: 'user' as const, content: wantDeck === 'flashcards'
+        ? 'Build flashcards from this conversation. Output ONLY cards in this exact shape, nothing else:\nQ: <question>\nA: <answer>\nOne blank line between cards. Aim for 8 to 14 cards.'
+        : 'Build a slide deck from this conversation. Output ONLY slides in this exact shape, nothing else:\nSlide 1: <title>\n- <bullet>\n- <bullet>\nOne blank line between slides. Aim for 6 to 10 slides.' });
+      const payload: any = { prompt: userMessage || 'The user sent an image.', messages: outMsgs, user: meRef.current || 'anonymous', model: selectedModel.id, images: shots };
       const r = await fetch('/api/ai/batprox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: ctrl.signal });
       clearTimeout(t);
       if (r.ok) { const d = await r.json(); if (d && typeof d.response === 'string' && d.response.trim()) reply = d.response; }
-      else { const d = await r.json().catch(() => ({})); reply = d.error ? `batprox-ai: ${d.error}` : 'batprox-ai could not answer right now.'; }
+      else {
+        const d = await r.json().catch(() => ({}));
+        if (d && d.limited) {
+          setIsThinking(false);
+          loadUsage();
+          setMessages(prev => [...prev, { role: 'assistant' as const, content: d.error || 'You have used your daily AI limit.' }]);
+          return;
+        }
+        reply = d.error ? `batprox-ai: ${d.error}` : 'batprox-ai could not answer right now.';
+      }
+      loadUsage();
     } catch { reply = 'batprox-ai could not answer right now.'; }
     if (raw.toLowerCase().includes('how long was i on this website')) reply = `You have been active on this website for ${siteTime}.`;
     if (raw.toLowerCase().includes('what did chatroom talked about')) reply = `The chatroom recently discussed upcoming platform updates, new AI models, UI tweaks, and web mini-games!`;
@@ -443,6 +523,30 @@ export default function AIWork() {
         setPendingTheme({ a, b, label: themeName });
         setIsThinking(false);
         startFluidStream(reply + `\n\nI can switch you to "${themeName}" - allow me to update your settings?`);
+        return;
+      }
+    }
+    const madeDeck = deckKind(raw);
+    if (madeDeck) {
+      const items = parseDeck(reply, madeDeck);
+      if (items.length >= 2) {
+        setIsThinking(false);
+        const title = madeDeck === 'flashcards' ? 'BatProx flashcards' : 'BatProx slides';
+        setDeckJob({ kind: madeDeck, title, items, user: meRef.current || '' });
+        saveChatToHistory([...newMessages, { role: 'assistant' as const, content: reply }]);
+        return;
+      }
+    }
+    const noteAsk = raw.match(/^(?:save|add|put)\s+(?:this|that|["']?(.+?)["']?)\s*(?:,)?\s*(?:in|into|to)\s+my\s+notes?\.?$/i);
+    if (noteAsk && meRef.current) {
+      const body = (noteAsk[1] || '').trim() || lastUserRef.current || '';
+      const pick = body && body.toLowerCase() !== 'this' && body.toLowerCase() !== 'that'
+        ? body
+        : (messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '').slice(0, 1000);
+      if (pick) {
+        fetch('/api/ai/note', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: meRef.current, text: pick }) }).catch(() => {});
+        setIsThinking(false);
+        startFluidStream('Saved that to your notes. You can find it under Personal notes in the chatroom.');
         return;
       }
     }
@@ -511,14 +615,28 @@ export default function AIWork() {
 
       <main className="relative z-10 flex-1 flex flex-col justify-center items-center px-4 max-w-4xl w-full mx-auto overflow-y-auto my-4">
         {messages.length === 0 && !isThinking && !streamText ? (
-          <div className="w-full flex flex-col items-center justify-center text-center space-y-6 my-auto">
-            <div className="space-y-2"><h1 className="text-4xl md:text-5xl font-bold tracking-tight text-[#a08cc6] drop-shadow-[0_0_25px_rgba(160,140,198,0.3)]">batprox-ai</h1><p className="text-purple-300/60 text-lg md:text-xl font-medium tracking-wide">Ask me anything...</p></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 w-full max-w-2xl pt-2">
-              <button onClick={() => handleSuggestionClick("How long was i on this website for?")} className="p-4 bg-[#120e1e]/90 hover:bg-[#1c1530] border border-[#2b2046] hover:border-[#4d387b] rounded-2xl text-purple-200 text-xs md:text-sm font-medium transition shadow-lg flex flex-col items-start justify-between text-left h-28"><div className="p-2 rounded-lg bg-[#1f1636] text-purple-400 border border-purple-500/20"><IconClock /></div><span>How long was i on this website for?</span></button>
-              <button onClick={() => handleSuggestionClick("Change my background theme design to ____")} className="p-4 bg-[#120e1e]/90 hover:bg-[#1c1530] border border-[#2b2046] hover:border-[#4d387b] rounded-2xl text-purple-200 text-xs md:text-sm font-medium transition shadow-lg flex flex-col items-start justify-between text-left h-28"><div className="p-2 rounded-lg bg-[#1f1636] text-purple-400 border border-purple-500/20"><IconBrush /></div><span>Change my background theme design to ____</span></button>
-              <button onClick={() => handleSuggestionClick("What did chatroom talked about?")} className="p-4 bg-[#120e1e]/90 hover:bg-[#1c1530] border border-[#2b2046] hover:border-[#4d387b] rounded-2xl text-purple-200 text-xs md:text-sm font-medium transition shadow-lg flex flex-col items-start justify-between text-left h-28"><div className="p-2 rounded-lg bg-[#1f1636] text-purple-400 border border-purple-500/20"><IconMsg /></div><span>What did chatroom talked about?</span></button>
+          <div className="w-full flex flex-col items-center justify-center text-center my-auto">
+            <div className="w-12 h-12 rounded-2xl mb-6 flex items-center justify-center" style={{ background: 'rgba(var(--bp-glow), 0.18)', border: '1px solid rgba(var(--bp-glow), 0.45)' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" style={{ color: 'var(--bp-accent)' }}><path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3zM19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14z" /></svg>
             </div>
-
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">{greeting}{meRef.current ? `, ${meRef.current}` : ''}</h1>
+            <p className="text-white/40 text-sm md:text-base mt-2">What do you want to work on today?</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full max-w-3xl mt-8">
+              {SUGGESTIONS.slice(0, 3).map(sg => (
+                <button key={sg.text} onClick={() => handleSuggestionClick(sg.text)} className="group p-4 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/15 text-left transition-all">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-3 transition-colors" style={{ background: 'rgba(var(--bp-glow), 0.14)', color: 'var(--bp-accent)' }}>{sg.icon}</div>
+                  <span className="block text-[13px] leading-snug text-white/75 group-hover:text-white">{sg.text}</span>
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full max-w-3xl mt-3">
+              {SUGGESTIONS.slice(3).map(sg => (
+                <button key={sg.text} onClick={() => handleSuggestionClick(sg.text)} className="group p-4 rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.07] hover:border-white/15 text-left transition-all">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-3 transition-colors" style={{ background: 'rgba(var(--bp-glow), 0.14)', color: 'var(--bp-accent)' }}>{sg.icon}</div>
+                  <span className="block text-[13px] leading-snug text-white/75 group-hover:text-white">{sg.text}</span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="w-full max-w-2xl space-y-4 py-4 my-auto">
@@ -558,6 +676,9 @@ export default function AIWork() {
                   </div>
                 </div>
               </div>
+            )}
+            {deckJob && (
+              <DeckBuild job={deckJob} onDone={() => setDeckJob(null)} />
             )}
             {(isThinking || streamText) && (
               <div className="flex gap-3 justify-start">
@@ -641,6 +762,20 @@ export default function AIWork() {
             <textarea ref={inputRef} value={inputValue} onChange={e => { setInputValue(e.target.value); const el = e.target; el.style.height = '28px'; if (el.scrollHeight > 30) el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }} onKeyDown={handleKeyDown} onPaste={handlePaste} rows={1} placeholder="Ask BatProx AI anything.." className="w-full bg-transparent text-sm text-purple-100 placeholder-purple-400/40 focus:outline-none resize-none py-1 min-h-[28px]" />
             <div className="flex items-center gap-1.5 shrink-0">
               <button onClick={() => folderInputRef.current?.click()} className="p-1.5 text-purple-400/60 hover:text-purple-300 hover:bg-[#1f1638] rounded-lg"><IconFolder /></button>
+              <div className="relative shrink-0" onMouseEnter={() => setUsageOpen(true)} onMouseLeave={() => setUsageOpen(false)}>
+                <svg width="22" height="22" viewBox="0 0 36 36" className="-rotate-90">
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="4" />
+                  <circle cx="18" cy="18" r="15" fill="none" strokeWidth="4" strokeLinecap="round"
+                    stroke={usage.unlimited ? '#34d399' : usage.percent >= 90 ? '#f87171' : usage.percent >= 60 ? '#fbbf24' : 'var(--bp-accent)'}
+                    strokeDasharray={`${(usage.unlimited ? 100 : usage.percent) * 0.9425} 999`} />
+                </svg>
+                {usageOpen && (
+                  <div className="absolute bottom-full right-0 mb-2 z-50 px-3 py-2 rounded-xl bg-[#120d21] border border-[#31254d] shadow-2xl whitespace-nowrap">
+                    <p className="text-[11px] text-white">{usage.unlimited ? 'Unlimited usage' : `${usage.percent}% has been used`}</p>
+                    <p className="text-[10px] text-white/35 mt-0.5">{usage.unlimited ? 'staff accounts are not limited' : usage.percent >= 100 ? 'resets 24h after your first message' : 'daily limit, resets every 24 hours'}</p>
+                  </div>
+                )}
+              </div>
               <button onClick={() => handleSendMessage()} disabled={!inputValue.trim() && images.length === 0} className={`p-2 rounded-lg transition ${inputValue.trim() || images.length ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-md' : 'text-purple-400/30'}`}><IconSend /></button>
             </div>
           </div>

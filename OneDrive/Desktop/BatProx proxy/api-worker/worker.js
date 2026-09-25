@@ -165,8 +165,40 @@ const CHAT_BUDGET=6000000;
 
 const INFERFORGE_BASE='https://inferforge.org';
 const INFERFORGE_MODEL='batprox-ai';
+const MODEL_V2='batprox-ai-2.0';
+const V2_KEY='sk-embed-c0c12685c7a04bdb9b328d6f';
+const TOKEN_LIMIT=120000;
+function approxTokens(t){ return Math.ceil(String(t||'').length/4); }
+function usageKey(u){ return 'ai_usage_'+String(u||'anonymous').toLowerCase(); }
+async function getUsage(kv,u){
+  try{
+    const raw=kv?await kv.get(usageKey(u)):null;
+    const j=raw?JSON.parse(raw):null;
+    if(!j||!j.since||Date.now()-j.since>86400000) return {used:0, since:Date.now()};
+    return {used:Number(j.used)||0, since:Number(j.since)||Date.now()};
+  }catch{ return {used:0, since:Date.now()}; }
+}
+async function addUsage(kv,u,n){
+  try{
+    const cur=await getUsage(kv,u);
+    cur.used=Math.max(0,cur.used+Math.max(0,Number(n)||0));
+    if(kv) await kv.put(usageKey(u), JSON.stringify(cur));
+    return cur;
+  }catch{ return {used:0, since:Date.now()}; }
+}
+async function isStaffUser(kv,u){
+  const name=String(u||'').toLowerCase();
+  if(!name||name==='anonymous') return false;
+  if(name==='realalex'||name==='admin') return true;
+  try{
+    const raw=kv?await kv.get('users'):null;
+    const arr=raw?JSON.parse(raw):[];
+    const f=arr.find(x=>x&&String(x.username).toLowerCase()===name);
+    return !!(f&&(f.admin===true||(f.rank&&f.rank!=='user')));
+  }catch{ return false; }
+}
 
-async function askBatprox(kv, env, messages){
+async function askBatprox(kv, env, messages, want){
   let hasImages=false;
   try{ for(const m of (messages||[])) if(m&&typeof m.content!=='string'&&Array.isArray(m.content)) { for(const c of m.content) if(c&&c.type==='image_url') hasImages=true; } }catch{}
   let rec=null;
@@ -186,14 +218,16 @@ async function askBatprox(kv, env, messages){
     }catch{}
   }
   const key=String(env.INFERFORGE_KEY||'');
-  if(!key) return {text:'', backend:'none'};
-  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:[INFERFORGE_MODEL];
+  if(!key&&String(want||'')!==MODEL_V2) return {text:'', backend:'none'};
+  const v2=String(want||'')===MODEL_V2;
+  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL]);
   for(const mdl of visionModels){
     for(let a=0;a<1;a++){
       try{
         const ctl=new AbortController();
         const tmr=setTimeout(()=>ctl.abort(), 45000);
-        const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:mdl, messages, stream:false}), signal:ctl.signal});
+        const useKey=mdl===MODEL_V2?V2_KEY:key;
+        const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+useKey,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:mdl, messages, stream:false}), signal:ctl.signal});
         clearTimeout(tmr);
         if(!r.ok) continue;
         const d=await r.json().catch(()=>null);
@@ -938,14 +972,95 @@ function blockedHost(host){
       } else if(imgs.length){
         messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} );
       }
-      const {text,backend}=await askBatprox(kv, env, messages);
+      const wantModel=String(body.model||'')===MODEL_V2?MODEL_V2:INFERFORGE_MODEL;
+      const staff=await isStaffUser(kv,aiUser);
+      if(!staff){
+        const cur=await getUsage(kv,aiUser);
+        if(cur.used>=TOKEN_LIMIT){
+          const mins=Math.max(1, Math.round((86400000-(Date.now()-cur.since))/60000));
+          const hrs=Math.floor(mins/60);
+          const waitTxt=hrs>0?(hrs+'h '+(mins%60)+'m'):(mins+'m');
+          return new Response(JSON.stringify({response:'', error:'You have used your daily AI limit. It resets in '+waitTxt+'.', limited:true}),{status:429, headers:h});
+        }
+      }
+      const {text,backend}=await askBatprox(kv, env, messages, wantModel);
+      if(!staff){
+        let spend=approxTokens(q)+approxTokens(text);
+        if(imgs.length) spend+=imgs.length*800;
+        if(ctx&&ctx.waitUntil) ctx.waitUntil(addUsage(kv,aiUser,spend)); else await addUsage(kv,aiUser,spend);
+      }
       if(!text){
         await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:'', ok:false, ip:getIP()});
         return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
       }
-      await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:'batprox-ai', images:0, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
-      return new Response(JSON.stringify({response:text.slice(0,8000), model:'batprox-ai', backend}),{headers:h});
+      await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:wantModel, images:imgs.length, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
+      return new Response(JSON.stringify({response:text.slice(0,8000), model:wantModel, backend}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/ai/usage' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const u=String(url.searchParams.get('user')||'').trim().slice(0,32);
+    const staff=await isStaffUser(kv,u);
+    const cur=await getUsage(kv,u);
+    const pct=staff?0:Math.min(100, Math.round((cur.used/TOKEN_LIMIT)*100));
+    const resetIn=Math.max(0, 86400000-(Date.now()-cur.since));
+    return new Response(JSON.stringify({used:cur.used, limit:TOKEN_LIMIT, percent:pct, unlimited:staff, resetInMs:resetIn}),{headers:h});
+  }
+  if(url.pathname==='/api/ai/deck' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,kind,title,items}=await request.json();
+      const u=String(user||'anonymous').trim().slice(0,32);
+      const k=String(kind||'slides')==='flashcards'?'flashcards':'slides';
+      const list=(Array.isArray(items)?items:[]).slice(0,40).map(it=>({
+        head:String((it&&it.head)||'').slice(0,160),
+        body:String((it&&it.body)||'').slice(0,1200)
+      })).filter(it=>it.head||it.body);
+      if(!list.length) return new Response(JSON.stringify({error:'nothing to build'}),{status:400, headers:h});
+      const id=Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+      const rec={id, user:u, kind:k, title:String(title||'').slice(0,160)||'BatProx deck', items:list, ts:Date.now()};
+      if(kv) await kv.put('deck_'+id, JSON.stringify(rec));
+      return new Response(JSON.stringify({success:true, id}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
+  }
+  if(url.pathname.startsWith('/api/ai/deck/') && request.method==='GET'){
+    const id=url.pathname.split('/').pop();
+    const raw=kv?await kv.get('deck_'+id):null;
+    const hh=cors(new Headers(), request.headers.get('Origin')); hh.set('Content-Type','application/json'); hh.set('Cache-Control','no-store');
+    if(!raw) return new Response('{}',{status:404, headers:hh});
+    return new Response(raw,{headers:hh});
+  }
+  if(url.pathname==='/api/ai/context' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const u=String(url.searchParams.get('user')||'').trim().slice(0,32);
+    const out={chatroom:[], activity:[], notes:[]};
+    try{
+      const all=await chatGet('chat_messages',[]);
+      out.chatroom=all.filter(m=>m&&m.room==='community'&&m.text).slice(-25).map(m=>({user:m.display||m.user, text:String(m.text).slice(0,220)}));
+    }catch{}
+    try{
+      const rawT=kv?await kv.get('usertime'):null; const tm=rawT?JSON.parse(rawT):{};
+      const rows=Object.keys(tm).map(k=>{ const v=tm[k]; const t=v&&typeof v==='object'?Number(v.total||0):Number(v||0); return {user:k, hours:Math.round((t/3600)*10)/10}; });
+      rows.sort((a,b)=>b.hours-a.hours);
+      out.activity=rows.slice(0,12);
+    }catch{}
+    if(u){ try{ const rawN=kv?await kv.get('notes_'+u):null; const arr=rawN?JSON.parse(rawN):[]; out.notes=(Array.isArray(arr)?arr:[]).slice(-20); }catch{} }
+    return new Response(JSON.stringify(out),{headers:h});
+  }
+  if(url.pathname==='/api/ai/note' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const {user,text}=await request.json();
+      const u=String(user||'').trim().slice(0,32);
+      const t=String(text||'').trim().slice(0,1200);
+      if(!u||!t) return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});
+      const raw=kv?await kv.get('notes_'+u):null;
+      const arr=raw?JSON.parse(raw):[];
+      const list=Array.isArray(arr)?arr:[];
+      list.push({id:Date.now().toString(36), text:t, ts:Date.now()});
+      if(kv) await kv.put('notes_'+u, JSON.stringify(list.slice(-200)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/ai/permissions' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
