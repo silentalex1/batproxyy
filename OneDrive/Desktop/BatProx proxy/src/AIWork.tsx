@@ -7,6 +7,7 @@ import { startPresence } from './presence';
 import { useLowPower } from './power';
 import { applyTheme, THEMES } from './theme';
 import DeckBuild, { type DeckItem, type DeckJob } from './DeckBuild';
+import { addReminder, parseTime } from './reminders';
 import { applyBackground, BACKGROUNDS } from './background';
 import { applyTabCloak, TAB_CLOAKS } from './tabcloak';
 
@@ -534,6 +535,27 @@ export default function AIWork() {
         const title = madeDeck === 'flashcards' ? 'BatProx flashcards' : 'BatProx slides';
         setDeckJob({ kind: madeDeck, title, items, user: meRef.current || '' });
         saveChatToHistory([...newMessages, { role: 'assistant' as const, content: reply }]);
+        return;
+      }
+    }
+    const remAsk = raw.match(/(?:set|add|make)\s+(?:a\s+)?(?:daily\s+)?reminder[,]?\s*(?:to\s+)?(?:remind me\s+(?:about|to)\s+)?(.+)/i);
+    if (remAsk) {
+      const rest = remAsk[1].trim();
+      const timeHit = rest.match(/\b(?:at|by|around)?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|a|p)?)\s*$/i)
+        || rest.match(/\b(?:at|by|around)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a|p)?)\b/i);
+      const when = timeHit ? timeHit[1].trim() : '';
+      const what = (timeHit ? rest.slice(0, rest.lastIndexOf(timeHit[0])) : rest).replace(/\b(at|by|around)\s*$/i, '').replace(/[,\s]+$/, '').trim();
+      if (what && when && parseTime(when)) {
+        const res = addReminder(what, when);
+        setIsThinking(false);
+        startFluidStream(res.ok
+          ? `Done. I set a daily reminder for ${parseTime(when)?.label} that says "${what}". You will get it every day, and it shows up inside BatProx with a sound.`
+          : `I could not set that: ${res.error}`);
+        return;
+      }
+      if (what && !when) {
+        setIsThinking(false);
+        startFluidStream(`What time do you want that reminder? Tell me something like 9:00 PM, 9pm or 21:00 and I will set it for "${what}" every day.`);
         return;
       }
     }
