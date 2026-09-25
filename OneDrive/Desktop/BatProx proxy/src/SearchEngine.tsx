@@ -45,6 +45,7 @@ export default function SearchEngine() {
   const stampRef = useRef(0);
   const lastRealTarget = useRef('');
   const retriedRef = useRef(false);
+  const escapedRef = useRef(false);
   const skipLoading = (() => {
     try { return JSON.parse(localStorage.getItem('batprox-settings') || '{}').skipLoading === true; } catch { return false; }
   })();
@@ -101,6 +102,7 @@ export default function SearchEngine() {
     } catch {}
     lastRealTarget.current = resolved;
     retriedRef.current = false;
+    escapedRef.current = false;
     setUrl(resolved);
     setLoading(!skipLoading);
     setHasError(false);
@@ -252,6 +254,22 @@ export default function SearchEngine() {
   };
   const handleLoad = () => {
     const f = iframeRef.current;
+    if (f && src && !escapedRef.current) {
+      let inside = false;
+      try { inside = !!f.contentDocument; } catch { inside = false; }
+      if (!inside) {
+        escapedRef.current = true;
+        const back = lastRealTarget.current || decodeUrlParam(new URLSearchParams(location.search).get('url')) || url;
+        if (back) {
+          clearTimer();
+          setLoading(!skipLoading);
+          setHasError(false);
+          setUseSandbox(false);
+          initUltraviolet().then(() => { setSrc(getUvUrl(back)); setKey(v => v + 1); }).catch(() => { setSrc(getSandboxUrl(back)); setUseSandbox(true); setKey(v => v + 1); });
+          return;
+        }
+      }
+    }
     try {
       const html = f?.contentDocument?.documentElement?.innerHTML || '';
       const title = f?.contentDocument?.title || '';

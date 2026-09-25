@@ -9,6 +9,23 @@ self.__uv$config = {
   sw: '/uv/uv.sw.js'
 };
 if (typeof Document !== 'undefined' && Document.prototype && 'startViewTransition' in Document.prototype) {
-  try { delete Document.prototype.startViewTransition; } catch (e) {}
-  try { Object.defineProperty(Document.prototype, 'startViewTransition', { value: undefined, configurable: true, writable: true }); } catch (e) {}
+  try {
+    Object.defineProperty(Document.prototype, 'startViewTransition', {
+      configurable: true,
+      writable: true,
+      value: function (cb) {
+        var done = Promise.resolve();
+        try {
+          var out = typeof cb === 'function' ? cb() : (cb && typeof cb.update === 'function' ? cb.update() : undefined);
+          done = out && typeof out.then === 'function' ? out.catch(function () {}) : Promise.resolve();
+        } catch (e) {}
+        return {
+          ready: done,
+          finished: done,
+          updateCallbackDone: done,
+          skipTransition: function () {}
+        };
+      }
+    });
+  } catch (e) {}
 }
