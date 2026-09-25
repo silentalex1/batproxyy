@@ -234,5 +234,85 @@
   {
     "input": "are you sure about that?",
     "output": "Let me re check it rather than just agreeing. I will redo the reasoning step by step, and if I find a mistake I will say exactly where it was and give the corrected answer. If it holds up, I will show you the check so you can verify it yourself."
+  },
+  {
+    "input": "integrate 1/(x^2+1) dx",
+    "output": "This is a standard arctangent integral.\n\nint 1/(x^2+1) dx = arctan(x) + C\n\nCheck by differentiating: d/dx arctan(x) = 1/(1+x^2). Correct.\n\nThe general form is int 1/(x^2+a^2) dx = (1/a) arctan(x/a) + C."
+  },
+  {
+    "input": "find the area under y = x^2 from 0 to 3",
+    "output": "Evaluate the definite integral.\n\nint from 0 to 3 of x^2 dx = [x^3/3] from 0 to 3\n= 27/3 - 0\n= 9\n\nSanity check: the region sits inside a 3 by 9 rectangle of area 27, and a parabola fills one third of it, so 9 is right."
+  },
+  {
+    "input": "what is the chain rule",
+    "output": "The chain rule differentiates a composed function.\n\nIf y = f(g(x)) then dy/dx = f'(g(x)) * g'(x)\n\nIn words: differentiate the outside, keep the inside unchanged, then multiply by the derivative of the inside.\n\nExample: y = (3x + 1)^5\ndy/dx = 5(3x + 1)^4 * 3 = 15(3x + 1)^4"
+  },
+  {
+    "input": "solve 2x + 3 = 11",
+    "output": "2x + 3 = 11\n2x = 8\nx = 4\n\nCheck: 2(4) + 3 = 11. Correct."
+  },
+  {
+    "input": "what is the quadratic formula",
+    "output": "For ax^2 + bx + c = 0 with a not zero:\n\nx = (-b plus or minus sqrt(b^2 - 4ac)) / (2a)\n\nThe discriminant b^2 - 4ac tells you the root count before you solve. Positive means two real roots, zero means one repeated root, negative means two complex roots."
+  },
+  {
+    "input": "explain newton's three laws",
+    "output": "First law, inertia. An object keeps its velocity unless a net external force acts on it. There is no force needed to keep something moving, only to change its motion.\n\nSecond law. F = ma. Net force equals mass times acceleration, and the acceleration points along the net force.\n\nThird law. For every force there is an equal and opposite force on the other body. The pair acts on two different objects, which is why they never cancel out."
+  },
+  {
+    "input": "what is kinetic energy",
+    "output": "Kinetic energy is the energy of motion.\n\nKE = (1/2)mv^2\n\nMass in kg and speed in m/s give joules. Note it scales with the square of speed, so doubling speed quadruples the energy. That is why stopping distance grows so fast with speed.\n\nThe work energy theorem ties it together: the net work done on an object equals its change in kinetic energy."
+  },
+  {
+    "input": "what is the ph scale",
+    "output": "pH measures how acidic or basic a solution is.\n\npH = -log10[H+]\n\nBelow 7 is acidic, 7 is neutral, above 7 is basic. It is logarithmic, so pH 3 has ten times more hydrogen ions than pH 4 and a hundred times more than pH 5.\n\npH plus pOH equals 14 at 25 degrees Celsius."
+  },
+  {
+    "input": "explain natural selection",
+    "output": "Natural selection needs four conditions.\n\n1. Variation. Individuals in a population differ.\n2. Heritability. Some of that variation passes to offspring.\n3. Competition. More offspring are produced than can survive.\n4. Differential survival. Traits that help survival and reproduction become more common over generations.\n\nA common misconception: individuals do not evolve, populations do. And traits are not developed because they are needed, they already vary and the environment filters them."
+  },
+  {
+    "input": "write a python function to check if a string is a palindrome",
+    "output": "```python\ndef is_palindrome(s):\n    cleaned = ''.join(c.lower() for c in s if c.isalnum())\n    return cleaned == cleaned[::-1]\n```\n\nStrip out punctuation and case first so \"A man, a plan, a canal: Panama\" counts. Then compare the string to its reverse. Time O(n), space O(n).\n\nFor O(1) space, walk two pointers inward from both ends instead."
+  },
+  {
+    "input": "what is recursion",
+    "output": "Recursion is a function calling itself on a smaller version of the same problem.\n\nEvery recursive function needs two parts: a base case that stops the recursion, and a recursive case that moves toward the base case.\n\n```python\ndef factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n```\n\nWithout the base case you get infinite recursion and a stack overflow. Each call sits on the call stack until it returns, so deep recursion costs memory."
+  },
+  {
+    "input": "explain what an api is",
+    "output": "An API is a contract that lets one program use another without knowing how it works inside.\n\nA web API usually works over HTTP. You send a request to an endpoint, often with JSON, and get a structured response back. Common methods are GET to read, POST to create, PUT to update and DELETE to remove.\n\nThe point is abstraction. You call a weather API without knowing anything about its satellites or database, the same way you drive a car without understanding combustion."
+  },
+  {
+    "input": "how do i structure a five paragraph essay",
+    "output": "Introduction. Open with a hook, give the context a reader needs, then end on your thesis, which is one arguable claim.\n\nThree body paragraphs. Each takes one supporting point. Start with a topic sentence stating the point, give evidence such as a quote or data, then explain how the evidence proves the point. Explanation matters more than the quote.\n\nConclusion. Restate the thesis in new words, tie the three points together, then say why it matters. Do not introduce new evidence here.\n\nThe weakest part of most essays is the explanation. Never let a quote stand on its own."
+  },
+  {
+    "input": "what is inflation",
+    "output": "Inflation is a sustained rise in the general price level, which means each unit of money buys less.\n\nMain causes: demand pull, where demand outruns supply, and cost push, where input costs such as energy or wages rise. Printing money faster than output grows also raises prices.\n\nIt is measured with a price index such as CPI. Moderate inflation near 2 percent is usually the target, because deflation encourages people to delay spending, which deepens recessions."
+  },
+  {
+    "input": "explain the difference between weather and climate",
+    "output": "Weather is the state of the atmosphere right now or over days. Climate is the statistical pattern of weather over decades, usually 30 years or more.\n\nA useful line: weather is your mood, climate is your personality. A cold week does not contradict a warming climate, the same way one cheerful day does not make someone a cheerful person.\n\nWeather is chaotic and unpredictable past about two weeks. Climate is more predictable because averages behave better than single events."
+  },
+  {
+    "input": "i got the wrong answer, where did i go wrong",
+    "output": "Show me your working and I will find the exact step where it breaks rather than just handing you the right answer.\n\nIf you would rather find it yourself, the usual suspects are a dropped negative sign, applying a rule where its condition does not hold, or an arithmetic slip carried forward. Re check your answer by substituting it back into the original problem, since that catches most errors on its own."
+  },
+  {
+    "input": "give me a hint instead of the answer",
+    "output": "Good approach, that is how the material actually sticks.\n\nTell me the problem and I will give you the next step only, phrased as a question. If you are still stuck after that I will give a bigger hint, and only give the full solution when you ask for it."
+  },
+  {
+    "input": "what is the powerhouse of the cell",
+    "output": "The mitochondrion.\n\nIt produces most of the cell's ATP through aerobic respiration. The electron transport chain sits in the inner membrane, whose folds, called cristae, increase surface area for it.\n\nMitochondria have their own circular DNA and reproduce by splitting, which is evidence for endosymbiotic theory: they were once free living bacteria taken in by an ancestral cell."
+  },
+  {
+    "input": "explain supply chain in simple terms",
+    "output": "A supply chain is every step that turns raw materials into something a customer holds.\n\nFor a loaf of bread: a farmer grows wheat, a mill turns it into flour, a bakery bakes it, a lorry moves it, a shop sells it. Each step adds value and cost.\n\nIt breaks when one link fails, which is why a single blocked canal or one closed factory can empty shelves worldwide. That is also why companies keep buffer stock or multiple suppliers, trading efficiency for resilience."
+  },
+  {
+    "input": "how do i study for a test effectively",
+    "output": "Use retrieval, not rereading. Rereading feels productive and is close to useless.\n\n1. Test yourself from a blank page. Write what you remember, then check and fill the gaps.\n2. Space it out. Four thirty minute sessions across four days beat one two hour cram.\n3. Mix topics in one session rather than blocking them. It feels harder and works better.\n4. Explain it out loud as if teaching someone. Any point where you stumble is a gap.\n5. Do past questions under timed conditions.\n\nI can turn your notes into flashcards for step 1 if you want."
   }
 ]
