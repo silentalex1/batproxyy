@@ -198,6 +198,42 @@ async function isStaffUser(kv,u){
   }catch{ return false; }
 }
 
+function dataUrlToBytes(u){
+  try{
+    const b64=String(u).split(',')[1]||'';
+    const bin=atob(b64);
+    const out=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+    return [...out];
+  }catch{ return null; }
+}
+async function askVision(env, messages){
+  if(!env||!env.AI) return '';
+  let prompt='Describe this image.';
+  let img=null;
+  try{
+    for(let i=messages.length-1;i>=0;i--){
+      const c=messages[i]&&messages[i].content;
+      if(Array.isArray(c)){
+        for(const part of c){
+          if(part&&part.type==='text'&&part.text) prompt=String(part.text);
+          if(part&&part.type==='image_url'&&part.image_url&&part.image_url.url&&!img) img=dataUrlToBytes(part.image_url.url);
+        }
+        if(img) break;
+      }
+    }
+  }catch{}
+  if(!img) return '';
+  const models=['@cf/meta/llama-3.2-11b-vision-instruct','@cf/llava-hf/llava-1.5-7b-hf'];
+  for(const m of models){
+    try{
+      const r=await env.AI.run(m, m.includes('llava')?{image:img, prompt, max_tokens:768}:{messages:[{role:'user', content:prompt}], image:img, max_tokens:768});
+      const out=String((r&&(r.description||r.response||r.result))||'').trim();
+      if(out) return out;
+    }catch{}
+  }
+  return '';
+}
 async function askBatprox(kv, env, messages, want){
   let hasImages=false;
   try{ for(const m of (messages||[])) if(m&&typeof m.content!=='string'&&Array.isArray(m.content)) { for(const c of m.content) if(c&&c.type==='image_url') hasImages=true; } }catch{}
@@ -216,6 +252,10 @@ async function askBatprox(kv, env, messages, want){
         if(out) return {text:out, backend:'local'};
       }
     }catch{}
+  }
+  if(hasImages){
+    const seen=await askVision(env, messages);
+    if(seen) return {text:seen, backend:'vision'};
   }
   const key=String(env.INFERFORGE_KEY||'');
   if(!key&&String(want||'')!==MODEL_V2) return {text:'', backend:'none'};
