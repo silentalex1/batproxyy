@@ -6,7 +6,7 @@ import Settings from './Settings';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 import { applyTheme, THEMES } from './theme';
-import DeckBuild, { type DeckItem, type DeckJob } from './DeckBuild';
+import DeckBuild, { openDeck, type DeckItem, type DeckJob } from './DeckBuild';
 import { addReminder, parseTime } from './reminders';
 import { applyBackground, BACKGROUNDS } from './background';
 import { applyTabCloak, TAB_CLOAKS } from './tabcloak';
@@ -56,7 +56,7 @@ const IconLayers = () => (
 interface ChatHistory {
   id: string;
   title: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[]; imgs?: string[] }>;
+  messages: Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[]; imgs?: string[]; deck?: DeckJob }>;
   timestamp: number;
   checkpoints?: Array<{ id: string; messageIndex: number; timestamp: number }>;
 }
@@ -124,7 +124,7 @@ export default function AIWork() {
       try { const r = await fetch('/api/ai/status', { cache: 'no-store' }); const d = await r.json(); if (alive) setLocalOnline(!!d.online); } catch { if (alive) setLocalOnline(false); }
     }; check(); const id = setInterval(check, 30000); return () => { alive = false; clearInterval(id); };
   }, []);
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[]; imgs?: string[] }>>([]);
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; terminal?: string[]; imgs?: string[]; deck?: DeckJob }>>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null);
@@ -139,7 +139,18 @@ export default function AIWork() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [versionFor, setVersionFor] = useState<string | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isModelMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!modelMenuRef.current || modelMenuRef.current.contains(e.target as Node)) return;
+      setIsModelMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsModelMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [isModelMenuOpen]);
   const [inputValue, setInputValue] = useState('');
   const [startTime] = useState<number>(Date.now());
   const [siteTime, setSiteTime] = useState<string>('0 seconds');
@@ -176,8 +187,8 @@ export default function AIWork() {
   const availableModels: Model[] = [
     { id: 'batprox-ai-2.0', name: 'BatProx AI 2.0', badge: 'New', status: 'online' },
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
-    { id: 'inferforge-code', name: 'Inferforge-code', badge: 'Code', status: 'online' },
-    { id: 'prysmis-ai', name: 'PrysmisAI beta', badge: 'Beta', status: 'online' },
+    { id: 'prysmis-code', name: 'PrysmisAI-code', badge: 'coming soon', status: 'offline' },
+    { id: 'prysmis-ai', name: 'PrysmisAI beta', badge: 'coming soon', status: 'offline' },
   ];
   const [isThinking, setIsThinking] = useState(false);
   const [streamText, setStreamText] = useState('');
@@ -665,10 +676,21 @@ export default function AIWork() {
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (<div className="w-8 h-8 rounded-full bg-purple-900/60 border border-purple-500/30 flex items-center justify-center shrink-0"><IconSpark /></div>)}
+                {msg.deck ? (
+                  <div className="max-w-[80%] w-[360px] rounded-2xl px-5 py-4 bg-[#120e1e] border border-[#2d2248] shadow-md">
+                    <p className="text-[11px] uppercase tracking-widest text-purple-300/45 mb-1.5">{msg.deck.kind === 'flashcards' ? 'flash cards' : 'slides'}</p>
+                    <p className="text-[13px] text-white font-medium">Your batprox {msg.deck.kind === 'flashcards' ? 'flash cards' : 'slide'} is done.</p>
+                    <p className="text-[11px] text-white/35 mt-0.5">{msg.deck.items.length} {msg.deck.kind === 'flashcards' ? 'cards' : 'slides'} from this conversation</p>
+                    <button onClick={() => openDeck(msg.deck!.kind, msg.deck!.title, msg.deck!.items)} className="mt-2.5 text-[13px] text-white/80 hover:text-white transition-colors">
+                      Click <span className="text-blue-400 underline">here</span> to check your batprox {msg.deck.kind === 'flashcards' ? 'flash cards' : 'slide'}.
+                    </button>
+                  </div>
+                ) : (
                 <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed select-text ${msg.role === 'user' ? 'bg-[#3b2866] text-white rounded-br-none border border-purple-400/20 shadow-lg' : String(msg.content).includes('has been stopped by') ? 'bg-red-950/60 text-red-200 rounded-bl-none border border-red-500/30 shadow-md' : 'bg-[#120e1e] text-purple-100 rounded-bl-none border border-[#2d2248] shadow-md'}`}>
                   {msg.role === 'assistant' ? <div className="select-text prose prose-invert max-w-none"><ReactMarkdown components={{ code({ inline, className, children, ...props }: any) { const txt = String(children).replace(/\n$/, ''); if (inline || (!className && !txt.includes('\n'))) return <code className="px-1 py-0.5 rounded bg-white/10 text-purple-200 text-xs" {...props}>{children}</code>; const id = txt.slice(0, 40); return <div className="relative group my-2 rounded-xl overflow-hidden border border-white/10 bg-black/40"><div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/10"><span className="text-[10px] tracking-widest text-white/30">{(className || '').replace('language-', '') || 'code'}</span><button onClick={() => { navigator.clipboard.writeText(txt).then(() => { setCopiedCode(id); setTimeout(() => setCopiedCode(null), 1500); }); }} className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 text-white/70 hover:text-white text-[11px] border border-white/10 transition">{copiedCode === id ? 'copied' : 'copy code'}</button></div><pre className="p-3 overflow-x-auto text-xs leading-relaxed"><code className={className} {...props}>{txt}</code></pre></div>; } }}>{String(msg.content || "")}</ReactMarkdown></div> : <span className="whitespace-pre-wrap break-words select-text">{msg.content}</span>}
                   {Array.isArray((msg as any).imgs) && (msg as any).imgs.length > 0 && (<div className="flex flex-wrap gap-2 mt-2">{(msg as any).imgs.map((src: string, ii: number) => (<a key={ii} href={src} target="_blank" rel="noreferrer"><img src={src} alt="" className="max-w-[220px] max-h-[220px] rounded-xl border border-white/15" /></a>))}</div>)}
                 </div>
+                )}
                 {msg.role === 'user' && (<div className="w-8 h-8 rounded-full bg-[#271d42] border border-purple-400/20 flex items-center justify-center shrink-0"><IconUser /></div>)}
               </div>
             ))}
@@ -700,7 +722,18 @@ export default function AIWork() {
               </div>
             )}
             {deckJob && (
-              <DeckBuild job={deckJob} onDone={() => setDeckJob(null)} />
+              <DeckBuild
+                job={deckJob}
+                onDone={() => {
+                  const done = deckJob;
+                  setDeckJob(null);
+                  setMessages(prev => {
+                    const next = [...prev, { role: 'assistant' as const, content: '', deck: done }];
+                    saveChatToHistory(next);
+                    return next;
+                  });
+                }}
+              />
             )}
             {(isThinking || streamText) && (
               <div className="flex gap-3 justify-start">
@@ -736,40 +769,23 @@ export default function AIWork() {
         )}
         <div className="relative bg-[#0d0a14]/90 backdrop-blur-xl border border-[#231a38] rounded-2xl p-4 shadow-2xl flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
-            <div className="relative inline-block">
-              <button onClick={() => { setIsModelMenuOpen(!isModelMenuOpen); setVersionFor(null); }} className="flex items-center gap-2 bg-[#171126] hover:bg-[#231a38] border border-[#2f234a] rounded-lg px-3 py-1.5 text-xs text-purple-200 transition">
+            <div className="relative inline-block" ref={modelMenuRef}>
+              <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className="flex items-center gap-2 bg-[#171126] hover:bg-[#231a38] border border-[#2f234a] rounded-lg px-3 py-1.5 text-xs text-purple-200 transition">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="font-medium">{selectedModel.id}</span><IconChevron open={isModelMenuOpen} />
               </button>
             {isModelMenuOpen && (
-              <div onMouseLeave={() => setVersionFor(null)} className="absolute bottom-full left-0 mb-2 w-64 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50">
+              <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50">
                 <div className="text-[11px] font-semibold text-purple-400/60 px-3 py-1 uppercase tracking-wider">Our AI models</div>
                 <div className="space-y-1">{availableModels.map(m => (
-                  <div key={m.id} className="relative" onContextMenu={e => { if (m.id !== 'batprox-ai') return; e.preventDefault(); setVersionFor(versionFor === m.id ? null : m.id); }}>
-                    <div className={`w-full rounded-lg text-xs flex items-center transition ${selectedModel.id === m.id ? 'bg-[#281c45] text-purple-100 font-medium' : 'text-purple-300/70 hover:bg-[#1a1330] hover:text-purple-200'} ${m.status === 'offline' ? 'opacity-50' : ''}`}>
-                      <button onClick={() => { if (m.status === 'online') { setSelectedModel(m); setIsModelMenuOpen(false); setVersionFor(null); } }} className={`flex-1 min-w-0 text-left pl-3 pr-2 py-2 flex items-center justify-between gap-2 ${m.status === 'offline' ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-                        <span className="flex items-center gap-2 min-w-0"><span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'}`} /><span className="truncate">{m.name}</span></span>{m.badge && <span className="shrink-0 text-[10px] bg-purple-950 border border-purple-700/40 text-purple-300 px-1.5 py-0.5 rounded">{m.badge}</span>}
-                      </button>
-                      {m.id === 'batprox-ai' ? (
-                        <button
-                          onMouseEnter={() => setVersionFor(m.id)}
-                          onClick={() => setVersionFor(versionFor === m.id ? null : m.id)}
-                          aria-label="Other versions"
-                          className={`mr-1 w-6 h-6 shrink-0 rounded-md flex items-center justify-center transition ${versionFor === m.id ? 'bg-purple-500/25 text-purple-100' : 'text-purple-300/60 hover:text-purple-100 hover:bg-white/10'}`}
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
-                        </button>
-                      ) : <span className="mr-1 w-6 shrink-0" />}
-                    </div>
-                    {versionFor === m.id && (
-                      <div className="absolute left-full top-0 ml-2 w-60 bg-[#120d21] border border-[#31254d] rounded-xl shadow-2xl p-1.5 z-50" style={{ animation: 'bpFly .16s ease-out' }}>
-                        <style>{'@keyframes bpFly{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}'}</style>
-                        <div className="text-[11px] font-semibold text-purple-400/60 px-3 py-1 uppercase tracking-wider">Model versions</div>
-                        <div className="px-3 py-2 rounded-lg text-xs flex items-center justify-between gap-2 text-purple-300/55 cursor-not-allowed select-none">
-                          <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-gray-500" />BatProx AI v2.0</span>
-                          <span className="text-[10px] bg-purple-950/70 border border-purple-700/30 text-purple-300/70 px-1.5 py-0.5 rounded whitespace-nowrap">coming soon</span>
-                        </div>
-                      </div>
-                    )}
+                  <div key={m.id} className={`w-full rounded-lg text-xs flex items-center transition ${selectedModel.id === m.id ? 'bg-[#281c45] text-purple-100 font-medium' : m.status === 'offline' ? 'text-purple-300/40' : 'text-purple-300/70 hover:bg-[#1a1330] hover:text-purple-200'}`}>
+                    <button
+                      disabled={m.status !== 'online'}
+                      onClick={() => { if (m.status === 'online') { setSelectedModel(m); setIsModelMenuOpen(false); } }}
+                      className={`flex-1 min-w-0 text-left px-3 py-2 flex items-center justify-between gap-2 ${m.status === 'online' ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                    >
+                      <span className="flex items-center gap-2 min-w-0"><span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'}`} /><span className="truncate">{m.name}</span></span>
+                      {m.badge && <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap border ${m.status === 'online' ? 'bg-purple-950 border-purple-700/40 text-purple-300' : 'bg-purple-950/50 border-purple-700/25 text-purple-300/55'}`}>{m.badge}</span>}
+                    </button>
                   </div>
                 ))}</div>
               </div>

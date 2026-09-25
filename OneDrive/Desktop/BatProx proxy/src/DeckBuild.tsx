@@ -32,12 +32,29 @@ main{max-width:940px;margin:0 auto;padding:28px 20px 70px}
 .face .n{position:absolute;top:12px;left:16px;font-size:10px;color:#6f6f8a}
 .hint{position:absolute;bottom:12px;font-size:10px;color:#5c5c78}
 footer{text-align:center;color:#5c5c78;font-size:11px;padding:26px}
-@media print{header,footer,.hint{display:none}.slide{page-break-after:always;border:none}}
+button.dl{margin-left:auto;background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;border:0;border-radius:10px;padding:9px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px}
+button.dl:hover{filter:brightness(1.12)}
+@media print{
+ header,footer,.hint,button.dl{display:none}
+ html,body{background:#fff;color:#000}
+ main{padding:0;max-width:none}
+ .slide{page-break-after:always;border:1px solid #ccc;background:#fff;box-shadow:none;margin:0 0 14px}
+ .slide h2{color:#111;-webkit-text-fill-color:#111}
+ .slide .body p{color:#222}
+ .slide .body p:before{background:#666}
+ .grid{display:block}
+ .card{height:auto;page-break-inside:avoid;margin:0 0 10px;perspective:none}
+ .inner{position:static;transform:none!important;height:auto}
+ .face{position:static;backface-visibility:visible;transform:none!important;background:#fff!important;border:1px solid #ccc;display:block;padding:14px}
+ .face p{color:#000}
+ .front p{font-weight:700;margin-bottom:6px}
+ .back{border-top:0}
+}
 </style></head><body>
-<header><div class="dot">B</div><h1>${esc(title)}</h1><span class="sub">${items.length} ${flash ? 'cards' : 'slides'} &middot; made by BatProx AI 2.0</span></header>
+<header><div class="dot">B</div><h1>${esc(title)}</h1><span class="sub">${items.length} ${flash ? 'cards' : 'slides'} &middot; made by BatProx AI 2.0</span><button class="dl" onclick="window.print()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>Download PDF</button></header>
 <main>${flash ? `<div class="grid">${cards}</div>` : cards}</main>
 <footer>Generated from your BatProx AI conversation</footer>
-<script>document.addEventListener('click',function(e){var c=e.target.closest('.card');if(c)c.classList.toggle('flip')});<\/script>
+<script>document.addEventListener('click',function(e){var c=e.target.closest('.card');if(c)c.classList.toggle('flip')});window.addEventListener('beforeprint',function(){document.querySelectorAll('.card').forEach(function(c){c.classList.remove('flip')})});<\/script>
 </body></html>`;
 }
 
