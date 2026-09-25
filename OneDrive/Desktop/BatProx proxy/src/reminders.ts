@@ -99,33 +99,22 @@ export async function ensurePermission(): Promise<boolean> {
   }
 }
 
+function toast(text: string) {
+  try { localStorage.setItem('bp-reminder-toast', JSON.stringify({ text, at: Date.now() })); } catch {}
+  try { window.dispatchEvent(new CustomEvent('bp-reminder-toast', { detail: { text } })); } catch {}
+}
+
 async function fire(r: Reminder) {
   const body = r.text;
+  toast(body);
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   try {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-      // fallback: try anyway, or show in-page toast via broadcast
-      try { localStorage.setItem('bp-reminder-toast', JSON.stringify({ text: body, at: Date.now() })); window.dispatchEvent(new Event('bp-reminder-toast')); } catch {}
-      return;
-    }
-    // Try service worker first (works in background tabs). uv-sw.js now handles 'bp-reminder' messages too.
     if (navigator.serviceWorker) {
-      try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        const reg = regs.find(x => x.active || x.waiting || x.installing) || await navigator.serviceWorker.getRegistration();
-        if (reg && typeof (reg as any).showNotification === 'function') {
-          await (reg as any).showNotification('Reminder', { body, tag: 'bp-reminder-' + r.id, badge: '/favicon.ico', icon: '/favicon.ico', requireInteraction: false, silent: false, data: { url: '/dashboard' } });
-          // also ping SW to schedule next check
-          try { reg.active?.postMessage({ type: 'bp-reminder-fired', reminder: r }); } catch {}
-          return;
-        }
-      } catch {}
-      // fallback to controller message
-      try {
-        if (navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: 'bp-reminder', title: 'Reminder', body, tag: 'bp-reminder-' + r.id });
-          return;
-        }
-      } catch {}
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && typeof (reg as any).showNotification === 'function') {
+        await (reg as any).showNotification('Reminder', { body, tag: 'bp-reminder-' + r.id, badge: '/favicon.ico', icon: '/favicon.ico', data: { url: '/dashboard' } });
+        return;
+      }
     }
     new Notification('Reminder', { body, tag: 'bp-reminder-' + r.id });
   } catch {
@@ -161,33 +150,26 @@ let loopStarted = false;
 export function startReminderLoop() {
   if (loopStarted) return;
   loopStarted = true;
-  // ask for permission lazily if user already has reminders
   try {
     const has = loadReminders().length > 0;
     if (has && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      // don't auto-prompt aggressively, but if visible and has reminders try once
       setTimeout(() => { if (document.visibilityState === 'visible') ensurePermission().catch(() => {}); }, 3500);
     }
   } catch {}
   tick();
   setInterval(tick, 20000);
-  // also poll faster after coming back to foreground
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tick(); });
-  // listen for SW telling page to re-check (e.g. after notification click)
   navigator.serviceWorker?.addEventListener?.('message', (e: MessageEvent) => {
     if (e.data && e.data.type === 'bp-check-reminders') tick();
   });
-  // sync reminders to SW so it can fire even if main loop is throttled
   const syncToSW = async () => {
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
       if (reg?.active) reg.active.postMessage({ type: 'bp-sync-reminders', reminders: loadReminders(), permission: permissionState() });
     } catch {}
   };
-  // initial sync + periodic
   setTimeout(syncToSW, 1200);
   setInterval(syncToSW, 60000);
-  // re-sync when list changes (storage event from other tab)
   window.addEventListener('storage', (e) => { if (e.key && e.key.startsWith('batprox-reminders')) { tick(); syncToSW(); } });
 }
 
@@ -195,5 +177,5 @@ export function testReminderNow() {
   const list = loadReminders();
   const r = list[0];
   if (r) fire(r);
-  else fire({ id: 'test', text: 'This is a test reminder - notifications are working!', hh: 0, mm: 0, label: 'now', createdAt: Date.now(), lastFired: '' } as Reminder);
+  else fire({ id: 'test', text: 'This is a test reminder. Reminders are working!', hh: 0, mm: 0, label: 'now', createdAt: Date.now(), lastFired: '' } as Reminder);
 }

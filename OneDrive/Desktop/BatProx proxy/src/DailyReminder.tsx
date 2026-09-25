@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { addReminder, loadReminders, removeReminder, parseTime, ensurePermission, permissionState, type Reminder } from './reminders';
+import { addReminder, loadReminders, removeReminder, parseTime, ensurePermission, permissionState, testReminderNow, type Reminder } from './reminders';
 
 interface Props {
   isOpen: boolean;
@@ -39,6 +39,8 @@ export default function DailyReminder({ isOpen, onClose }: Props) {
   const start = async () => {
     setErr('');
     setNote('');
+    if (!what.trim()) { setErr('Type what you want to be reminded about first.'); return; }
+    if (!parseTime(when)) { setErr('Type a time like 9:00 PM, 9pm, 12 PM or 21:00.'); return; }
     const res = addReminder(what, when);
     if (!res.ok) { setErr(res.error || 'Could not save that.'); return; }
     setList(res.list || loadReminders());
@@ -46,7 +48,7 @@ export default function DailyReminder({ isOpen, onClose }: Props) {
     setWhen('');
     const ok = await ensurePermission();
     setPerm(permissionState());
-    setNote(ok ? 'Saved. You will get a notification at that time.' : 'Saved, but notifications are blocked so it can only show while this tab is open.');
+    setNote(ok ? 'Saved. You will get a notification and a popup at that time every day.' : 'Saved. It will pop up with a sound inside BatProx at that time every day.');
   };
 
   return (
@@ -89,7 +91,7 @@ export default function DailyReminder({ isOpen, onClose }: Props) {
         {err && <p className="text-[13px] mb-4 px-3.5 py-2.5 rounded-xl" style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.35)' }}>{err}</p>}
         {note && <p className="text-[13px] mb-4 px-3.5 py-2.5 rounded-xl" style={{ color: '#86efac', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)' }}>{note}</p>}
 
-        <button onClick={start} disabled={!what.trim() || !preview} className="w-full py-3 rounded-xl text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-transform hover:scale-[1.02] active:scale-95" style={{ background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))', boxShadow: '0 8px 24px -8px rgba(var(--bp-glow), 0.8)' }}>
+        <button onClick={start} className={`w-full py-3 rounded-xl text-white text-sm font-bold transition-all hover:scale-[1.02] active:scale-95 ${what.trim() && preview ? '' : 'opacity-80'}`} style={{ background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))', boxShadow: '0 8px 24px -8px rgba(var(--bp-glow), 0.8)' }}>
           Start reminding.
         </button>
 
@@ -102,8 +104,9 @@ export default function DailyReminder({ isOpen, onClose }: Props) {
             Allow notifications
           </button>
         )}
-        {perm === 'granted' && <p className="text-[11px] text-emerald-300/80 mt-3">Notifications are on, reminders will reach you outside the tab.</p>}
-        {perm === 'denied' && <p className="text-[11px] text-amber-300/80 mt-3 leading-relaxed">Notifications are blocked for this site in your browser. Allow them in the padlock menu so reminders can reach you outside the tab.</p>}
+        <button onClick={() => testReminderNow()} className="w-full mt-3 py-2.5 rounded-xl text-[12px] font-semibold text-white/80 hover:text-white bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 transition-all">Test a reminder now</button>
+        {perm === 'granted' && <p className="text-[11px] text-emerald-300/80 mt-3">Notifications are on, reminders reach you even on another tab.</p>}
+        {perm === 'denied' && <p className="text-[11px] text-white/45 mt-3 leading-relaxed">Browser notifications are off for this site, so reminders pop up inside BatProx with a sound instead. To also get them outside the tab, allow notifications in the padlock menu.</p>}
 
         {list.length > 0 && (
           <div className="mt-6 pt-5 border-t border-white/[0.08]">

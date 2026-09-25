@@ -46,6 +46,19 @@ const codeAgo = (ts: number) => {
 
 type AdminTab = 'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo' | 'votes';
 
+type CmdLine = { t: 'in' | 'out' | 'ok' | 'err' | 'help'; text: string };
+
+const CMD_HELP: Array<[string, string]> = [
+  ['name <username> <display name>', 'change what a user shows as in chat'],
+  ['name <username> reset', 'put their username back as the display name'],
+  ['show users', 'list every username'],
+  ['show quick-access codes', 'list every user with their invite code'],
+  ['reset feedbacks', 'clear all feedback suggestions'],
+  ['<code> to <username>', 'remove an account (needs their code)'],
+  ['clear', 'clear this panel'],
+  ['show commands', 'show this list']
+];
+
 interface VoteItem {
   id: string;
   title: string;
@@ -145,7 +158,11 @@ export default function AdminPanel() {
   const [tempDays, setTempDays] = useState('');
   const [tempError, setTempError] = useState('');
   const [cmdInput, setCmdInput] = useState('');
-  const [cmdLog, setCmdLog] = useState<string[]>(['Type "show quick-access codes" or "<code> to <username>"']);
+  const [cmdLog, setCmdLog] = useState<CmdLine[]>([{ t: 'out', text: 'Type "show commands" to see everything you can run.' }]);
+  const [cmdHist, setCmdHist] = useState<string[]>([]);
+  const [cmdHistIdx, setCmdHistIdx] = useState(-1);
+  const cmdScrollRef = useRef<HTMLDivElement>(null);
+  const cmdInputRef = useRef<HTMLInputElement>(null);
   const [codeProvider, setCodeProvider] = useState<'claude' | 'copilot'>('claude');
   const [codePrompt, setCodePrompt] = useState('');
   const [codeOut, setCodeOut] = useState('');
@@ -420,28 +437,45 @@ export default function AdminPanel() {
     } catch { setTempError('Network error'); }
   };
 
-  const runCommand = async () => {
-    const raw = cmdInput.trim();
+  const logLine = (t: CmdLine['t'], text: string) => setCmdLog(prev => [...prev, { t, text }].slice(-300));
+
+  const runCommand = async (preset?: string) => {
+    const raw = (preset ?? cmdInput).trim();
     if (!raw) return;
-    setCmdLog(prev => [...prev, `> ${raw}`]);
+    logLine('in', raw);
+    setCmdHist(prev => [...prev.filter(x => x !== raw), raw].slice(-40));
+    setCmdHistIdx(-1);
     setCmdInput('');
     const lower = raw.toLowerCase();
+    if (lower === 'clear' || lower === 'cls') { setCmdLog([]); return; }
     if (lower === 'show quick-access codes') {
-      const lines = users.map(u => `${u.username}: ${u.invite_code}`).join('\n');
-      setCmdLog(prev => [...prev, lines || 'No users']);
+      if (!users.length) { logLine('err', 'No users loaded'); return; }
+      users.forEach(u => logLine('out', `${u.username.padEnd(22)} ${u.invite_code}`));
       return;
     }
     if (lower === 'show commands' || lower === 'show all' || lower === 'help' || lower === 'commands') {
-      const lines = ['Available commands:', '  show quick-access codes - list all users and codes', '  show users - list all usernames', '  reset feedbacks - clear all feedback suggestions', '  show commands - list this help', '  <code> to <username> - remove account (e.g. sigmaboi$$ to jacobieog)'].join('\n');
-      setCmdLog(prev => [...prev, lines]);
+      logLine('help', CMD_HELP.map(([c, d]) => `${c.padEnd(34)} ${d}`).join('\n'));
       return;
     }
+    const nameCmd = raw.match(/^name\s+@?(\S+)\s+(.+)$/i);
+    if (nameCmd) {
+      const username = nameCmd[1];
+      const display = nameCmd[2].trim();
+      try {
+        const response = await fetch('/api/admin/set-display', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ username, display }) });
+        const d = await response.json().catch(() => ({}));
+        if (!response.ok || !d.success) { logLine('err', d.error || 'Could not change that name'); return; }
+        logLine('ok', d.reset ? `${d.username} now shows as their username again` : `${d.username} now shows as "${d.display}"`);
+      } catch { logLine('err', 'Network error'); }
+      return;
+    }
+    if (/^name\b/i.test(raw)) { logLine('err', 'Usage: name <username> <new display name>'); return; }
     if (lower === 'reset feedbacks') {
       try {
         const response = await fetch('/api/admin/reset-feedbacks', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` } });
-        if (response.ok) { setFeedbacks([]); setCmdLog(prev => [...prev, 'All feedbacks have been reset.']); }
-        else { const d = await response.json(); setCmdLog(prev => [...prev, d.error || 'Failed']); }
-      } catch { setCmdLog(prev => [...prev, 'Network error']); }
+        if (response.ok) { setFeedbacks([]); logLine('ok', 'All feedbacks have been reset.'); }
+        else { const d = await response.json().catch(() => ({})); logLine('err', d.error || 'Failed'); }
+      } catch { logLine('err', 'Network error'); }
       return;
     }
     if (lower === 'show users') {
@@ -449,8 +483,10 @@ export default function AdminPanel() {
         const response = await fetch('/api/users');
         const d = await response.json();
         const list = (d.users || []).map((u: any) => u.username).filter(Boolean);
-        setCmdLog(prev => [...prev, ...(list.length ? list : ['No users']), `total users: ${list.length}`]);
-      } catch { setCmdLog(prev => [...prev, 'Network error']); }
+        if (!list.length) { logLine('out', 'No users'); return; }
+        logLine('out', list.join('   '));
+        logLine('ok', `total users: ${list.length}`);
+      } catch { logLine('err', 'Network error'); }
       return;
     }
     const m = raw.match(/^(.+?)\s+to\s+(.+)$/i);
@@ -458,15 +494,20 @@ export default function AdminPanel() {
       const code = m[1].trim(), username = m[2].trim();
       try {
         const user = users.find(u => u.username === username);
-        if (!user || user.invite_code !== code) { setCmdLog(prev => [...prev, 'Invalid code or username']); return; }
+        if (!user || user.invite_code !== code) { logLine('err', 'Invalid code or username'); return; }
         const response = await fetch('/api/admin/remove-user', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ username }) });
-        if (response.ok) { setUsers(prev => prev.filter(u => u.username !== username)); setCmdLog(prev => [...prev, `${username} has been removed.`]); }
-        else { const d = await response.json(); setCmdLog(prev => [...prev, d.error || 'Failed']); }
-      } catch { setCmdLog(prev => [...prev, 'Network error']); }
+        if (response.ok) { setUsers(prev => prev.filter(u => u.username !== username)); logLine('ok', `${username} has been removed.`); }
+        else { const d = await response.json().catch(() => ({})); logLine('err', d.error || 'Failed'); }
+      } catch { logLine('err', 'Network error'); }
       return;
     }
-    setCmdLog(prev => [...prev, 'Unknown command - type "show commands"']);
+    logLine('err', `Unknown command "${raw}". Type "show commands"`);
   };
+
+  useEffect(() => {
+    const el = cmdScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [cmdLog]);
 
   const loadCodeJobs = async () => {
     try {
@@ -1270,28 +1311,57 @@ export default function AdminPanel() {
             )}
             {tab === 'commands' && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-red-500" />
-                  <div className="w-2 h-2 rounded-full bg-yellow-500" />
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <h2 className="text-sm font-bold text-white ml-2 tracking-wide">batprox@stealthybat:~$</h2>
-                  <span className="ml-auto text-[11px] text-white/30">type "show commands"</span>
+                <div className="flex items-end justify-between gap-4 mb-5">
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Command panel</h2>
+                    <p className="text-[13px] text-white/40 mt-1">Run quick admin actions. Type <span className="font-mono text-purple-300">show commands</span> for the full list.</p>
+                  </div>
+                  <span className="shrink-0 text-[11px] px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-white/45">{users.length} users loaded</span>
                 </div>
-                <div className="bg-black border border-purple-500/30 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(139,92,246,0.25)]">
-                  <div className="bg-white/[0.04] border-b border-white/10 px-4 py-2 flex items-center gap-2">
-                    <span className="text-xs font-mono text-purple-300">command panel</span>
-                    <span className="text-xs text-white/30"> · {users.length} users loaded</span>
+                <div className="rounded-2xl overflow-hidden border border-white/[0.08] bg-[#07070b] shadow-[0_20px_60px_-20px_rgba(124,58,237,0.35)]">
+                  <div className="h-10 px-4 flex items-center gap-2 border-b border-white/[0.06] bg-white/[0.02]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+                    <span className="ml-2 text-[12px] font-mono text-white/50">batprox@admin:~$</span>
+                    <button onClick={() => setCmdLog([])} className="ml-auto text-[11px] text-white/35 hover:text-white px-2 py-0.5 rounded-md hover:bg-white/[0.06] transition-colors">clear</button>
                   </div>
-                  <div className="p-4 h-80 overflow-y-auto font-mono text-sm bg-[#050508]">
-                    {cmdLog.map((l, i) => <div key={i} className={l.startsWith('>') ? 'text-purple-300' : l.startsWith('Available') || l.includes(':') ? 'text-green-300' : 'text-white/70'} style={{ whiteSpace: 'pre-wrap' }}>{l}</div>)}
+                  <div ref={cmdScrollRef} onClick={() => cmdInputRef.current?.focus()} className="px-4 py-3.5 h-80 overflow-y-auto font-mono text-[12.5px] leading-relaxed space-y-1 cursor-text">
+                    {cmdLog.length === 0 && <p className="text-white/25">Nothing here yet. Try a command below.</p>}
+                    {cmdLog.map((l, i) => (
+                      l.t === 'in' ? (
+                        <div key={i} className="flex gap-2 text-white/90"><span className="text-emerald-400 select-none">❯</span><span className="break-all">{l.text}</span></div>
+                      ) : l.t === 'help' ? (
+                        <pre key={i} className="whitespace-pre-wrap text-purple-200/90 bg-purple-500/[0.06] border border-purple-500/15 rounded-lg px-3 py-2 my-1">{l.text}</pre>
+                      ) : (
+                        <div key={i} className={`pl-4 whitespace-pre-wrap break-words ${l.t === 'ok' ? 'text-emerald-300' : l.t === 'err' ? 'text-red-300' : 'text-white/65'}`}>{l.text}</div>
+                      )
+                    ))}
                   </div>
-                  <form onSubmit={e => { e.preventDefault(); runCommand(); }} className="flex gap-0 border-t border-white/10 bg-black">
-                    <span className="px-3 py-3 text-green-400 font-mono text-sm select-none">❯</span>
-                    <input value={cmdInput} onChange={e => setCmdInput(e.target.value)} placeholder='show commands' className="flex-1 px-2 py-3 bg-transparent text-white placeholder-white/30 text-sm font-mono focus:outline-none" />
-                    <button type="submit" className="px-6 bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold tracking-wide">ENTER</button>
+                  <div className="px-3 py-2 flex flex-wrap gap-1.5 border-t border-white/[0.05] bg-white/[0.015]">
+                    {['show commands', 'show users', 'name ', 'clear'].map(c => (
+                      <button key={c} onClick={() => { if (c.endsWith(' ')) { setCmdInput(c); cmdInputRef.current?.focus(); } else runCommand(c); }} className="px-2.5 py-1 rounded-md text-[11px] font-mono text-white/55 hover:text-white bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.07] transition-colors">{c.trim()}</button>
+                    ))}
+                  </div>
+                  <form onSubmit={e => { e.preventDefault(); runCommand(); }} className="flex items-center border-t border-white/[0.06] bg-black/40">
+                    <span className="pl-4 pr-2 text-emerald-400 font-mono text-sm select-none">❯</span>
+                    <input
+                      ref={cmdInputRef}
+                      value={cmdInput}
+                      onChange={e => setCmdInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'ArrowUp' && cmdHist.length) { e.preventDefault(); const i = cmdHistIdx < 0 ? cmdHist.length - 1 : Math.max(0, cmdHistIdx - 1); setCmdHistIdx(i); setCmdInput(cmdHist[i]); }
+                        if (e.key === 'ArrowDown' && cmdHistIdx >= 0) { e.preventDefault(); const i = cmdHistIdx + 1; if (i >= cmdHist.length) { setCmdHistIdx(-1); setCmdInput(''); } else { setCmdHistIdx(i); setCmdInput(cmdHist[i]); } }
+                      }}
+                      placeholder="name jacobieog Jacob"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="flex-1 py-3 bg-transparent text-white placeholder-white/20 text-[13px] font-mono focus:outline-none"
+                    />
+                    <button type="submit" className="m-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[12px] font-semibold transition-colors">Run</button>
                   </form>
                 </div>
-                <p className="text-[11px] text-white/25 mt-2 font-mono">Tip: "show quick-access codes" reveals all invite codes</p>
+                <p className="text-[11px] text-white/30 mt-3">Tip: use the up and down arrows to repeat earlier commands.</p>
               </div>
             )}
             </div>

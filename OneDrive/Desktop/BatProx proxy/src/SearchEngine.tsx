@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Settings from './Settings';
-import { initUltraviolet, getUvUrl, getSandboxUrl, decodeProxiedLocation } from './uv';
+import { initUltraviolet, getUvUrl, getSandboxUrl, decodeProxiedLocation, switchTransport } from './uv';
 import { AmbientBg, BatteryIndicator, SideRail, NavBtn } from './Chrome';
 import { buildSearchUrl } from './engines';
 import { startPresence } from './presence';
@@ -44,6 +44,7 @@ export default function SearchEngine() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stampRef = useRef(0);
   const lastRealTarget = useRef('');
+  const retriedRef = useRef(false);
   const skipLoading = (() => {
     try { return JSON.parse(localStorage.getItem('batprox-settings') || '{}').skipLoading === true; } catch { return false; }
   })();
@@ -99,6 +100,7 @@ export default function SearchEngine() {
       if (host === 'www.bing.com' || host === 'bing.com' || host.endsWith('.yahoo.com') || host === 'search.yahoo.com') forceSandbox = true;
     } catch {}
     lastRealTarget.current = resolved;
+    retriedRef.current = false;
     setUrl(resolved);
     setLoading(!skipLoading);
     setHasError(false);
@@ -115,10 +117,10 @@ export default function SearchEngine() {
         const s = ++stampRef.current;
         clearTimer();
         timerRef.current = setTimeout(() => {
-          if (stampRef.current === s) {
-            setLoading(false);
-            setHasError(true);
-          }
+          if (stampRef.current !== s) return;
+          if (!retriedRef.current) { retryOnNewRelay(resolved); return; }
+          setLoading(false);
+          setHasError(true);
         }, 20000);
       }
       setSrc(getUvUrl(resolved));
@@ -129,6 +131,18 @@ export default function SearchEngine() {
       setHasError(true);
     });
   }, [clearTimer, skipLoading, navigate]);
+
+  const retryOnNewRelay = useCallback((target: string) => {
+    retriedRef.current = true;
+    clearTimer();
+    setLoading(!skipLoading);
+    setHasError(false);
+    switchTransport().catch(() => false).then(() => {
+      setUseSandbox(false);
+      setSrc(getUvUrl(target));
+      setKey(v => v + 1);
+    });
+  }, [clearTimer, skipLoading]);
 
   useEffect(() => { initUltraviolet().catch(() => {}); startPresence(); return () => clearTimer(); }, [clearTimer]);
 
@@ -243,6 +257,8 @@ export default function SearchEngine() {
       const title = f?.contentDocument?.title || '';
       if (html.includes('Error processing your request') || html.includes('Proxy failed to start') || html.includes('Failed to fetch') || title.includes('Error')) {
         if (!useSandbox) {
+          const t = decodeUrlParam(new URLSearchParams(location.search).get('url')) || url;
+          if (!retriedRef.current) { retryOnNewRelay(t); return; }
           clearTimer(); setUseSandbox(true); setSrc(getSandboxUrl(decodeUrlParam(new URLSearchParams(location.search).get('url')) || url)); setKey(v => v + 1); return;
         }
       }
@@ -314,6 +330,7 @@ export default function SearchEngine() {
   };
   const handleError = () => {
     clearTimer();
+    if (!useSandbox && !retriedRef.current) { retryOnNewRelay(decodeUrlParam(new URLSearchParams(location.search).get('url')) || url); return; }
     if (!useSandbox) { setUseSandbox(true); setSrc(getSandboxUrl(decodeUrlParam(new URLSearchParams(location.search).get('url')) || url)); setLoading(!skipLoading); setHasError(false); setKey(v => v + 1); return; }
     setLoading(false); setHasError(true);
   };

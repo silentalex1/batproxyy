@@ -41,6 +41,8 @@ export default function Chatting() {
   const [dms, setDms] = useState<DmRoom[]>([]);
   const [gcs, setGcs] = useState<Gc[]>([]);
   const [online, setOnline] = useState<Presence[]>([]);
+  const dmWith = room.kind === 'dm' || room.id.startsWith('dm:') ? (room.id.split(':').slice(1).find(u => u !== me) || room.id.split(':')[1] || '') : '';
+  const sideList: Presence[] = dmWith ? [online.find(o => o.username === dmWith) || { username: dmWith, active: false }] : online;
   const [text, setText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [card, setCard] = useState<{ username: string } | null>(null);
@@ -864,10 +866,10 @@ export default function Chatting() {
             </form>
           </div>
           <div className="w-52 shrink-0 hidden lg:flex flex-col bg-black/55 border border-white/10 rounded-2xl backdrop-blur-md overflow-hidden">
-            <p className="text-[10px] uppercase tracking-widest text-white/30 px-4 pt-4 pb-2">Online — {online.filter(o => o.active).length}</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/30 px-4 pt-4 pb-2">{dmWith ? 'In this DM' : `Online · ${online.filter(o => o.active).length}`}</p>
             <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
-              {online.length === 0 && <p className="text-[11px] text-white/25 px-2">Nobody online.</p>}
-              {online.map(o => (
+              {sideList.length === 0 && <p className="text-[11px] text-white/25 px-2">Nobody online.</p>}
+              {sideList.map(o => (
                 <button key={o.username} onClick={() => setCard({ username: o.username })} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-white/[0.05] text-left transition-all">
                   <span className="relative shrink-0">
                     {avatarEl(o.username, 'w-8 h-8 text-sm')}

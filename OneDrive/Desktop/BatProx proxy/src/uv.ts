@@ -122,13 +122,16 @@ export function decodeProxiedLocation(href: string): string | null {
   return null;
 }
 
+const WISP_KEY = 'bp-wisp-good';
+
 function wispList(): string[] {
   const self = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/';
   const pub = [
     'wss://wisp.mercurywork.shop/wisp/',
     'wss://wisp.terbiumon.top/wisp/',
-    'wss://nebulaproxy.io/wisp/',
-    'wss://anura.terbium.work/wisp/'
+    'wss://gointerstellar.app/wisp/',
+    'wss://phantom.lol/wisp/',
+    'wss://nebulaproxy.io/wisp/'
   ];
   const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   return isLocal ? [self, ...pub] : [...pub, self];
@@ -137,19 +140,59 @@ function wispList(): string[] {
 let connection: { setTransport: (path: string, args: unknown[]) => Promise<void> } | null = null;
 let watchdog: number | null = null;
 let switching = false;
+const failed = new Set<string>();
+
+function firstOpen(urls: string[], ms: number): Promise<string> {
+  return new Promise((resolve) => {
+    if (!urls.length) { resolve(''); return; }
+    let left = urls.length;
+    let done = false;
+    urls.forEach((u) => {
+      probeWisp(u, ms).then((ok) => {
+        left -= 1;
+        if (ok && !done) { done = true; resolve(u); return; }
+        if (!left && !done) resolve('');
+      });
+    });
+  });
+}
 
 async function pickTransport(skip = ''): Promise<boolean> {
   if (!connection) connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
-  const list = wispList().filter((u) => u !== skip);
-  for (const wispUrl of list) {
-    if (!(await probeWisp(wispUrl))) continue;
-    try {
-      await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
-      lastWisp = wispUrl;
-      return true;
-    } catch {}
+  if (skip) failed.add(skip);
+  const all = wispList();
+  const self = all[all.length - 1];
+  const pub = all.filter((u) => u !== self && !failed.has(u));
+  let saved = '';
+  try { saved = localStorage.getItem(WISP_KEY) || ''; } catch {}
+  let pick = '';
+  if (saved && pub.includes(saved) && (await probeWisp(saved, 1800))) pick = saved;
+  if (!pick) pick = await firstOpen(pub.filter((u) => u !== saved), 4000);
+  if (!pick && !failed.has(self) && (await probeWisp(self, 4000))) pick = self;
+  if (!pick) {
+    failed.clear();
+    pick = await firstOpen(all, 4000);
   }
-  return false;
+  if (!pick) return false;
+  try {
+    await connection.setTransport('/epoxy/index.mjs', [{ wisp: pick }]);
+    lastWisp = pick;
+    try { if (pick !== self) localStorage.setItem(WISP_KEY, pick); } catch {}
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function switchTransport(): Promise<boolean> {
+  if (switching) return false;
+  switching = true;
+  try {
+    try { if (localStorage.getItem(WISP_KEY) === lastWisp) localStorage.removeItem(WISP_KEY); } catch {}
+    return await pickTransport(lastWisp);
+  } finally {
+    switching = false;
+  }
 }
 
 function startWatchdog() {

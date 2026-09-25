@@ -23,6 +23,7 @@ export default function VotePrompt() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [justVoted, setJustVoted] = useState('');
+  const [leaving, setLeaving] = useState(false);
   const user = (() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } })();
 
   const load = async () => {
@@ -45,10 +46,17 @@ export default function VotePrompt() {
   if (!user || !active) return null;
 
   const dismiss = () => {
-    const next = [...dismissed, active.id].slice(-80);
-    setDismissed(next);
-    setJustVoted('');
-    try { localStorage.setItem(DISMISSED, JSON.stringify(next)); } catch {}
+    const id = active.id;
+    setLeaving(true);
+    setTimeout(() => {
+      setDismissed(prev => {
+        const next = [...prev.filter(x => x !== id), id].slice(-80);
+        try { localStorage.setItem(DISMISSED, JSON.stringify(next)); } catch {}
+        return next;
+      });
+      setJustVoted('');
+      setLeaving(false);
+    }, 260);
   };
 
   const cast = async (choice: number) => {
@@ -57,10 +65,12 @@ export default function VotePrompt() {
     setError('');
     try {
       const token = localStorage.getItem('batprox-token') || '';
-      const r = await fetch('/api/votes/cast', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ id: active.id, choice }) });
+      const r = await fetch('/api/votes/cast', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ id: active.id, choice, user }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setError(d.error || 'Could not save your vote.'); setBusy(false); return; }
       setJustVoted(active.id);
+      try { const next = [...readDismissed().filter(x => x !== active.id), active.id].slice(-80); localStorage.setItem(DISMISSED, JSON.stringify(next)); } catch {}
+      setTimeout(dismiss, 1600);
       setVotes(prev => prev.map(v => {
         if (v.id !== active.id) return v;
         const counts = [...v.counts];
@@ -68,7 +78,6 @@ export default function VotePrompt() {
         counts[choice] += 1;
         return { ...v, counts, total: counts[0] + counts[1], mine: choice };
       }));
-      setTimeout(load, 800);
     } catch { setError('Network error, try again.'); }
     setBusy(false);
   };
@@ -76,7 +85,7 @@ export default function VotePrompt() {
   const voted = active.mine !== null;
 
   return (
-    <div className="fixed bottom-5 right-5 z-40 w-[340px] max-w-[calc(100vw-2.5rem)] rounded-2xl border border-white/10 bg-[#0c0c12]/95 backdrop-blur-xl shadow-2xl shadow-black/60 overflow-hidden" style={{ animation: 'bpVoteIn .35s ease-out' }}>
+    <div className="fixed bottom-5 right-5 z-40 w-[340px] max-w-[calc(100vw-2.5rem)] rounded-2xl border border-white/10 bg-[#0c0c12]/95 backdrop-blur-xl shadow-2xl shadow-black/60 overflow-hidden" style={{ animation: 'bpVoteIn .35s ease-out', opacity: leaving ? 0 : 1, transform: leaving ? 'translateY(12px)' : 'none', transition: 'opacity .25s ease, transform .25s ease' }}>
       <style>{'@keyframes bpVoteIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}'}</style>
       <div className="flex items-center gap-2 px-4 pt-3.5">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200">{voted ? 'results' : 'new vote'}</span>
@@ -93,7 +102,7 @@ export default function VotePrompt() {
           return (
             <button
               key={i}
-              disabled={busy}
+              disabled={busy || voted}
               onClick={() => cast(i)}
               className={`relative text-left rounded-xl overflow-hidden border transition-all ${mine ? 'border-purple-400/60 bg-purple-500/10' : 'border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'}`}
             >
@@ -112,7 +121,7 @@ export default function VotePrompt() {
         })}
       </div>
       <div className="px-4 pb-3.5 -mt-1 flex items-center text-[11px] text-white/35">
-        {error ? <span className="text-red-300">{error}</span> : voted ? <span>You voted. Tap the other option to change it.</span> : <span>Tap an option to vote.</span>}
+        {error ? <span className="text-red-300">{error}</span> : voted ? <span className="text-emerald-300">Thanks for voting!</span> : <span>Tap an option to vote.</span>}
         <span className="ml-auto">{active.total} vote{active.total === 1 ? '' : 's'}</span>
       </div>
     </div>

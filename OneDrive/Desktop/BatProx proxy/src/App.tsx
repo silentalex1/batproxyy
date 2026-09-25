@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import SearchEngine from './SearchEngine';
 import AdminPanel from './AdminPanel';
 import MoreGames from './MoreGames';
@@ -29,6 +29,7 @@ import Apps from './Apps';
 import FileDropper from './FileDropper';
 import MusicPage from './MusicPage';
 import VotePrompt from './VotePrompt';
+import ReminderToast from './ReminderToast';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -558,12 +559,26 @@ function Dashboard() {
   );
 }
 
+function RouteFade({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.animate !== 'function') return;
+    try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch {}
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  }, [location.pathname]);
+  return <div ref={ref}>{children}</div>;
+}
+
 export default function App() {
   useEffect(() => { startPresence(); }, []);
   return (
     <Router>
       <AutoLogout />
       <PageChrome />
+      <ReminderToast />
+      <RouteFade>
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/dashboard" element={<Dashboard />} />
@@ -588,6 +603,7 @@ export default function App() {
         <Route path="/file-dropper/:user/dashboard" element={<FileDropper />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      </RouteFade>
     </Router>
   );
 }
