@@ -44,7 +44,7 @@ const codeAgo = (ts: number) => {
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
-type AdminTab = 'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo' | 'votes';
+type AdminTab = 'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo' | 'votes' | 'errors';
 
 type CmdLine = { t: 'in' | 'out' | 'ok' | 'err' | 'help'; text: string };
 
@@ -59,6 +59,18 @@ const CMD_HELP: Array<[string, string]> = [
   ['show commands', 'show this list']
 ];
 
+interface SiteError {
+  id: string;
+  kind: string;
+  message: string;
+  stack?: string;
+  route?: string;
+  routes?: string;
+  users?: string;
+  hits?: number;
+  ts: number;
+}
+
 interface VoteItem {
   id: string;
   title: string;
@@ -182,7 +194,11 @@ export default function AdminPanel() {
   const [voteQ2, setVoteQ2] = useState('');
   const [voteImgs, setVoteImgs] = useState<string[]>(['', '']);
   const [voteError, setVoteError] = useState('');
-  const [voteBusy, setVoteBusy] = useState(false);
+  const [voteBusy, setVoteBusy] = useState(false);
+  const [siteErrors, setSiteErrors] = useState<SiteError[]>([]);
+  const [openStack, setOpenStack] = useState('');
+  const [triageOut, setTriageOut] = useState('');
+  const [triageBusy, setTriageBusy] = useState(false);
   const voteFileRef = useRef<HTMLInputElement>(null);
 
   const getToken = () => localStorage.getItem('batprox-token') || '';
@@ -583,6 +599,43 @@ export default function AdminPanel() {
     return () => clearInterval(id);
   }, [isAuthed, tab]);
 
+  const loadErrors = async () => {
+    try {
+      const response = await fetch('/api/admin/errors', { cache: 'no-store', headers: { 'Authorization': `Bearer ${getToken()}` } });
+      if (!response.ok) return;
+      const data = await response.json();
+      setSiteErrors(Array.isArray(data.errors) ? data.errors : []);
+    } catch {}
+  };
+
+  const clearError = async (id: string) => {
+    try {
+      await fetch('/api/admin/errors/clear', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ id }) });
+      setSiteErrors(prev => id ? prev.filter(e => e.id !== id) : []);
+    } catch { setError('Could not clear that error'); }
+  };
+
+  const triageErrors = async () => {
+    if (!siteErrors.length || triageBusy) return;
+    setTriageBusy(true);
+    setTriageOut('');
+    try {
+      const response = await fetch('/api/admin/errors/triage', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ errors: siteErrors.slice(0, 8) }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.report) { setError(data.error || 'The agent could not answer right now'); setTriageBusy(false); return; }
+      setTriageOut(data.report);
+    } catch { setError('Network error while asking the agent'); }
+    setTriageBusy(false);
+  };
+
+  useEffect(() => {
+    if (!isAuthed) return;
+    loadErrors();
+    if (tab !== 'errors') return;
+    const id = setInterval(loadErrors, 12000);
+    return () => clearInterval(id);
+  }, [isAuthed, tab]);
+
   const loadVotes = async () => {
     try {
       const response = await fetch('/api/votes', { cache: 'no-store' });
@@ -751,7 +804,8 @@ export default function AdminPanel() {
       items: [
         { id: 'status', label: 'Status change', d: 'M13 10V3L4 14h7v7l9-11h-7z' },
         { id: 'commands', label: 'Command panel', d: 'M6.75 7.5l3 2.25-3 2.25m4.5 0h3M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z' },
-        { id: 'coderequest', label: 'Code request', d: 'M17.25 6.75L21 10.5l-3.75 3.75M6.75 17.25L3 13.5l3.75-3.75M14.25 4.5l-4.5 15' },
+        { id: 'coderequest', label: 'Code request', d: 'M17.25 6.75L21 10.5l-3.75 3.75M6.75 17.25L3 13.5l3.75-3.75M14.25 4.5l-4.5 15' },
+        { id: 'errors', label: 'Site errors', d: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z', badge: siteErrors.length, tone: 'red' },
         { id: 'datainfo', label: 'Data information', d: 'M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75' }
       ]
     }
@@ -761,7 +815,8 @@ export default function AdminPanel() {
   const badgeTone: Record<string, string> = {
     amber: 'bg-amber-500/20 text-amber-200',
     emerald: 'bg-emerald-500/20 text-emerald-200',
-    orange: 'bg-orange-500/20 text-orange-200'
+    orange: 'bg-orange-500/20 text-orange-200',
+    red: 'bg-red-500/20 text-red-200'
   };
 
   return (
@@ -1036,7 +1091,7 @@ export default function AdminPanel() {
                           <span className="text-[12px] font-medium text-white">BatProx Agentic</span>
                           <span className="ml-auto text-[9px] font-semibold uppercase tracking-wider text-purple-200/70">selected</span>
                         </span>
-                        <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">powered by batprox-ai</span>
+                        <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">writes code and triages site errors</span>
                       </button>
                       <div className="w-full px-3 py-2.5 rounded-lg border border-white/[0.05] bg-white/[0.015] opacity-55 cursor-not-allowed select-none">
                         <span className="flex items-center gap-2">
@@ -1076,13 +1131,21 @@ export default function AdminPanel() {
                     <div className="ml-auto flex items-center gap-2">
                       <span className={`text-[11px] px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${aiOnline ? 'text-emerald-300 border-emerald-500/25 bg-emerald-500/10' : 'text-amber-300 border-amber-500/25 bg-amber-500/10'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${aiOnline ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-                        {aiOnline ? 'batprox-ai online' : 'batprox-ai reconnecting'}
+                        {aiOnline ? 'agent online' : 'agent reconnecting'}
                       </span>
                       {codePc && (
                         <span className="text-[11px] px-2.5 py-1 rounded-full border text-sky-300 border-sky-500/25 bg-sky-500/10">
                           applying to repo{codeHost ? ` · ${codeHost}` : ''}
                         </span>
                       )}
+                      <button
+                        onClick={() => setTab('errors')}
+                        className={`text-[11px] px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-colors ${siteErrors.length ? 'text-red-300 border-red-500/25 bg-red-500/10 hover:bg-red-500/20' : 'text-white/40 border-white/10 bg-white/[0.03] hover:bg-white/[0.07]'}`}
+                        title="Open site errors"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.007M10.05 3.878L2.697 16.126c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0z" /></svg>
+                        {siteErrors.length ? `${siteErrors.length} error${siteErrors.length === 1 ? '' : 's'}` : 'no errors'}
+                      </button>
                     </div>
                   </div>
 
@@ -1096,7 +1159,7 @@ export default function AdminPanel() {
                           <p className="text-[15px] font-medium text-white/80">What should we build?</p>
                           <p className="text-[12px] text-white/35 mt-1.5 max-w-sm">Describe a change to the site. batprox-ai plans it and writes the code for every file it touches.</p>
                           <div className="mt-6 flex flex-wrap justify-center gap-2 max-w-lg">
-                            {['Add a dark mode toggle to settings', 'Make the dashboard cards rounder', 'Add a word counter to the chat box'].map(s => (
+                            {['Why is the chat not sending for some users?', 'Add a dark mode toggle to settings', 'Review the newest errors and suggest fixes'].map(s => (
                               <button key={s} onClick={() => setCodePrompt(s)} className="px-3 py-1.5 rounded-full text-[11px] text-white/55 hover:text-white bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.08] transition-colors">{s}</button>
                             ))}
                           </div>
@@ -1302,6 +1365,83 @@ export default function AdminPanel() {
                         <div className="flex gap-2 mt-4">
                           <button onClick={() => voteAction('close', v.id)} className="flex-1 px-3 py-2 rounded-lg text-[12px] font-medium bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/70 hover:text-white transition-colors">{v.closed ? 'Reopen vote' : 'Close vote'}</button>
                           <button onClick={() => { if (window.confirm('Delete this vote and all of its results?')) voteAction('delete', v.id); }} className="px-3 py-2 rounded-lg text-[12px] font-medium bg-red-500/[0.06] hover:bg-red-500/15 border border-red-500/20 text-red-300/90 transition-colors">Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {tab === 'errors' && (
+              <div>
+                <div className="flex items-end justify-between gap-4 mb-5">
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Site errors</h2>
+                    <p className="text-[13px] text-white/40 mt-1">Live crashes reported from users browsers, grouped by message. BatProx Agentic can triage them for you.</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={loadErrors} className="px-3 py-2 rounded-lg text-[12px] font-medium bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/70 hover:text-white transition-colors">Refresh</button>
+                    <button onClick={triageErrors} disabled={!siteErrors.length || triageBusy} className="px-3.5 py-2 rounded-lg text-[12px] font-semibold bg-purple-600 hover:bg-purple-500 disabled:opacity-35 text-white transition-colors">{triageBusy ? 'Analysing..' : 'Ask agent to triage'}</button>
+                    {siteErrors.length > 0 && <button onClick={() => { if (window.confirm('Clear every reported error?')) clearError(''); }} className="px-3 py-2 rounded-lg text-[12px] font-medium bg-red-500/[0.06] hover:bg-red-500/15 border border-red-500/20 text-red-300/90 transition-colors">Clear all</button>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3 mb-5">
+                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-widest text-white/30">Distinct</p>
+                    <p className="text-xl font-bold text-white mt-0.5">{siteErrors.length}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-widest text-white/30">Total hits</p>
+                    <p className="text-xl font-bold text-white mt-0.5">{siteErrors.reduce((n, e) => n + (e.hits || 1), 0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-widest text-white/30">Last seen</p>
+                    <p className="text-xl font-bold text-white mt-0.5">{siteErrors.length ? codeAgo(siteErrors[0].ts) : 'nothing'}</p>
+                  </div>
+                </div>
+                {triageOut && (
+                  <div className="mb-5 rounded-2xl border border-purple-500/25 bg-purple-600/[0.06] p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-6 h-6 rounded-lg bg-purple-600/25 border border-purple-500/30 flex items-center justify-center">
+                        <svg className="w-3.5 h-3.5 text-purple-200" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z" /></svg>
+                      </span>
+                      <p className="text-[13px] font-semibold text-white">BatProx Agentic report</p>
+                      <button onClick={() => setTriageOut('')} className="ml-auto text-[11px] text-white/35 hover:text-white px-2 py-0.5 rounded-md hover:bg-white/10 transition-colors">dismiss</button>
+                    </div>
+                    <WorkspaceReply text={triageOut} />
+                  </div>
+                )}
+                {siteErrors.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] py-14 flex flex-col items-center text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-3">
+                      <svg className="w-6 h-6 text-emerald-400/80" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <p className="text-[14px] text-white/70 font-medium">No errors reported</p>
+                    <p className="text-[12px] text-white/35 mt-1">Crashes on the live site show up here automatically.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {siteErrors.map(e => (
+                      <div key={e.id} className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
+                        <div className="flex items-start gap-3">
+                          <span className={`shrink-0 mt-0.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${e.kind === 'rejection' ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>{e.kind}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] text-white font-medium break-words leading-snug">{e.message}</p>
+                            <p className="text-[11px] text-white/35 mt-1.5">
+                              {e.hits || 1} hit{(e.hits || 1) === 1 ? '' : 's'} · {codeAgo(e.ts)}
+                              {e.routes ? ` · ${e.routes}` : ''}
+                              {e.users ? ` · ${e.users}` : ''}
+                            </p>
+                            {e.stack && (
+                              <button onClick={() => setOpenStack(openStack === e.id ? '' : e.id)} className="mt-2 text-[11px] text-purple-300/70 hover:text-purple-200 transition-colors">{openStack === e.id ? 'hide stack' : 'show stack'}</button>
+                            )}
+                            {openStack === e.id && e.stack && (
+                              <pre className="mt-2 p-3 rounded-lg bg-black/40 border border-white/[0.06] text-[11px] leading-relaxed text-white/60 overflow-x-auto whitespace-pre-wrap break-words">{e.stack}</pre>
+                            )}
+                          </div>
+                          <button onClick={() => clearError(e.id)} className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white hover:bg-white/10 transition-colors" title="Dismiss">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg>
+                          </button>
                         </div>
                       </div>
                     ))}

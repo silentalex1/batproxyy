@@ -30,6 +30,7 @@ import FileDropper from './FileDropper';
 import MusicPage from './MusicPage';
 import VotePrompt from './VotePrompt';
 import ReminderToast from './ReminderToast';
+import { startErrorReporting } from './errorReport';
 import { startPresence } from './presence';
 import { useLowPower } from './power';
 
@@ -572,7 +573,7 @@ function RouteFade({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  useEffect(() => { startPresence(); }, []);
+  useEffect(() => { startPresence(); startErrorReporting(); }, []);
   return (
     <Router>
       <AutoLogout />

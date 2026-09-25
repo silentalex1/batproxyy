@@ -166,6 +166,8 @@ const CHAT_BUDGET=6000000;
 const INFERFORGE_BASE='https://inferforge.org';
 const INFERFORGE_MODEL='batprox-ai';
 const MODEL_V2='batprox-ai-2.0';
+const MODEL_AGENTIC='batprox-agentic';
+const AGENTIC_KEY='sk-embed-37e5b0162af94bf598fa15cc';
 const V2_KEY='sk-embed-c0c12685c7a04bdb9b328d6f';
 const TOKEN_LIMIT=120000;
 function approxTokens(t){ return Math.ceil(String(t||'').length/4); }
@@ -258,15 +260,16 @@ async function askBatprox(kv, env, messages, want){
     if(seen) return {text:seen, backend:'vision'};
   }
   const key=String(env.INFERFORGE_KEY||'');
-  if(!key&&String(want||'')!==MODEL_V2) return {text:'', backend:'none'};
+  if(!key&&String(want||'')!==MODEL_V2&&String(want||'')!==MODEL_AGENTIC) return {text:'', backend:'none'};
   const v2=String(want||'')===MODEL_V2;
-  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL]);
+  const agentic=String(want||'')===MODEL_AGENTIC;
+  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(agentic?[MODEL_AGENTIC,MODEL_V2,INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL]));
   for(const mdl of visionModels){
     for(let a=0;a<1;a++){
       try{
         const ctl=new AbortController();
         const tmr=setTimeout(()=>ctl.abort(), 45000);
-        const useKey=mdl===MODEL_V2?V2_KEY:key;
+        const useKey=mdl===MODEL_AGENTIC?AGENTIC_KEY:(mdl===MODEL_V2?V2_KEY:key);
         const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+useKey,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:mdl, messages, stream:false}), signal:ctl.signal});
         clearTimeout(tmr);
         if(!r.ok) continue;
@@ -676,7 +679,7 @@ function blockedHost(host){
         const sys='You are BatProx Agentic, the coding agent for the BatProx website. The frontend is Vite, React, TypeScript and Tailwind in src/. The backend is a Cloudflare Worker in api-worker/worker.js backed by KV and D1. Pages Functions live in functions/. The admin describes a change. Reply with a short plan of one to three sentences, then the exact code for every file you would add or change. Put the file path on its own line right before each fenced code block. Never write code comments. Keep everything else short.';
         const history=(Array.isArray(body.history)?body.history:[]).slice(-6).map(m=>({role:m&&m.role==='assistant'?'assistant':'user', content:String((m&&m.content)||'').slice(0,4000)})).filter(m=>m.content);
         let out='';
-        try{ const r=await askBatprox(kv, env, [{role:'system', content:sys}].concat(history, [{role:'user', content:prompt.slice(0,8000)}])); out=String(r.text||''); }catch{}
+        try{ const r=await askBatprox(kv, env, [{role:'system', content:sys}].concat(history, [{role:'user', content:prompt.slice(0,8000)}]), MODEL_AGENTIC); out=String(r.text||''); }catch{}
         jobs=await loadCodeJobs(kv);
         const saved=jobs.find(x=>x.id===job.id);
         const target=saved||job;
@@ -1012,7 +1015,8 @@ function blockedHost(host){
       } else if(imgs.length){
         messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} );
       }
-      const wantModel=String(body.model||'')===MODEL_V2?MODEL_V2:INFERFORGE_MODEL;
+      const asked=String(body.model||'');
+      const wantModel=asked===MODEL_V2?MODEL_V2:(asked===MODEL_AGENTIC?MODEL_AGENTIC:INFERFORGE_MODEL);
       const staff=await isStaffUser(kv,aiUser);
       if(!staff){
         const cur=await getUsage(kv,aiUser);
@@ -1036,6 +1040,75 @@ function blockedHost(host){
       await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:wantModel, images:imgs.length, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
       return new Response(JSON.stringify({response:text.slice(0,8000), model:wantModel, backend}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/errors' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const b=await request.json();
+      const msg=String(b.message||'').replace(/\s+/g,' ').trim().slice(0,400);
+      if(!msg) return new Response(JSON.stringify({success:true, skipped:true}),{headers:h});
+      if(!rl('err:'+getIP(), 40, 60000)) return new Response(JSON.stringify({success:true, skipped:true}),{headers:h});
+      const rec={
+        kind:String(b.kind||'error').slice(0,24),
+        message:msg,
+        stack:String(b.stack||'').slice(0,1200),
+        route:String(b.route||'').slice(0,120),
+        user:String(b.user||'').slice(0,32),
+        ua:String(request.headers.get('User-Agent')||'').slice(0,160),
+        ts:Date.now()
+      };
+      const raw=kv?await kv.get('site_errors'):null;
+      let arr=[];
+      try{ arr=raw?JSON.parse(raw):[]; }catch{ arr=[]; }
+      if(!Array.isArray(arr)) arr=[];
+      const key=rec.kind+'|'+rec.message;
+      const hit=arr.find(x=>x&&(x.kind+'|'+x.message)===key);
+      if(hit){
+        hit.hits=(Number(hit.hits)||1)+1;
+        hit.ts=rec.ts;
+        if(rec.route&&!String(hit.routes||'').includes(rec.route)) hit.routes=((hit.routes?hit.routes+', ':'')+rec.route).slice(0,200);
+        if(rec.user&&!String(hit.users||'').includes(rec.user)) hit.users=((hit.users?hit.users+', ':'')+rec.user).slice(0,200);
+      } else {
+        rec.hits=1; rec.first=rec.ts; rec.routes=rec.route; rec.users=rec.user; rec.id=rec.ts.toString(36)+Math.random().toString(36).slice(2,6);
+        arr.push(rec);
+      }
+      arr.sort((a,b)=>(b.ts||0)-(a.ts||0));
+      if(kv) await kv.put('site_errors', JSON.stringify(arr.slice(0,200)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({success:false}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/errors' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const raw=kv?await kv.get('site_errors'):null;
+    let arr=[];
+    try{ arr=raw?JSON.parse(raw):[]; }catch{ arr=[]; }
+    return new Response(JSON.stringify({errors:Array.isArray(arr)?arr:[]}),{headers:h});
+  }
+  if(url.pathname==='/api/admin/errors/clear' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const b=await request.json().catch(()=>({}));
+      const id=String(b.id||'');
+      if(!id){ if(kv) await kv.put('site_errors','[]'); return new Response(JSON.stringify({success:true, cleared:'all'}),{headers:h}); }
+      const raw=kv?await kv.get('site_errors'):null;
+      let arr=[];
+      try{ arr=raw?JSON.parse(raw):[]; }catch{ arr=[]; }
+      if(kv) await kv.put('site_errors', JSON.stringify((Array.isArray(arr)?arr:[]).filter(x=>x&&x.id!==id)));
+      return new Response(JSON.stringify({success:true}),{headers:h});
+    }catch{ return new Response(JSON.stringify({success:false}),{status:400, headers:h});}
+  }
+  if(url.pathname==='/api/admin/errors/triage' && request.method==='POST'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    try{
+      const b=await request.json();
+      const list=(Array.isArray(b.errors)?b.errors:[]).slice(0,8);
+      if(!list.length) return new Response(JSON.stringify({error:'nothing to triage'}),{status:400, headers:h});
+      const lines=list.map((e,i)=>(i+1)+'. ['+String(e.kind||'error')+' x'+(Number(e.hits)||1)+' on '+String(e.route||'unknown route')+'] '+String(e.message||'').slice(0,300)+(e.stack?'\n   stack: '+String(e.stack).slice(0,400):'')).join('\n');
+      const ask='These errors came off the live BatProx site. Triage them. For each one give severity, the root cause, the most likely file, and the fix as code. Group anything that shares a cause.\n\n'+lines;
+      const {text}=await askBatprox(kv, env, [{role:'user', content:ask}], MODEL_AGENTIC);
+      if(!text) return new Response(JSON.stringify({error:'agent could not answer right now'}),{status:424, headers:h});
+      return new Response(JSON.stringify({report:text.slice(0,12000)}),{headers:h});
+    }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/ai/usage' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
