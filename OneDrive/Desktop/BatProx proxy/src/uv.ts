@@ -71,6 +71,11 @@ function normalizeTarget(targetUrl: string): string {
   try {
     const u = new URL(cleaned.includes('://') ? cleaned : 'https://' + cleaned);
     if (u.protocol === 'http:') u.protocol = 'https:';
+    const host = u.hostname.toLowerCase();
+    if (host === 'youtube.com' || host === 'www.youtube.com') {
+      u.hostname = 'm.youtube.com';
+      u.searchParams.delete('app');
+    }
     return u.toString();
   } catch {
     return cleaned;

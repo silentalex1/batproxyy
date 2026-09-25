@@ -41,6 +41,7 @@ export default function Chatting() {
   const [dms, setDms] = useState<DmRoom[]>([]);
   const [gcs, setGcs] = useState<Gc[]>([]);
   const [online, setOnline] = useState<Presence[]>([]);
+  const [blocked, setBlocked] = useState('');
   const dmWith = room.kind === 'dm' || room.id.startsWith('dm:') ? (room.id.split(':').slice(1).find(u => u !== me) || room.id.split(':')[1] || '') : '';
   const sideList: Presence[] = dmWith ? [online.find(o => o.username === dmWith) || { username: dmWith, active: false }] : online;
   const [text, setText] = useState('');
@@ -398,11 +399,20 @@ export default function Chatting() {
     setMentionOpen(false);
     setMentionStart(-1);
     stickBottom.current = true;
+    setBlocked('');
     const optimistic: Msg = { id: -Date.now(), room: room.id, user: me, display: dispOf(me), text: t, ts: Date.now(), replyTo, localImgs: pending };
     setMessages(prev => [...prev, optimistic]);
     try {
       const tok = (() => { try { return localStorage.getItem('batprox-token') || ''; } catch { return ''; } })();
-      await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo, images: shots }) });
+      const sent = await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ room: room.id, user: me, text: t, replyTo, images: shots }) });
+      const sd = await sent.json().catch(() => ({}));
+      if (sd && sd.filtered) {
+        setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+        setBlocked('That word is filtered. Please dont say that.');
+        setTimeout(() => setBlocked(''), 4000);
+        loadMessages(room.id);
+        return;
+      }
       loadMessages(room.id);
       if (AI_MENTION.test(t)) {
         const target = room.id;
@@ -862,6 +872,7 @@ export default function Chatting() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" /></svg>
                 </button>
               </div>
+              {blocked && <p className="text-center text-[12px] text-red-300 mt-2">{blocked}</p>}
               <p className="text-center text-[10px] text-white/25 mt-1.5">double click a message to reply · press ↑ on an empty box to edit your last message</p>
             </form>
           </div>

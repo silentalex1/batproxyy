@@ -4,6 +4,27 @@ importScripts('/uv/uv.sw.js');
 
 const uv = new UVServiceWorker();
 
+const BP_MOBILE_UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+function bpWantsMobile(host) {
+  return /(^|\.)youtube\.com$/.test(host) || /(^|\.)youtube-nocookie\.com$/.test(host) || /(^|\.)ytimg\.com$/.test(host) || /(^|\.)googlevideo\.com$/.test(host);
+}
+
+try {
+  uv.on('request', (event) => {
+    try {
+      const data = event && event.data;
+      if (!data || !data.headers) return;
+      const host = String((data.url && data.url.hostname) || '').toLowerCase();
+      if (bpWantsMobile(host)) {
+        data.headers['user-agent'] = BP_MOBILE_UA;
+        data.headers['sec-ch-ua-mobile'] = '?1';
+        data.headers['sec-ch-ua-platform'] = '"Android"';
+      }
+    } catch (e) {}
+  });
+} catch (e) {}
+
 self.addEventListener('install', () => {
   self.skipWaiting();
 });
