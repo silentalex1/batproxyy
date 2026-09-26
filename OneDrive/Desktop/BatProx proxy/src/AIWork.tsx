@@ -188,7 +188,7 @@ export default function AIWork() {
     { id: 'batprox-ai-2.0', name: 'BatProx AI 2.0', badge: 'New', status: 'online' },
     { id: 'batprox-ai', name: 'BatProx AI', badge: 'Active', status: 'online' },
     { id: 'prysmis-code', name: 'PrysmisAI-code', badge: 'coming soon', status: 'offline' },
-    { id: 'prysmis-ai', name: 'PrysmisAI beta', badge: 'coming soon', status: 'offline' },
+    { id: 'prysmis-ai-beta', name: 'PrysmisAI beta', badge: 'Solve', status: 'online' },
   ];
   const [isThinking, setIsThinking] = useState(false);
   const [streamText, setStreamText] = useState('');

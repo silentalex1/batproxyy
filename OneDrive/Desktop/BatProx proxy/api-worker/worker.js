@@ -170,6 +170,8 @@ const MODEL_AGENTIC='batprox-agentic';
 const AGENTIC_KEY='sk-embed-37e5b0162af94bf598fa15cc';
 const MODEL_CODEX='inferforge-codex';
 const CODEX_KEY='sk-embed-0fff677b1baf4be1a474f023';
+const MODEL_PRYSMIS='prysmis-ai-beta';
+const PRYSMIS_KEY='sk-embed-0e2e7d2541c24da39bccf225';
 const V2_KEY='sk-embed-c0c12685c7a04bdb9b328d6f';
 const TOKEN_LIMIT=120000;
 function approxTokens(t){ return Math.ceil(String(t||'').length/4); }
@@ -284,17 +286,18 @@ async function askBatprox(kv, env, messages, want){
     if(seen) return {text:seen, backend:'vision'};
   }
   const key=String(env.INFERFORGE_KEY||'');
-  if(!key&&String(want||'')!==MODEL_V2&&String(want||'')!==MODEL_AGENTIC&&String(want||'')!==MODEL_CODEX) return {text:'', backend:'none'};
+  if(!key&&String(want||'')!==MODEL_V2&&String(want||'')!==MODEL_AGENTIC&&String(want||'')!==MODEL_CODEX&&String(want||'')!==MODEL_PRYSMIS) return {text:'', backend:'none'};
   const v2=String(want||'')===MODEL_V2;
   const agentic=String(want||'')===MODEL_AGENTIC;
   const codex=String(want||'')===MODEL_CODEX;
-  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(codex?[MODEL_CODEX,MODEL_AGENTIC,INFERFORGE_MODEL]:(agentic?[MODEL_AGENTIC,MODEL_V2,INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL])));
+  const prysmis=String(want||'')===MODEL_PRYSMIS;
+  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(prysmis?[MODEL_PRYSMIS,MODEL_V2,INFERFORGE_MODEL]:(codex?[MODEL_CODEX,MODEL_AGENTIC,INFERFORGE_MODEL]:(agentic?[MODEL_AGENTIC,MODEL_V2,INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL]))));
   for(const mdl of visionModels){
     for(let a=0;a<1;a++){
       try{
         const ctl=new AbortController();
         const tmr=setTimeout(()=>ctl.abort(), 45000);
-        const useKey=mdl===MODEL_CODEX?CODEX_KEY:(mdl===MODEL_AGENTIC?AGENTIC_KEY:(mdl===MODEL_V2?V2_KEY:key));
+        const useKey=mdl===MODEL_PRYSMIS?PRYSMIS_KEY:(mdl===MODEL_CODEX?CODEX_KEY:(mdl===MODEL_AGENTIC?AGENTIC_KEY:(mdl===MODEL_V2?V2_KEY:key)));
         const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+useKey,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:mdl, messages, stream:false}), signal:ctl.signal});
         clearTimeout(tmr);
         if(!r.ok) continue;
@@ -1043,7 +1046,7 @@ function blockedHost(host){
         messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} );
       }
       const asked=String(body.model||'');
-      const wantModel=asked===MODEL_V2?MODEL_V2:(asked===MODEL_AGENTIC?MODEL_AGENTIC:(asked===MODEL_CODEX?MODEL_CODEX:INFERFORGE_MODEL));
+      const wantModel=asked===MODEL_V2?MODEL_V2:(asked===MODEL_AGENTIC?MODEL_AGENTIC:(asked===MODEL_CODEX?MODEL_CODEX:(asked===MODEL_PRYSMIS?MODEL_PRYSMIS:INFERFORGE_MODEL)));
       const staff=await isStaffUser(kv,aiUser);
       if(!staff){
         const cur=await getUsage(kv,aiUser);
@@ -1055,7 +1058,7 @@ function blockedHost(host){
         }
       }
       const {text,backend}=await askBatprox(kv, env, messages, wantModel);
-      const agentModel=wantModel===MODEL_AGENTIC||wantModel===MODEL_CODEX;
+      const agentModel=wantModel===MODEL_AGENTIC||wantModel===MODEL_CODEX||wantModel===MODEL_PRYSMIS;
       if(!staff){
         let spend=approxTokens(q)+approxTokens(text);
         if(imgs.length) spend+=imgs.length*800;
