@@ -168,6 +168,8 @@ const INFERFORGE_MODEL='batprox-ai';
 const MODEL_V2='batprox-ai-2.0';
 const MODEL_AGENTIC='batprox-agentic';
 const AGENTIC_KEY='sk-embed-37e5b0162af94bf598fa15cc';
+const MODEL_CODEX='inferforge-codex';
+const CODEX_KEY='sk-embed-0fff677b1baf4be1a474f023';
 const V2_KEY='sk-embed-c0c12685c7a04bdb9b328d6f';
 const TOKEN_LIMIT=120000;
 function approxTokens(t){ return Math.ceil(String(t||'').length/4); }
@@ -236,6 +238,28 @@ async function askVision(env, messages){
   }
   return '';
 }
+function stripCodeComments(text){
+  const src=String(text||'');
+  if(!src.includes('```')) return src;
+  const lines=src.split('\n');
+  const out=[];
+  let inCode=false;
+  let inBlock=false;
+  for(const line of lines){
+    const t=line.trim();
+    if(t.startsWith('```')){ inCode=!inCode; inBlock=false; out.push(line); continue; }
+    if(!inCode){ out.push(line); continue; }
+    if(inBlock){ if(t.includes('*/')) inBlock=false; continue; }
+    if(t.startsWith('/*')){ if(!t.includes('*/')) inBlock=true; continue; }
+    if(t.startsWith('//')) continue;
+    if(t.startsWith('{/*')) continue;
+    if(t.startsWith('#') && !t.startsWith('#!') && !t.startsWith('#include')) continue;
+    out.push(line);
+  }
+  let joined=out.join('\n');
+  joined=joined.replace(/\n{3,}/g,'\n\n');
+  return joined;
+}
 async function askBatprox(kv, env, messages, want){
   let hasImages=false;
   try{ for(const m of (messages||[])) if(m&&typeof m.content!=='string'&&Array.isArray(m.content)) { for(const c of m.content) if(c&&c.type==='image_url') hasImages=true; } }catch{}
@@ -260,16 +284,17 @@ async function askBatprox(kv, env, messages, want){
     if(seen) return {text:seen, backend:'vision'};
   }
   const key=String(env.INFERFORGE_KEY||'');
-  if(!key&&String(want||'')!==MODEL_V2&&String(want||'')!==MODEL_AGENTIC) return {text:'', backend:'none'};
+  if(!key&&String(want||'')!==MODEL_V2&&String(want||'')!==MODEL_AGENTIC&&String(want||'')!==MODEL_CODEX) return {text:'', backend:'none'};
   const v2=String(want||'')===MODEL_V2;
   const agentic=String(want||'')===MODEL_AGENTIC;
-  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(agentic?[MODEL_AGENTIC,MODEL_V2,INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL]));
+  const codex=String(want||'')===MODEL_CODEX;
+  const visionModels=hasImages?['inferforge-beta-vision','qwen2.5vl:7b',INFERFORGE_MODEL]:(codex?[MODEL_CODEX,MODEL_AGENTIC,INFERFORGE_MODEL]:(agentic?[MODEL_AGENTIC,MODEL_V2,INFERFORGE_MODEL]:(v2?[MODEL_V2,INFERFORGE_MODEL]:[INFERFORGE_MODEL])));
   for(const mdl of visionModels){
     for(let a=0;a<1;a++){
       try{
         const ctl=new AbortController();
         const tmr=setTimeout(()=>ctl.abort(), 45000);
-        const useKey=mdl===MODEL_AGENTIC?AGENTIC_KEY:(mdl===MODEL_V2?V2_KEY:key);
+        const useKey=mdl===MODEL_CODEX?CODEX_KEY:(mdl===MODEL_AGENTIC?AGENTIC_KEY:(mdl===MODEL_V2?V2_KEY:key));
         const r=await fetch(INFERFORGE_BASE+'/v1/chat/completions',{method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+useKey,'Origin':'https://stealthybat.org'}, body:JSON.stringify({model:mdl, messages, stream:false}), signal:ctl.signal});
         clearTimeout(tmr);
         if(!r.ok) continue;
@@ -667,24 +692,26 @@ function blockedHost(host){
     if(request.method!=='POST') return new Response(JSON.stringify({success:false, error:'POST required'}),{status:405, headers:jh()});
     try{
       const body=await request.json();
-      const provider=String(body.provider||'claude').toLowerCase();
+      const provider=String(body.provider||MODEL_AGENTIC).toLowerCase();
       const prompt=String(body.prompt||'').trim();
       if(!prompt) return new Response(JSON.stringify({success:false, error:'Type the request you want'}),{status:200, headers:jh()});
       if(!pcLive){
-        const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider:'batprox-ai', prompt:prompt.slice(0,8000), status:'running', target:'ai', reply:'', startedAt:Date.now()};
+        const job={id:codeJobId(), ts:Date.now(), user:payload.username||'admin', provider, prompt:prompt.slice(0,8000), status:'running', target:'ai', reply:'', startedAt:Date.now()};
         let jobs=await loadCodeJobs(kv);
         expireCodeJobs(jobs);
         jobs.push(job);
         await saveCodeJobs(kv, jobs);
-        const sys='You are BatProx Agentic, the coding agent for the BatProx website. The frontend is Vite, React, TypeScript and Tailwind in src/. The backend is a Cloudflare Worker in api-worker/worker.js backed by KV and D1. Pages Functions live in functions/. The admin describes a change. Reply with a short plan of one to three sentences, then the exact code for every file you would add or change. Put the file path on its own line right before each fenced code block. Never write code comments. Keep everything else short.';
+        const isCodex=provider===MODEL_CODEX;
+        const sys=(isCodex?'You are InferForge Codex, the backend engineering agent for the BatProx website.':'You are BatProx Agentic, the coding agent for the BatProx website.')+' The frontend is Vite, React, TypeScript and Tailwind in src/, routed in src/App.tsx. The backend is one Cloudflare Worker at api-worker/worker.js, plain JavaScript only, never TypeScript syntax or the esbuild step fails. Cloudflare Pages Functions live in functions/, and functions/api/[[path]].ts proxies /api routes to the worker using two arrays named known and direct; a new /api route must be added to BOTH or it returns 404 in production while working against the worker URL. Storage is Cloudflare D1 database batprox, table kvstore, columns k and v, not key and value. Cloudflare replaces 5xx response bodies with its own error page and strips CORS headers, so return 424 or 400 for expected failures. The admin describes a change or a problem. Reply with a short plan of one to three sentences, then the exact code for every file you would add or change. Put the file path on its own line right before each fenced code block, and only when you know the real file. Never write code comments. Keep everything else short.';
         const history=(Array.isArray(body.history)?body.history:[]).slice(-6).map(m=>({role:m&&m.role==='assistant'?'assistant':'user', content:String((m&&m.content)||'').slice(0,4000)})).filter(m=>m.content);
         let out='';
-        try{ const r=await askBatprox(kv, env, [{role:'system', content:sys}].concat(history, [{role:'user', content:prompt.slice(0,8000)}]), MODEL_AGENTIC); out=String(r.text||''); }catch{}
+        const pickAgent=provider===MODEL_CODEX?MODEL_CODEX:MODEL_AGENTIC;
+        try{ const r=await askBatprox(kv, env, [{role:'system', content:sys}].concat(history, [{role:'user', content:prompt.slice(0,8000)}]), pickAgent); out=String(r.text||''); }catch{}
         jobs=await loadCodeJobs(kv);
         const saved=jobs.find(x=>x.id===job.id);
         const target=saved||job;
         target.status=out?'done':'error';
-        target.reply=out?out.slice(0,20000):'batprox-ai did not answer. Try again in a moment.';
+        target.reply=out?stripCodeComments(out).slice(0,20000):'The agent did not answer. Try again in a moment.';
         target.doneAt=Date.now();
         if(!saved) jobs.push(target);
         await saveCodeJobs(kv, jobs);
@@ -1016,7 +1043,7 @@ function blockedHost(host){
         messages.unshift({role:'system', content:`You DID receive ${imgs.length} image(s) from the user. Describe what you see; do not say you didn't receive it.`} );
       }
       const asked=String(body.model||'');
-      const wantModel=asked===MODEL_V2?MODEL_V2:(asked===MODEL_AGENTIC?MODEL_AGENTIC:INFERFORGE_MODEL);
+      const wantModel=asked===MODEL_V2?MODEL_V2:(asked===MODEL_AGENTIC?MODEL_AGENTIC:(asked===MODEL_CODEX?MODEL_CODEX:INFERFORGE_MODEL));
       const staff=await isStaffUser(kv,aiUser);
       if(!staff){
         const cur=await getUsage(kv,aiUser);
@@ -1028,6 +1055,7 @@ function blockedHost(host){
         }
       }
       const {text,backend}=await askBatprox(kv, env, messages, wantModel);
+      const agentModel=wantModel===MODEL_AGENTIC||wantModel===MODEL_CODEX;
       if(!staff){
         let spend=approxTokens(q)+approxTokens(text);
         if(imgs.length) spend+=imgs.length*800;
@@ -1038,7 +1066,8 @@ function blockedHost(host){
         return new Response(JSON.stringify({response:'', error:'batprox-ai could not answer right now.'}),{status:502, headers:h});
       }
       await logAi(kv,{ts:Date.now(), user:aiUser, source:'batprox-ai', model:wantModel, images:imgs.length, prompt:q, response:text.slice(0,8000), ok:true, backend, ip:getIP()});
-      return new Response(JSON.stringify({response:text.slice(0,8000), model:wantModel, backend}),{headers:h});
+      const shown=agentModel?stripCodeComments(text):text;
+      return new Response(JSON.stringify({response:shown.slice(0,8000), model:wantModel, backend}),{headers:h});
     }catch{ return new Response(JSON.stringify({response:'', error:'Invalid request'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/errors' && request.method==='POST'){
@@ -1105,9 +1134,10 @@ function blockedHost(host){
       if(!list.length) return new Response(JSON.stringify({error:'nothing to triage'}),{status:400, headers:h});
       const lines=list.map((e,i)=>(i+1)+'. ['+String(e.kind||'error')+' x'+(Number(e.hits)||1)+' on '+String(e.route||'unknown route')+'] '+String(e.message||'').slice(0,300)+(e.stack?'\n   stack: '+String(e.stack).slice(0,400):'')).join('\n');
       const ask='These errors came off the live BatProx site. Triage them. For each one give severity, the root cause, the most likely file, and the fix as code. Group anything that shares a cause.\n\n'+lines;
-      const {text}=await askBatprox(kv, env, [{role:'user', content:ask}], MODEL_AGENTIC);
+      const useAgent=String(b.agent||'')===MODEL_CODEX?MODEL_CODEX:MODEL_AGENTIC;
+      const {text}=await askBatprox(kv, env, [{role:'user', content:ask}], useAgent);
       if(!text) return new Response(JSON.stringify({error:'agent could not answer right now'}),{status:424, headers:h});
-      return new Response(JSON.stringify({report:text.slice(0,12000)}),{headers:h});
+      return new Response(JSON.stringify({report:stripCodeComments(text).slice(0,12000)}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
   if(url.pathname==='/api/ai/usage' && request.method==='GET'){

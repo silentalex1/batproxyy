@@ -46,6 +46,13 @@ const codeAgo = (ts: number) => {
 
 type AdminTab = 'feedbacks' | 'fnadfeedback' | 'accounts' | 'status' | 'paylater' | 'commands' | 'ranks' | 'loginprobs' | 'coderequest' | 'datainfo' | 'votes' | 'errors';
 
+type AgentId = 'batprox-agentic' | 'inferforge-codex';
+
+const AGENTS: Array<{ id: AgentId; name: string; desc: string }> = [
+  { id: 'batprox-agentic', name: 'BatProx Agentic', desc: 'frontend and general site work' },
+  { id: 'inferforge-codex', name: 'InferForge codex', desc: 'backend, worker, D1 and API errors' }
+];
+
 type CmdLine = { t: 'in' | 'out' | 'ok' | 'err' | 'help'; text: string };
 
 const CMD_HELP: Array<[string, string]> = [
@@ -175,7 +182,7 @@ export default function AdminPanel() {
   const [cmdHistIdx, setCmdHistIdx] = useState(-1);
   const cmdScrollRef = useRef<HTMLDivElement>(null);
   const cmdInputRef = useRef<HTMLInputElement>(null);
-  const [codeProvider, setCodeProvider] = useState<'claude' | 'copilot'>('claude');
+  const [codeProvider, setCodeProvider] = useState<'batprox-agentic' | 'inferforge-codex'>('batprox-agentic');
   const [codePrompt, setCodePrompt] = useState('');
   const [codeOut, setCodeOut] = useState('');
   const [codeBusy, setCodeBusy] = useState(false);
@@ -199,6 +206,7 @@ export default function AdminPanel() {
   const [openStack, setOpenStack] = useState('');
   const [triageOut, setTriageOut] = useState('');
   const [triageBusy, setTriageBusy] = useState(false);
+  const [triageAgent, setTriageAgent] = useState<AgentId>('inferforge-codex');
   const voteFileRef = useRef<HTMLInputElement>(null);
 
   const getToken = () => localStorage.getItem('batprox-token') || '';
@@ -620,7 +628,7 @@ export default function AdminPanel() {
     setTriageBusy(true);
     setTriageOut('');
     try {
-      const response = await fetch('/api/admin/errors/triage', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ errors: siteErrors.slice(0, 8) }) });
+      const response = await fetch('/api/admin/errors/triage', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` }, body: JSON.stringify({ errors: siteErrors.slice(0, 8), agent: triageAgent }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.report) { setError(data.error || 'The agent could not answer right now'); setTriageBusy(false); return; }
       setTriageOut(data.report);
@@ -1082,24 +1090,23 @@ export default function AdminPanel() {
                   <div className="px-3 pb-3 border-b border-white/[0.06]">
                     <p className="px-1 mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/25">Model</p>
                     <div className="space-y-1">
-                      <button
-                        onClick={() => setCodeProvider('claude')}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border bg-purple-600/[0.12] border-purple-500/30 transition-colors"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          <span className="text-[12px] font-medium text-white">BatProx Agentic</span>
-                          <span className="ml-auto text-[9px] font-semibold uppercase tracking-wider text-purple-200/70">selected</span>
-                        </span>
-                        <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">writes code and triages site errors</span>
-                      </button>
-                      <div className="w-full px-3 py-2.5 rounded-lg border border-white/[0.05] bg-white/[0.015] opacity-55 cursor-not-allowed select-none">
-                        <span className="flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white/25" />
-                          <span className="text-[12px] font-medium text-white/60">InferForge codex</span>
-                        </span>
-                        <span className="block text-[10px] text-white/30 mt-0.5 pl-3.5">(coming soon)</span>
-                      </div>
+                      {AGENTS.map(a => {
+                        const on = codeProvider === a.id;
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => setCodeProvider(a.id)}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${on ? 'bg-purple-600/[0.12] border-purple-500/30' : 'bg-white/[0.015] border-white/[0.06] hover:border-white/15 hover:bg-white/[0.04]'}`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full ${on ? 'bg-emerald-400' : 'bg-white/30'}`} />
+                              <span className={`text-[12px] font-medium ${on ? 'text-white' : 'text-white/70'}`}>{a.name}</span>
+                              {on && <span className="ml-auto text-[9px] font-semibold uppercase tracking-wider text-purple-200/70">selected</span>}
+                            </span>
+                            <span className="block text-[10px] text-white/35 mt-0.5 pl-3.5">{a.desc}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                   <div className="flex-1 min-h-0 flex flex-col px-3 pt-3">
@@ -1377,10 +1384,13 @@ export default function AdminPanel() {
                 <div className="flex items-end justify-between gap-4 mb-5">
                   <div>
                     <h2 className="text-lg font-bold text-white">Site errors</h2>
-                    <p className="text-[13px] text-white/40 mt-1">Live crashes reported from users browsers, grouped by message. BatProx Agentic can triage them for you.</p>
+                    <p className="text-[13px] text-white/40 mt-1">Live crashes reported from users browsers, grouped by message. Pick an agent and it will triage them for you.</p>
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <button onClick={loadErrors} className="px-3 py-2 rounded-lg text-[12px] font-medium bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/70 hover:text-white transition-colors">Refresh</button>
+                    <select value={triageAgent} onChange={e => setTriageAgent(e.target.value as AgentId)} className="px-2.5 py-2 rounded-lg text-[12px] bg-white/[0.04] border border-white/[0.08] text-white/70 focus:outline-none focus:border-purple-500/50">
+                      {AGENTS.map(a => <option key={a.id} value={a.id} className="bg-[#12121a]">{a.name}</option>)}
+                    </select>
                     <button onClick={triageErrors} disabled={!siteErrors.length || triageBusy} className="px-3.5 py-2 rounded-lg text-[12px] font-semibold bg-purple-600 hover:bg-purple-500 disabled:opacity-35 text-white transition-colors">{triageBusy ? 'Analysing..' : 'Ask agent to triage'}</button>
                     {siteErrors.length > 0 && <button onClick={() => { if (window.confirm('Clear every reported error?')) clearError(''); }} className="px-3 py-2 rounded-lg text-[12px] font-medium bg-red-500/[0.06] hover:bg-red-500/15 border border-red-500/20 text-red-300/90 transition-colors">Clear all</button>}
                   </div>
@@ -1405,7 +1415,7 @@ export default function AdminPanel() {
                       <span className="w-6 h-6 rounded-lg bg-purple-600/25 border border-purple-500/30 flex items-center justify-center">
                         <svg className="w-3.5 h-3.5 text-purple-200" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z" /></svg>
                       </span>
-                      <p className="text-[13px] font-semibold text-white">BatProx Agentic report</p>
+                      <p className="text-[13px] font-semibold text-white">{(AGENTS.find(a => a.id === triageAgent) || AGENTS[0]).name} report</p>
                       <button onClick={() => setTriageOut('')} className="ml-auto text-[11px] text-white/35 hover:text-white px-2 py-0.5 rounded-md hover:bg-white/10 transition-colors">dismiss</button>
                     </div>
                     <WorkspaceReply text={triageOut} />
