@@ -40,7 +40,13 @@ function Dashboard() {
   const [url, setUrl] = useState<string>('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [homeDesign, setHomeDesign] = useState<'classic' | 'bento'>(() => {
+    try { return localStorage.getItem('bp-home-design') === 'classic' ? 'classic' : 'bento'; } catch { return 'bento'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('bp-home-design', homeDesign); } catch {}
+  }, [homeDesign]);
   const [suggestionText, setSuggestionText] = useState('');
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
@@ -182,6 +188,32 @@ function Dashboard() {
  [username, navigate]);
 
 
+  const glyph = (label: string) => {
+    const c = 'w-[22px] h-[22px]';
+    switch (label) {
+      case 'Youtube':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><rect x="2.5" y="5.5" width="19" height="13" rx="4" /><path d="M10.2 9.4l4.6 2.6-4.6 2.6z" fill="currentColor" stroke="none" /></svg>);
+      case 'Discord':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M8 6.8c2.7-1 5.3-1 8 0 1.7 2.4 2.6 5.1 2.5 8.2-1.4 1.1-2.9 1.8-4.4 2.2l-1-1.6M8 6.8C6.3 9.2 5.4 11.9 5.5 15c1.4 1.1 2.9 1.8 4.4 2.2l1-1.6M8.6 14.9c2.3.9 4.5.9 6.8 0" /><circle cx="9.8" cy="12" r="1.1" fill="currentColor" stroke="none" /><circle cx="14.2" cy="12" r="1.1" fill="currentColor" stroke="none" /></svg>);
+      case 'Roblox':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5" transform="rotate(15 12 12)" /><rect x="10.4" y="10.4" width="3.2" height="3.2" transform="rotate(15 12 12)" fill="currentColor" stroke="none" /></svg>);
+      case 'TikTok':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 3v11.2a3.4 3.4 0 11-2.6-3.3" /><path d="M14 6.2c.7 1.6 2.2 2.7 4 2.9" /></svg>);
+      case 'Music':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>);
+      case 'Movies':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path strokeLinecap="round" d="M7 5v14M17 5v14M3 9h18M3 15h18" /></svg>);
+      case 'Games':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01M7.5 6h9a4.5 4.5 0 014.37 5.57l-1.2 4.8A2.5 2.5 0 0115.3 17.4L14 16h-4l-1.3 1.4a2.5 2.5 0 01-4.37-1.03l-1.2-4.8A4.5 4.5 0 017.5 6z" /></svg>);
+      case 'Daily Reminder':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" /></svg>);
+      case 'File dropper':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 16.5V9m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>);
+      default:
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>);
+    }
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (url.trim()) {
@@ -200,6 +232,9 @@ function Dashboard() {
         break;
       case 'Roblox':
         targetUrl = 'https://roblox.com';
+        break;
+      case 'TikTok':
+        targetUrl = 'https://tiktok.com';
         break;
       case 'Music':
         navigate('/music-page');
@@ -262,10 +297,36 @@ function Dashboard() {
     }
   };
 
+  const design: string = homeDesign;
+  const designSwitcher = (
+    <div className="mt-6 flex items-center gap-2">
+      <button
+        onClick={() => setHomeDesign('classic')}
+        className={`px-4 py-2 rounded-full text-xs font-medium border transition-colors ${design === 'classic' ? 'bg-white/[0.1] border-white/20 text-white' : 'bg-white/[0.03] border-white/[0.08] text-white/50 hover:text-white/80'}`}
+      >
+        Old homepage design
+      </button>
+      <button
+        onClick={() => setHomeDesign('bento')}
+        className={`px-4 py-2 rounded-full text-xs font-medium border transition-colors ${design === 'bento' ? 'bg-white/[0.1] border-white/20 text-white' : 'bg-white/[0.03] border-white/[0.08] text-white/50 hover:text-white/80'}`}
+      >
+        New homepage design
+      </button>
+    </div>
+  );
+  const tileColor = (label: string) => {
+    const map: Record<string, string> = {
+      Youtube: '#f87171', Discord: '#818cf8', Roblox: '#e5e7eb', TikTok: '#22d3ee',
+      Music: '#c084fc', Movies: '#f87171', AI: '#c084fc', Games: '#34d399',
+      'Daily Reminder': '#fbbf24', 'File dropper': '#818cf8'
+    };
+    return map[label] || '#c084fc';
+  };
   const proxyLinks = [
     { label: 'Youtube', image: '/assets/youtube.png', tint: 'bg-[#ff0000]' },
     { label: 'Discord', image: '/assets/discord.png', tint: 'bg-[#5865F2]' },
     { label: 'Roblox', image: '/assets/robloxcom.png', tint: 'bg-[#1a1a1a]' },
+    { label: 'TikTok', image: null, tint: 'bg-[#111111]' },
     { label: 'Music', image: '/assets/musiclogo2.png', tint: 'bg-[#7c3aed]' },
     { label: 'Movies', image: null, tint: 'bg-[#ef4444]' },
     { label: 'AI', image: null, tint: 'bg-[#8b5cf6]' },
@@ -299,6 +360,110 @@ function Dashboard() {
           onSettings={() => setShowSettingsModal(true)}
         />
 
+        {homeDesign === 'bento' ? (
+          <>
+        <div className="flex-1 flex flex-col items-center justify-start w-full max-w-2xl pt-8 sm:pt-12 pb-16">
+          <div className="flex items-center gap-3.5 mb-6 text-white/50">
+            <span className="text-4xl sm:text-5xl font-light tabular-nums tracking-tight text-white/90 leading-none">{clock.hms}</span>
+            <span className="text-sm font-medium uppercase tracking-wider self-end mb-0.5">{clock.ampm}</span>
+            <span className="w-px h-6 bg-white/15" />
+            <span className="text-xs uppercase tracking-[0.2em]">{clock.date}</span>
+          </div>
+
+          <div className="w-full grid grid-cols-1 sm:grid-cols-5 gap-4">
+          <section className="sm:col-span-5 rounded-3xl bg-white/[0.035] border border-white/[0.08] backdrop-blur-xl shadow-2xl shadow-black/40 p-5 sm:p-6">
+            <h1 className="text-center text-2xl sm:text-3xl font-bold tracking-tight mb-1" style={{ color: 'var(--bp-accent)' }}>
+              Bat Prox
+            </h1>
+            <div className="flex justify-center text-center mb-5">
+              <RotatingTagline
+                lines={[
+                  'Website took 3 weeks to make.',
+                  'Website was only made by an 18 yr old.',
+                  'school sucks',
+                  "Did you know if you press 'shift+k' it will go in search engine automatically?",
+                  'Did you also know if you press shift+s you can switch accounts?'
+                ]}
+              />
+            </div>
+            <form onSubmit={handleSearch} className="relative">
+              <svg className="w-5 h-5 text-white/40 absolute left-6 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onFocus={() => setIsExpanded(true)}
+                onBlur={() => setIsExpanded(false)}
+                placeholder="Search or enter a URL"
+                className={`w-full h-16 pr-28 rounded-2xl bg-black/40 border text-white placeholder-white/35 focus:outline-none transition-all text-left text-base sm:text-lg ${
+                  isExpanded ? 'border-[var(--bp-accent)] shadow-[0_0_0_4px_rgba(var(--bp-glow),0.15)]' : 'border-white/10 hover:border-white/20'
+                }`}
+                style={{ paddingLeft: '3.6rem' }}
+              />
+              <button
+                type="submit"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 h-11 px-6 inline-flex items-center justify-center leading-none rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90"
+                style={{ background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))' }}
+              >
+                Search
+              </button>
+            </form>
+          </section>
+
+            {[
+              { title: 'Sites', items: proxyLinks.slice(0, 4), span: 'sm:col-span-2', cols: 'grid-cols-1', list: true },
+              { title: 'Tools', items: proxyLinks.slice(4), span: 'sm:col-span-3', cols: 'grid-cols-3', list: false }
+            ].map((group) => (
+              <section key={group.title} className={`${group.span} flex flex-col rounded-3xl bg-white/[0.035] border border-white/[0.08] backdrop-blur-xl shadow-2xl shadow-black/40 p-4`}>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40 mb-3 px-1">{group.title}</p>
+                <div className={`flex-1 grid ${group.cols} content-center gap-2`}>
+                  {group.items.map((item) => (
+                    <button
+                      key={item.label}
+                      onClick={() => handleButtonClick(item.label)}
+                      className={`group relative flex rounded-2xl hover:bg-white/[0.06] hover:-translate-y-1 transition-all duration-200 ease-out ${group.list ? 'flex-row items-center gap-3.5 px-3 py-2.5' : 'flex-col items-center justify-center gap-2 py-3.5'}`}
+                    >
+                      <span
+                        className="bp-tile-icon relative w-12 h-12 rounded-2xl flex items-center justify-center"
+                        style={{
+                          color: tileColor(item.label),
+                          background: `linear-gradient(180deg, ${tileColor(item.label)}22, ${tileColor(item.label)}0d)`,
+                          ['--tile-border' as string]: `${tileColor(item.label)}55`,
+                          ['--tile-border-hover' as string]: `${tileColor(item.label)}aa`,
+                          ['--tile-glow' as string]: `${tileColor(item.label)}26`,
+                          ['--tile-glow-hover' as string]: `${tileColor(item.label)}73`
+                        } as React.CSSProperties}
+                      >
+                        {glyph(item.label)}
+                        {item.label === 'AI' && (
+                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#1a1026] shadow-[0_0_8px_rgba(52,211,153,0.8)]" title="updated" />
+                        )}
+                      </span>
+                      <span className={`${group.list ? 'flex-1 text-left text-sm' : 'text-xs'} text-white/65 group-hover:text-white transition-colors`}>{item.label === 'Daily Reminder' ? 'Reminder' : item.label}</span>
+                      {group.list && (
+                        <svg className="w-4 h-4 text-white/25 group-hover:text-white/60 transition-colors" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" /></svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <a
+            href="https://discord.gg/QreCHyeSpj"
+            className="mt-8 inline-flex items-center gap-2 text-sm text-white/45 hover:text-white transition-colors"
+          >
+            Join the Discord
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 17L17 7M9 7h8v8" /></svg>
+          </a>
+        </div>
+          {designSwitcher}
+          </>
+        ) : (
+          <>
         <div className="flex-1 flex flex-col items-center justify-start w-full max-w-3xl pt-4 pb-16">
           <p className="text-[11px] tracking-[0.35em] uppercase text-white/35 mb-1">{clock.date}</p>
           <div className="flex items-end gap-2 mb-1">
@@ -406,6 +571,9 @@ function Dashboard() {
             Join the Discord
           </a>
         </div>
+          {designSwitcher}
+          </>
+        )}
       </main>
 
       {showSuggestionsModal && (
