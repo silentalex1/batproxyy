@@ -109,6 +109,7 @@ export function buildSearchUrl(query: string, engineName?: string): string {
   if (engine === 'Scry engine') return scryTarget(q);
   if (engine === 'DuckDuckGo') return localSearch('ddg', q);
   if (engine === 'Google') return localSearch('google', q);
+  if (engine === 'Bing') return localSearch('bing', q);
   if (engine === 'Ask') return localSearch('ask', q);
   if (engine === 'Yahoo') return localSearch('yahoo', q);
   const prefix = ENGINE_PREFIX[engine] || '';

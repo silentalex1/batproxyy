@@ -34,7 +34,7 @@ async function collectSearch(q: string) {
   return items.slice(0, 12);
 }
 function searchPage(engine: string, q: string, items: Array<{ title: string; link: string; desc: string }>) {
-  const names: Record<string, string> = { batnight: 'BatNight Engine', scry: 'Scry engine', scremjet: 'Scremjet', google: 'Google', ddg: 'DuckDuckGo', ask: 'Ask', yahoo: 'Yahoo' };
+  const names: Record<string, string> = { batnight: 'BatNight Engine', scry: 'Scry engine', scremjet: 'Scremjet', google: 'Google', ddg: 'DuckDuckGo', ask: 'Ask', yahoo: 'Yahoo', bing: 'Bing' };
   const name = names[engine] || 'BatNight Engine';
   const accent = engine === 'scry' ? '#22d3ee' : engine === 'scremjet' ? '#fb923c' : engine === 'google' ? '#60a5fa' : engine === 'yahoo' ? '#a78bfa' : '#c084fc';
   const rows = items.map((it) => {

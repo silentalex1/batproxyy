@@ -106,7 +106,7 @@ async function collectSearch(q){
   return items.slice(0,12);
 }
 function searchPage(engine, q, items){
-  const names={batnight:'BatNight Engine',scry:'Scry engine',scremjet:'Scremjet',google:'Google',ddg:'DuckDuckGo',ask:'Ask',yahoo:'Yahoo'};
+  const names={batnight:'BatNight Engine',scry:'Scry engine',scremjet:'Scremjet',google:'Google',ddg:'DuckDuckGo',ask:'Ask',yahoo:'Yahoo',bing:'Bing'};
   const name=names[engine]||'BatNight Engine';
   const accent=engine==='scry'?'#22d3ee':engine==='scremjet'?'#fb923c':engine==='google'?'#60a5fa':'#c084fc';
   const rows=items.map(it=>{

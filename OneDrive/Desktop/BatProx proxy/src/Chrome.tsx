@@ -231,32 +231,99 @@ export function DashNav({
   onSuggestions: () => void;
   onSettings: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const role = isAdmin ? 'ADMIN' : isMod ? 'MODERATOR' : '';
+  const items: Array<{ label: string; onClick?: () => void; show: boolean }> = [
+    { label: 'Admin panel', onClick: onAdmin, show: isAdmin },
+    { label: 'Staff panel', onClick: onStaff, show: !!onStaff && (isMod || isAdmin) },
+    { label: 'User leaderboards', onClick: onLeaderboards, show: !!onLeaderboards },
+    { label: 'Changelogs', onClick: onChangelogs, show: true },
+    { label: 'Status', onClick: onStatus, show: true },
+    { label: 'Suggestions', onClick: onSuggestions, show: true },
+    { label: 'Settings', onClick: onSettings, show: true }
+  ];
+  const pick = (fn?: () => void) => {
+    setOpen(false);
+    if (fn) fn();
+  };
+
   return (
-    <TopBar>
-      <div className="flex items-center gap-3 min-w-0">
-        <NavBtn tone="danger" onClick={onLogout}>Logout</NavBtn>
-        <span className="hidden sm:block w-px h-5 bg-white/10" />
-        <span className="hidden sm:flex items-center gap-2 min-w-0">
-          <span className="text-[13px] text-white/70 truncate">Welcome, {username}</span>
-          {isAdmin && (
-            <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-emerald-950/80 text-emerald-300">ADMIN</span>
-          )}
-          {!isAdmin && isMod && (
-            <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-blue-950/80 text-blue-300">MODERATOR</span>
-          )}
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        {isAdmin && <NavBtn onClick={onAdmin}>Admin</NavBtn>}
-        {(isMod || isAdmin) && onStaff && <NavBtn onClick={onStaff}>Staff panel</NavBtn>}
-        {onLeaderboards && <NavBtn onClick={onLeaderboards}>User Leaderboards</NavBtn>}
-        <NavBtn onClick={onChangelogs}>Changelogs</NavBtn>
-        <NavBtn className="hidden md:inline-flex" onClick={onStatus}>Status</NavBtn>
-        <NavBtn className="hidden md:inline-flex" onClick={onSuggestions}>Suggestions</NavBtn>
-        <NavBtn onClick={onSettings}>Settings</NavBtn>
-        <BatteryIndicator />
-      </div>
-    </TopBar>
+    <div className="w-full px-4 sm:pl-24 sm:pr-6 pt-4">
+      <header className="flex items-center justify-between h-14">
+        <span className="text-[15px] font-bold tracking-tight" style={{ color: 'var(--bp-accent)' }}>Bat Prox</span>
+        <div className="flex items-center gap-3">
+          <BatteryIndicator />
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              className={`flex items-center gap-2 h-10 pl-1 pr-3 rounded-full border transition-colors ${open ? 'bg-white/[0.08] border-white/20' : 'bg-white/[0.04] border-white/10 hover:bg-white/[0.07]'}`}
+            >
+              <span
+                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold text-white uppercase"
+                style={{ background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))' }}
+              >
+                {(username || 'u').charAt(0)}
+              </span>
+              <span className="hidden sm:block text-[13px] text-white/80 max-w-[140px] truncate">{username}</span>
+              <svg className={`w-3.5 h-3.5 text-white/50 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            {open && (
+              <div role="menu" className="absolute right-0 mt-2 w-60 z-50 rounded-2xl bg-[#0e0e14]/95 border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/60 p-1.5">
+                <div className="px-3 py-2.5 mb-1 border-b border-white/[0.06]">
+                  <p className="text-[13px] font-medium text-white truncate">{username}</p>
+                  {role && (
+                    <span className={`inline-flex mt-1 items-center h-5 text-[9px] font-bold tracking-widest px-1.5 rounded ${isAdmin ? 'bg-emerald-950/80 text-emerald-300' : 'bg-blue-950/80 text-blue-300'}`}>{role}</span>
+                  )}
+                </div>
+                {items.filter((i) => i.show).map((i) => (
+                  <button
+                    key={i.label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => pick(i.onClick)}
+                    className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-white/75 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  >
+                    {i.label}
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-white/[0.06]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pick(onLogout)}
+                  className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-rose-300 hover:bg-rose-500/10 transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+    </div>
   );
 }
 
