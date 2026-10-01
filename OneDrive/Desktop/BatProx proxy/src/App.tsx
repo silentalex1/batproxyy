@@ -15,7 +15,7 @@ import AutoLogout from './AutoLogout';
 import PageChrome from './PageChrome';
 import TOS from './TOS';
 import { Navigate } from 'react-router-dom';
-import { AmbientBg, SideRail, DashNav, RotatingTagline } from './Chrome';
+import { AmbientBg, SideRail, DashNav, DashNavClassic, RotatingTagline } from './Chrome';
 import { buildSearchUrl } from './engines';
 import { initUltraviolet } from './uv';
 import UserActivity from './UserActivity';
@@ -29,6 +29,7 @@ import Apps from './Apps';
 import FileDropper from './FileDropper';
 import MusicPage from './MusicPage';
 import VotePrompt from './VotePrompt';
+import ImageUpscale from './ImageUpscale';
 import ReminderToast from './ReminderToast';
 import { startErrorReporting } from './errorReport';
 import { startPresence } from './presence';
@@ -220,6 +221,8 @@ function Dashboard() {
         return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01M7.5 6h9a4.5 4.5 0 014.37 5.57l-1.2 4.8A2.5 2.5 0 0115.3 17.4L14 16h-4l-1.3 1.4a2.5 2.5 0 01-4.37-1.03l-1.2-4.8A4.5 4.5 0 017.5 6z" /></svg>);
       case 'Daily Reminder':
         return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" /></svg>);
+      case 'Image to 4K':
+        return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 14l4.5-4.5 3 3L15 8l6 6" /><circle cx="8.5" cy="8.5" r="1.2" /></svg>);
       case 'File dropper':
         return (<svg className={c} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 16.5V9m0 0l-3 3m3-3l3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>);
       default:
@@ -270,6 +273,9 @@ function Dashboard() {
       case 'File dropper':
         navigate('/file-dropper');
         return;
+      case 'Image to 4K':
+        navigate('/image-to-4k');
+        return;
       default:
         return;
     }
@@ -311,8 +317,9 @@ function Dashboard() {
   };
 
   const design: string = homeDesign;
+  const Nav = homeDesign === 'classic' ? DashNavClassic : DashNav;
   const designSwitcher = (
-    <div className="mt-6 flex items-center gap-2">
+    <div className="mb-5 flex items-center justify-center gap-2">
       <button
         onClick={() => { setHomeDesign('classic'); try { window.dispatchEvent(new CustomEvent('bp-home-design', { detail: 'classic' })); } catch {} }}
         className={`px-4 py-2 rounded-full text-xs font-medium border transition-colors ${design === 'classic' ? 'bg-white/[0.1] border-white/20 text-white' : 'bg-white/[0.03] border-white/[0.08] text-white/50 hover:text-white/80'}`}
@@ -331,7 +338,7 @@ function Dashboard() {
     const map: Record<string, string> = {
       Youtube: '#f87171', Discord: '#818cf8', Roblox: '#e5e7eb', TikTok: '#22d3ee',
       Music: '#c084fc', Movies: '#f87171', AI: '#c084fc', Games: '#34d399',
-      'Daily Reminder': '#fbbf24', 'File dropper': '#818cf8'
+      'Daily Reminder': '#fbbf24', 'File dropper': '#818cf8', 'Image to 4K': '#22d3ee'
     };
     return map[label] || '#c084fc';
   };
@@ -345,7 +352,8 @@ function Dashboard() {
     { label: 'AI', image: null, tint: 'bg-[#8b5cf6]' },
     { label: 'Games', image: null, tint: 'bg-[#10b981]' },
     { label: 'Daily Reminder', image: null, tint: 'bg-[#f59e0b]' },
-    { label: 'File dropper', image: null, tint: 'bg-[#6366f1]' }
+    { label: 'File dropper', image: null, tint: 'bg-[#6366f1]' },
+    { label: 'Image to 4K', image: null, tint: 'bg-[#06b6d4]' }
   ];
 
   return (
@@ -355,7 +363,7 @@ function Dashboard() {
       <VotePrompt />
 
       <main className="relative z-10 flex flex-col items-center min-h-screen px-4 sm:pl-20 sm:pr-6">
-        <DashNav
+        <Nav
           username={username}
           isAdmin={isAdmin}
           isMod={isMod}
@@ -375,7 +383,8 @@ function Dashboard() {
 
         {homeDesign === 'bento' ? (
           <>
-        <div className="flex-1 flex flex-col items-center justify-start w-full max-w-2xl pt-8 sm:pt-12 pb-16">
+        <div className="flex-1 flex flex-col items-center justify-start w-full max-w-2xl pt-8 sm:pt-12 pb-16">
+          {designSwitcher}
           <div className="flex items-center gap-3.5 mb-6 text-white/50">
             <span className="text-4xl sm:text-5xl font-light tabular-nums tracking-tight text-white/90 leading-none">{clock.hms}</span>
             <span className="text-sm font-medium uppercase tracking-wider self-end mb-0.5">{clock.ampm}</span>
@@ -473,11 +482,11 @@ function Dashboard() {
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 17L17 7M9 7h8v8" /></svg>
           </a>
         </div>
-          {designSwitcher}
           </>
         ) : (
           <>
         <div className="flex-1 flex flex-col items-center justify-start w-full max-w-3xl pt-4 pb-16">
+          {designSwitcher}
           <p className="text-[11px] tracking-[0.35em] uppercase text-white/35 mb-1">{clock.date}</p>
           <div className="flex items-end gap-2 mb-1">
             <h2 className="text-5xl sm:text-7xl font-semibold tracking-tight tabular-nums leading-none" style={{ textShadow: '0 0 28px rgba(var(--bp-glow), 0.35)' }}>
@@ -584,7 +593,6 @@ function Dashboard() {
             Join the Discord
           </a>
         </div>
-          {designSwitcher}
           </>
         )}
       </main>
@@ -781,6 +789,7 @@ export default function App() {
         <Route path="/my-scripts" element={<MyScripts />} />
         <Route path="/apps" element={<Apps />} />
         <Route path="/music-page" element={<MusicPage />} />
+        <Route path="/image-to-4k" element={<ImageUpscale />} />
         <Route path="/file-dropper" element={<FileDropper />} />
         <Route path="/file-dropper/:user/dashboard" element={<FileDropper />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

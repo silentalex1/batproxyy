@@ -327,6 +327,60 @@ export function DashNav({
   );
 }
 
+export function DashNavClassic({
+  username,
+  isAdmin,
+  isMod,
+  onLogout,
+  onAdmin,
+  onStaff,
+  onLeaderboards,
+  onChangelogs,
+  onStatus,
+  onSuggestions,
+  onSettings
+}: {
+  username: string;
+  isAdmin: boolean;
+  isMod?: boolean;
+  onLogout: () => void;
+  onAdmin: () => void;
+  onStaff?: () => void;
+  onLeaderboards?: () => void;
+  onChangelogs: () => void;
+  onStatus: () => void;
+  onSuggestions: () => void;
+  onSettings: () => void;
+}) {
+  return (
+    <TopBar>
+      <div className="flex items-center gap-3 min-w-0">
+        <NavBtn tone="danger" onClick={onLogout}>Logout</NavBtn>
+        <span className="hidden sm:block w-px h-5 bg-white/10" />
+        <span className="hidden sm:flex items-center gap-2 min-w-0">
+          <span className="text-[13px] text-white/70 truncate">Welcome, {username}</span>
+          {isAdmin && (
+            <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-emerald-950/80 text-emerald-300">ADMIN</span>
+          )}
+          {!isAdmin && isMod && (
+            <span className="inline-flex items-center h-6 text-[10px] font-bold tracking-widest px-2 rounded-md bg-blue-950/80 text-blue-300">MODERATOR</span>
+          )}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        {isAdmin && <NavBtn onClick={onAdmin}>Admin</NavBtn>}
+        {(isMod || isAdmin) && onStaff && <NavBtn onClick={onStaff}>Staff panel</NavBtn>}
+        {onLeaderboards && <NavBtn onClick={onLeaderboards}>User Leaderboards</NavBtn>}
+        <NavBtn onClick={onChangelogs}>Changelogs</NavBtn>
+        <NavBtn className="hidden md:inline-flex" onClick={onStatus}>Status</NavBtn>
+        <NavBtn className="hidden md:inline-flex" onClick={onSuggestions}>Suggestions</NavBtn>
+        <NavBtn onClick={onSettings}>Settings</NavBtn>
+        <BatteryIndicator />
+      </div>
+    </TopBar>
+  );
+}
+
 export function RotatingTagline({ lines }: { lines: string[] }) {
   const [index, setIndex] = useState(0);
   const [visible, setVisible] = useState(true);
