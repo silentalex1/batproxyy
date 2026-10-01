@@ -144,6 +144,13 @@ function wispList(): string[] {
 
 let connection: { setTransport: (path: string, args: unknown[]) => Promise<void> } | null = null;
 let watchdog: number | null = null;
+
+export function primeBareMux() {
+  try {
+    if (connection || !window.BareMux || typeof SharedWorker === 'undefined' || !('serviceWorker' in navigator)) return;
+    connection = new window.BareMux.BareMuxConnection('/baremux/worker.js');
+  } catch {}
+}
 let switching = false;
 const failed = new Set<string>();
 

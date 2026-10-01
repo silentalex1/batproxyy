@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { watchBattery } from './power';
 
 
 export function AmbientBg() {
@@ -34,30 +35,7 @@ export function AmbientBg() {
 export function BatteryIndicator() {
   const [state, setState] = useState<{ level: number; charging: boolean } | null>(null);
 
-  useEffect(() => {
-    let battery: any = null;
-    const update = () => {
-      if (!battery) return;
-      setState({ level: Math.round(battery.level * 100), charging: !!battery.charging });
-    };
-    const nav = navigator as any;
-    if (typeof nav.getBattery !== 'function') return;
-    nav
-      .getBattery()
-      .then((b: any) => {
-        battery = b;
-        update();
-        b.addEventListener('levelchange', update);
-        b.addEventListener('chargingchange', update);
-      })
-      .catch(() => {});
-    return () => {
-      if (battery) {
-        battery.removeEventListener('levelchange', update);
-        battery.removeEventListener('chargingchange', update);
-      }
-    };
-  }, []);
+  useEffect(() => watchBattery(setState), []);
 
   if (!state) return null;
   const tone =

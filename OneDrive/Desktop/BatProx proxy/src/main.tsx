@@ -6,6 +6,7 @@ import { applyTheme, getSavedTheme } from './theme.ts'
 import { applyBackground } from './background.ts'
 import { applyTabCloak } from './tabcloak.ts'
 import { launchBlobCloak } from './cloak.ts'
+import { primeBareMux } from './uv.ts'
 
 applyTheme(getSavedTheme())
 applyBackground()
@@ -41,6 +42,8 @@ console.log = (...args:any[]) => {
   if (/wisp|bare-mux|MessagePort|SharedWorker|Grammarly|SDUI|RegistryCompositionWarning|AngularJS/i.test(first)) return
   return _log(...args)
 }
+
+primeBareMux()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

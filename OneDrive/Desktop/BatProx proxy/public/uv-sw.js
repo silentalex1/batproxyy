@@ -2,6 +2,15 @@ importScripts('/uv/uv.bundle.js');
 importScripts('/uv/uv.config.js');
 importScripts('/uv/uv.sw.js');
 
+const bpNoise = /bare-mux|MessagePort|SharedWorker|ping response/i;
+const bpErr = console.error.bind(console);
+const bpWarn = console.warn.bind(console);
+console.error = (...a) => { try { if (bpNoise.test(a.map(String).join(' '))) return; } catch (e) {} bpErr(...a); };
+console.warn = (...a) => { try { if (bpNoise.test(a.map(String).join(' '))) return; } catch (e) {} bpWarn(...a); };
+self.addEventListener('unhandledrejection', (e) => {
+  try { const m = String((e.reason && (e.reason.message || e.reason)) || ''); if (bpNoise.test(m)) e.preventDefault(); } catch (x) {}
+});
+
 const uv = new UVServiceWorker();
 
 const BP_MOBILE_UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AmbientBg, SideRail } from './Chrome';
+import { domEncode, domSurface, fitSize, runUpscale, type Detail, type OutFormat, type UpscaleJob, type UpscaleResult } from './upscaleCore';
+import { listSaved, removeSaved, saveUpscale, type SavedUpscale } from './upscaleStore';
 
 type TierId = '4k' | '8k' | '9k';
 
@@ -19,6 +21,20 @@ const TIERS: Tier[] = [
   { id: '9k', label: '9K Cinema', width: 9216, height: 5184, staffOnly: true, note: '9216 x 5184' }
 ];
 
+const DETAILS: { id: Detail; label: string; hint: string }[] = [
+  { id: 'off', label: 'Soft', hint: 'resample only' },
+  { id: 'natural', label: 'Natural', hint: 'balanced sharpening' },
+  { id: 'crisp', label: 'Crisp', hint: 'strong edge detail' }
+];
+
+const FORMATS: { id: OutFormat; label: string; ext: string }[] = [
+  { id: 'image/png', label: 'PNG (lossless)', ext: 'png' },
+  { id: 'image/webp', label: 'WebP (smaller)', ext: 'webp' },
+  { id: 'image/jpeg', label: 'JPG (smallest)', ext: 'jpg' }
+];
+
+const extFor = (type: string) => FORMATS.find(f => f.id === type)?.ext || 'png';
+
 const prettyBytes = (n: number) => {
   if (!n) return '0 B';
   if (n < 1024) return n + ' B';
@@ -26,66 +42,80 @@ const prettyBytes = (n: number) => {
   return (n / 1048576).toFixed(1) + ' MB';
 };
 
-function drawStep(src: HTMLCanvasElement | HTMLImageElement, w: number, h: number) {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(w));
-  c.height = Math.max(1, Math.round(h));
-  const ctx = c.getContext('2d');
-  if (!ctx) throw new Error('canvas unavailable');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(src, 0, 0, c.width, c.height);
-  return c;
+class JobError extends Error {}
+
+function runInWorker(job: UpscaleJob, onProgress: (pct: number, stage: string) => void) {
+  return new Promise<UpscaleResult>((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL('./upscale.worker.ts', import.meta.url), { type: 'module' });
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    worker.onmessage = ev => {
+      const m = ev.data;
+      if (m.type === 'progress') onProgress(m.pct, m.stage);
+      else if (m.type === 'done') { worker.terminate(); resolve(m.result); }
+      else if (m.type === 'error') { worker.terminate(); reject(new JobError(m.message)); }
+    };
+    worker.onerror = ev => {
+      ev.preventDefault();
+      worker.terminate();
+      reject(new Error('worker unavailable'));
+    };
+    worker.postMessage(job, [job.bitmap]);
+  });
 }
 
-function sharpen(canvas: HTMLCanvasElement, amount: number) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
-  const w = canvas.width;
-  const h = canvas.height;
-  if (w * h > 40000000) return canvas;
-  const src = ctx.getImageData(0, 0, w, h);
-  const out = ctx.createImageData(w, h);
-  const s = src.data;
-  const d = out.data;
-  const k = amount;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
-        d[i] = s[i]; d[i + 1] = s[i + 1]; d[i + 2] = s[i + 2]; d[i + 3] = s[i + 3];
-        continue;
-      }
-      for (let c = 0; c < 3; c++) {
-        const p = i + c;
-        const centre = s[p];
-        const around = s[p - 4] + s[p + 4] + s[p - w * 4] + s[p + w * 4];
-        const v = centre * (1 + 4 * k) - around * k;
-        d[p] = v < 0 ? 0 : v > 255 ? 255 : v;
-      }
-      d[i + 3] = s[i + 3];
-    }
-  }
-  ctx.putImageData(out, 0, 0);
-  return canvas;
+interface OutState {
+  url: string;
+  blob: Blob;
+  w: number;
+  h: number;
+  scale: number;
+  ms: number;
+  type: string;
 }
+
+interface SavedView {
+  item: SavedUpscale;
+  thumbUrl: string;
+}
+
+const saveBlob = (blob: Blob, name: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+};
 
 export default function ImageUpscale() {
   const navigate = useNavigate();
   const [me] = useState(() => { try { return localStorage.getItem('batprox-user') || ''; } catch { return ''; } });
+  const owner = me || 'guest';
   const [isStaff, setIsStaff] = useState(false);
   const [tier, setTier] = useState<TierId>('4k');
+  const [detail, setDetail] = useState<Detail>('natural');
+  const [denoise, setDenoise] = useState(false);
+  const [format, setFormat] = useState<OutFormat>('image/png');
   const [file, setFile] = useState<File | null>(null);
   const [srcUrl, setSrcUrl] = useState('');
   const [srcDims, setSrcDims] = useState({ w: 0, h: 0 });
-  const [outUrl, setOutUrl] = useState('');
-  const [outDims, setOutDims] = useState({ w: 0, h: 0 });
-  const [outSize, setOutSize] = useState(0);
+  const [out, setOut] = useState<OutState | null>(null);
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
   const [stage, setStage] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [compare, setCompare] = useState(50);
+  const [viewer, setViewer] = useState<'' | 'fit' | 'full'>('');
+  const [saved, setSaved] = useState<SavedView[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
@@ -93,12 +123,40 @@ export default function ImageUpscale() {
     const token = (() => { try { return localStorage.getItem('batprox-token') || ''; } catch { return ''; } })();
     if (!token) return;
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : null)
+      .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d) setIsStaff(!!d.isAdmin || !!d.isMod); })
       .catch(() => {});
   }, []);
 
+  const refreshSaved = useCallback(() => {
+    listSaved(owner)
+      .then(items => setSaved(items.map(item => ({ item, thumbUrl: URL.createObjectURL(item.thumb) }))))
+      .catch(() => setSaved([]));
+  }, [owner]);
+
+  useEffect(() => { refreshSaved(); }, [refreshSaved]);
+  useEffect(() => () => { saved.forEach(s => URL.revokeObjectURL(s.thumbUrl)); }, [saved]);
   useEffect(() => () => { if (srcUrl) URL.revokeObjectURL(srcUrl); }, [srcUrl]);
+  useEffect(() => () => { if (out) URL.revokeObjectURL(out.url); }, [out]);
+
+  const accept = useCallback((f: File) => {
+    if (!f.type.startsWith('image/')) { setError('That file is not an image.'); return; }
+    if (f.size > 25 * 1024 * 1024) { setError('That image is over 25 MB. Try a smaller one.'); return; }
+    setError('');
+    setNotice('');
+    setOut(null);
+    setPct(0);
+    setStage('');
+    setCompare(50);
+    setFile(f);
+    setSrcDims({ w: 0, h: 0 });
+    const url = URL.createObjectURL(f);
+    setSrcUrl(url);
+    const img = new Image();
+    img.onload = () => setSrcDims({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => setError('Your browser could not read that image format.');
+    img.src = url;
+  }, []);
 
   useEffect(() => {
     const has = (e: DragEvent) => Array.from(e.dataTransfer?.types || []).includes('Files');
@@ -113,93 +171,90 @@ export default function ImageUpscale() {
       const f = e.dataTransfer?.files?.[0];
       if (f) accept(f);
     };
+    const paste = (e: ClipboardEvent) => {
+      const item = Array.from(e.clipboardData?.items || []).find(i => i.kind === 'file' && i.type.startsWith('image/'));
+      const f = item?.getAsFile();
+      if (!f) return;
+      e.preventDefault();
+      accept(new File([f], f.name && f.name !== 'image.png' ? f.name : 'pasted-image.png', { type: f.type }));
+    };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
     window.addEventListener('drop', drop);
+    window.addEventListener('paste', paste);
     return () => {
       window.removeEventListener('dragenter', enter);
       window.removeEventListener('dragover', over);
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('drop', drop);
+      window.removeEventListener('paste', paste);
     };
-  }, []);
+  }, [accept]);
 
-  const accept = (f: File) => {
-    if (!f.type.startsWith('image/')) { setError('That file is not an image.'); return; }
-    if (f.size > 25 * 1024 * 1024) { setError('That image is over 25 MB. Try a smaller one.'); return; }
-    setError('');
-    setOutUrl('');
-    setOutSize(0);
-    setPct(0);
-    setStage('');
-    setFile(f);
-    const url = URL.createObjectURL(f);
-    setSrcUrl(url);
-    const img = new Image();
-    img.onload = () => setSrcDims({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = url;
-  };
+  useEffect(() => {
+    if (!viewer) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setViewer(''); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewer]);
 
   const activeTier = TIERS.find(t => t.id === tier) || TIERS[0];
   const locked = activeTier.staffOnly && !isStaff;
+  const plan = srcDims.w ? fitSize(srcDims.w, srcDims.h, activeTier.width, activeTier.height) : null;
+  const tooBig = !!plan && plan.scale <= 1;
 
   const run = async () => {
     if (!file || busy) return;
     if (locked) { setError('That quality is for staff only.'); return; }
+    if (tooBig) { setError(`This image is already ${srcDims.w} x ${srcDims.h}. Pick a higher quality.`); return; }
     setBusy(true);
     setError('');
-    setOutUrl('');
+    setNotice('');
+    setOut(null);
     setPct(0);
-    const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+    setStage('Starting');
+    const onProgress = (p: number, s: string) => { setPct(p); setStage(s); };
+    const makeJob = async (): Promise<UpscaleJob> => ({
+      bitmap: await createImageBitmap(file),
+      boxW: activeTier.width,
+      boxH: activeTier.height,
+      detail,
+      denoise,
+      format
+    });
     try {
-      setStage('Reading image');
-      const img = await new Promise<HTMLImageElement>((res, rej) => {
-        const i = new Image();
-        i.onload = () => res(i);
-        i.onerror = () => rej(new Error('Could not decode that image.'));
-        i.src = srcUrl;
-      });
-      setPct(10);
-      await wait(16);
-
-      const scale = Math.min(activeTier.width / img.naturalWidth, activeTier.height / img.naturalHeight);
-      const targetW = Math.round(img.naturalWidth * scale);
-      const targetH = Math.round(img.naturalHeight * scale);
-
-      setStage('Upscaling');
-      let canvas = drawStep(img, img.naturalWidth, img.naturalHeight);
-      let curW = img.naturalWidth;
-      let curH = img.naturalHeight;
-      let guard = 0;
-      while (curW < targetW && guard < 12) {
-        const nextW = Math.min(targetW, Math.round(curW * 1.6));
-        const nextH = Math.round(nextW * (targetH / targetW));
-        canvas = drawStep(canvas, nextW, nextH);
-        curW = nextW;
-        curH = nextH;
-        guard += 1;
-        setPct(10 + Math.round((curW / targetW) * 60));
-        await wait(16);
+      let result: UpscaleResult;
+      try {
+        if (typeof OffscreenCanvas === 'undefined' || typeof Worker === 'undefined') throw new Error('no worker');
+        result = await runInWorker(await makeJob(), onProgress);
+      } catch (e) {
+        if (e instanceof JobError) throw e;
+        result = await runUpscale(await makeJob(), domSurface, domEncode, onProgress);
       }
-      if (curW !== targetW || curH !== targetH) canvas = drawStep(canvas, targetW, targetH);
-
-      setStage('Sharpening detail');
-      setPct(78);
-      await wait(16);
-      sharpen(canvas, 0.38);
-
-      setStage('Encoding');
-      setPct(90);
-      await wait(16);
-      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
-      if (!blob) throw new Error('Could not encode the result.');
-      if (outUrl) URL.revokeObjectURL(outUrl);
-      setOutUrl(URL.createObjectURL(blob));
-      setOutDims({ w: canvas.width, h: canvas.height });
-      setOutSize(blob.size);
-      setPct(100);
-      setStage('Done');
+      const type = result.blob.type || format;
+      setOut({ url: URL.createObjectURL(result.blob), blob: result.blob, w: result.w, h: result.h, scale: result.scale, ms: result.ms, type });
+      setCompare(50);
+      const base = file.name.replace(/\.[^.]+$/, '') || 'image';
+      try {
+        await saveUpscale({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          user: owner,
+          name: `${base}-${tier}.${extFor(type)}`,
+          tier,
+          w: result.w,
+          h: result.h,
+          size: result.blob.size,
+          type,
+          at: Date.now(),
+          blob: result.blob,
+          thumb: result.thumb
+        });
+        setNotice('Saved to your upscales on this device.');
+        refreshSaved();
+      } catch {
+        setNotice('Done. Your browser storage is full, so this one was not saved. Download it to keep it.');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upscaling failed.');
       setPct(0);
@@ -209,38 +264,57 @@ export default function ImageUpscale() {
   };
 
   const download = () => {
-    if (!outUrl || !file) return;
+    if (!out || !file) return;
     const base = file.name.replace(/\.[^.]+$/, '') || 'image';
-    const a = document.createElement('a');
-    a.href = outUrl;
-    a.download = `${base}-${tier}.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    saveBlob(out.blob, `${base}-${tier}.${extFor(out.type)}`);
   };
 
   const reset = () => {
-    if (srcUrl) URL.revokeObjectURL(srcUrl);
-    if (outUrl) URL.revokeObjectURL(outUrl);
     setFile(null);
     setSrcUrl('');
-    setOutUrl('');
+    setOut(null);
     setSrcDims({ w: 0, h: 0 });
-    setOutDims({ w: 0, h: 0 });
-    setOutSize(0);
     setPct(0);
     setStage('');
     setError('');
+    setNotice('');
   };
 
+  const deleteSaved = async (id: string) => {
+    try { await removeSaved(id); } catch {}
+    refreshSaved();
+  };
+
+  const seg = (on: boolean) =>
+    `flex-1 px-3 py-2.5 rounded-lg text-left transition-colors border ${on ? 'border-[var(--bp-accent)] bg-white/[0.07]' : 'border-white/10 bg-black/30 hover:border-white/25'}`;
+
   return (
-    <div className="relative min-h-screen w-full bg-black overflow-hidden font-sans text-white">
+    <div className="relative min-h-screen w-full bg-black overflow-x-hidden font-sans text-white">
       <AmbientBg />
       <SideRail />
       {dragging && (
         <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-black/65 backdrop-blur-sm">
           <div className="absolute inset-5 rounded-3xl border-2 border-dashed" style={{ borderColor: 'var(--bp-accent)' }} />
           <p className="text-2xl font-semibold">Drop your image</p>
+        </div>
+      )}
+
+      {viewer && out && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
+          <div className="h-14 px-5 flex items-center gap-2 border-b border-white/10 shrink-0">
+            <p className="text-sm font-semibold">{out.w} x {out.h}</p>
+            <p className="text-xs text-white/40">{viewer === 'full' ? 'actual pixels, scroll to pan' : 'fit to screen'}</p>
+            <button onClick={() => setViewer(viewer === 'full' ? 'fit' : 'full')} className="ml-auto h-9 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.14] border border-white/10 text-sm">
+              {viewer === 'full' ? 'Fit to screen' : 'Actual size'}
+            </button>
+            <button onClick={download} className="h-9 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.14] border border-white/10 text-sm">Download</button>
+            <button onClick={() => setViewer('')} className="h-9 w-9 rounded-full bg-white/[0.07] hover:bg-white/[0.14] border border-white/10 flex items-center justify-center" aria-label="Close">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+          <div className={`flex-1 overflow-auto ${viewer === 'fit' ? 'flex items-center justify-center p-4' : ''}`}>
+            <img src={out.url} alt="" className={viewer === 'full' ? 'max-w-none' : 'max-w-full max-h-full object-contain'} />
+          </div>
         </div>
       )}
 
@@ -253,10 +327,10 @@ export default function ImageUpscale() {
           <p className="text-sm font-semibold leading-tight">Image to 4K</p>
           <p className="text-[11px] text-white/35">{me ? `signed in as ${me}` : 'not signed in'}{isStaff ? ' · staff' : ''}</p>
         </div>
-        {outUrl && <button onClick={reset} className="ml-auto h-9 px-4 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-sm text-white/70 hover:text-white transition-colors">New image</button>}
+        {file && !busy && <button onClick={reset} className="ml-auto h-9 px-4 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-sm text-white/70 hover:text-white transition-colors">New image</button>}
       </header>
 
-      <main className="relative z-10 max-w-4xl mx-auto px-5 sm:pl-24 sm:pr-8 py-10">
+      <main className="relative z-10 max-w-5xl mx-auto px-5 sm:pl-24 sm:pr-8 py-10">
         {!file ? (
           <button
             onClick={() => inputRef.current?.click()}
@@ -268,7 +342,7 @@ export default function ImageUpscale() {
               </svg>
             </div>
             <p className="text-xl font-semibold">Drop your image here</p>
-            <p className="text-sm text-white/40 mt-2">or click to choose one. PNG, JPG, WebP or GIF, up to 25 MB.</p>
+            <p className="text-sm text-white/40 mt-2">click to choose one, or paste with Ctrl+V. PNG, JPG, WebP or GIF, up to 25 MB.</p>
           </button>
         ) : (
           <div className="grid gap-5 md:grid-cols-2">
@@ -285,12 +359,33 @@ export default function ImageUpscale() {
 
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] overflow-hidden">
               <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center">
-                <p className="text-[11px] uppercase tracking-widest text-white/35">Upscaled</p>
-                <p className="ml-auto text-[11px] text-white/45 tabular-nums">{outDims.w ? `${outDims.w} x ${outDims.h}` : activeTier.note}</p>
+                <p className="text-[11px] uppercase tracking-widest text-white/35">{out ? 'Before / After' : 'Upscaled'}</p>
+                <p className="ml-auto text-[11px] text-white/45 tabular-nums">
+                  {out ? `${out.w} x ${out.h}` : plan && !tooBig ? `${plan.w} x ${plan.h} · ${plan.scale.toFixed(1)}x` : activeTier.note}
+                </p>
               </div>
-              <div className="aspect-video bg-black/40 flex items-center justify-center">
-                {outUrl ? (
-                  <img src={outUrl} alt="" className="max-w-full max-h-full object-contain" />
+              <div className="relative aspect-video bg-black/40 flex items-center justify-center select-none overflow-hidden">
+                {out ? (
+                  <>
+                    <img src={out.url} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+                    <img src={srcUrl} alt="" className="absolute inset-0 w-full h-full object-contain" style={{ clipPath: `inset(0 ${100 - compare}% 0 0)` }} draggable={false} />
+                    <div className="absolute top-0 bottom-0 w-0.5 bg-white/90 shadow-[0_0_8px_rgba(0,0,0,0.6)] pointer-events-none" style={{ left: `calc(${compare}% - 1px)` }}>
+                      <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 left-1/2 w-7 h-7 rounded-full bg-white text-black flex items-center justify-center shadow-lg">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 6l-6 6 6 6M15 6l6 6-6 6" /></svg>
+                      </div>
+                    </div>
+                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 text-[10px] uppercase tracking-wider text-white/70 pointer-events-none">Before</span>
+                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-black/70 text-[10px] uppercase tracking-wider text-white/70 pointer-events-none">After</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={compare}
+                      onChange={e => setCompare(Number(e.target.value))}
+                      aria-label="Compare before and after"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
+                    />
+                  </>
                 ) : busy ? (
                   <div className="w-3/4">
                     <div className="h-2 rounded-full bg-white/[0.08] overflow-hidden">
@@ -302,46 +397,124 @@ export default function ImageUpscale() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-white/25">nothing yet</p>
+                  <p className="text-sm text-white/25">{tooBig ? 'already above this quality' : 'nothing yet'}</p>
                 )}
               </div>
-              <p className="px-4 py-2.5 text-[11px] text-white/35">{outSize ? `PNG · ${prettyBytes(outSize)}` : 'pick a quality and run it'}</p>
+              <div className="px-4 py-2.5 flex items-center gap-3 text-[11px] text-white/35">
+                <span className="truncate">
+                  {out ? `${extFor(out.type).toUpperCase()} · ${prettyBytes(out.blob.size)} · ${out.scale.toFixed(1)}x in ${(out.ms / 1000).toFixed(1)}s` : 'pick a quality and run it'}
+                </span>
+                {out && <button onClick={() => setViewer('fit')} className="ml-auto shrink-0 text-white/60 hover:text-white">View full size</button>}
+              </div>
             </div>
 
-            <div className="md:col-span-2 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-5">
-              <label className="block text-xs text-white/50 mb-2">Output quality</label>
-              <div className="flex flex-wrap items-center gap-3">
-                <select
-                  value={tier}
-                  onChange={e => { setTier(e.target.value as TierId); setError(''); }}
-                  className="flex-1 min-w-[220px] px-4 py-3 rounded-xl bg-black/50 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500/60"
-                >
-                  {TIERS.map(t => (
-                    <option key={t.id} value={t.id} className="bg-[#12121a]">
-                      {t.label} ({t.note}){t.staffOnly && !isStaff ? ' - staff only' : ''}
-                    </option>
+            <div className="md:col-span-2 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-5 space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs text-white/50 mb-2">Output quality</label>
+                  <select
+                    value={tier}
+                    onChange={e => { setTier(e.target.value as TierId); setError(''); }}
+                    disabled={busy}
+                    className="w-full px-4 py-3 rounded-xl bg-black/50 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                  >
+                    {TIERS.map(t => (
+                      <option key={t.id} value={t.id} className="bg-[#12121a]">
+                        {t.label} ({t.note}){t.staffOnly && !isStaff ? ' - staff only' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-white/50 mb-2">File format</label>
+                  <select
+                    value={format}
+                    onChange={e => setFormat(e.target.value as OutFormat)}
+                    disabled={busy}
+                    className="w-full px-4 py-3 rounded-xl bg-black/50 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                  >
+                    {FORMATS.map(f => <option key={f.id} value={f.id} className="bg-[#12121a]">{f.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-white/50 mb-2">Detail</label>
+                <div className="flex gap-2">
+                  {DETAILS.map(d => (
+                    <button key={d.id} onClick={() => setDetail(d.id)} disabled={busy} className={seg(detail === d.id)}>
+                      <span className="block text-[13px] font-medium">{d.label}</span>
+                      <span className="block text-[11px] text-white/40">{d.hint}</span>
+                    </button>
                   ))}
-                </select>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setDenoise(v => !v)}
+                disabled={busy}
+                className="flex items-center gap-3 text-left"
+                role="switch"
+                aria-checked={denoise}
+              >
+                <span className={`relative w-10 h-6 rounded-full transition-colors ${denoise ? 'bg-[var(--bp-accent)]' : 'bg-white/15'}`}>
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${denoise ? 'left-5' : 'left-1'}`} />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-medium">Clean compression noise</span>
+                  <span className="block text-[11px] text-white/40">smooths JPEG blocks and grain before upscaling, keeps edges</span>
+                </span>
+              </button>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
                 <button
                   onClick={run}
-                  disabled={busy || locked}
+                  disabled={busy || locked || tooBig || !srcDims.w}
                   className="px-6 py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-35 transition-opacity hover:opacity-90"
                   style={{ background: 'linear-gradient(135deg, var(--bp-accent), var(--bp-accent-2))' }}
                 >
-                  {busy ? 'Working..' : 'Upscale'}
+                  {busy ? `Working ${pct}%` : out ? 'Upscale again' : 'Upscale'}
                 </button>
                 <button
                   onClick={download}
-                  disabled={!outUrl}
+                  disabled={!out}
                   className="px-6 py-3 rounded-xl text-sm font-semibold bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 disabled:opacity-30 transition-colors"
                 >
                   Download
                 </button>
+                {notice && <p className="text-[12px] text-emerald-300/80">{notice}</p>}
               </div>
-              {locked && <p className="mt-3 text-[12px] text-amber-300/80">{activeTier.label} is for staff, mods and admins. 4K is available to everyone.</p>}
-              {error && <p className="mt-3 text-[12px] text-red-300">{error}</p>}
+              {locked && <p className="text-[12px] text-amber-300/80">{activeTier.label} is for staff, mods and admins. 4K is available to everyone.</p>}
+              {tooBig && !locked && <p className="text-[12px] text-amber-300/80">This image is already {srcDims.w} x {srcDims.h}, at or above {activeTier.label}.</p>}
+              {error && <p className="text-[12px] text-red-300">{error}</p>}
             </div>
           </div>
+        )}
+
+        {saved.length > 0 && (
+          <section className="mt-10">
+            <div className="flex items-baseline mb-3">
+              <h2 className="text-sm font-semibold">Your upscales</h2>
+              <p className="ml-3 text-[11px] text-white/35">saved on this device for {owner}, newest first</p>
+            </div>
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+              {saved.map(({ item, thumbUrl }) => (
+                <div key={item.id} className="rounded-xl border border-white/[0.08] bg-white/[0.025] overflow-hidden">
+                  <div className="aspect-video bg-black/40 flex items-center justify-center">
+                    <img src={thumbUrl} alt="" className="max-w-full max-h-full object-contain" />
+                  </div>
+                  <div className="px-3 py-2">
+                    <p className="text-[12px] truncate">{item.name}</p>
+                    <p className="text-[10px] text-white/35 tabular-nums">{item.w} x {item.h} · {prettyBytes(item.size)}</p>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => saveBlob(item.blob, item.name)} className="flex-1 py-1.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-[11px]">Download</button>
+                      <button onClick={() => deleteSaved(item.id)} className="px-2.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-red-500/20 text-[11px] text-white/50 hover:text-red-200">Remove</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
         <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) accept(f); }} />
       </main>
