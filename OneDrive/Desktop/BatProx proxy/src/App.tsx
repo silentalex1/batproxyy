@@ -47,6 +47,19 @@ function Dashboard() {
   useEffect(() => {
     try { localStorage.setItem('bp-home-design', homeDesign); } catch {}
   }, [homeDesign]);
+  useEffect(() => {
+    const onDesign = (e: Event) => {
+      const next = (e as CustomEvent).detail;
+      if (next === 'classic' || next === 'bento') setHomeDesign(next);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'bp-home-design') return;
+      if (e.newValue === 'classic' || e.newValue === 'bento') setHomeDesign(e.newValue);
+    };
+    window.addEventListener('bp-home-design', onDesign);
+    window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener('bp-home-design', onDesign); window.removeEventListener('storage', onStorage); };
+  }, []);
   const [suggestionText, setSuggestionText] = useState('');
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [suggestionGenre, setSuggestionGenre] = useState('Feedback suggestions');
@@ -301,13 +314,13 @@ function Dashboard() {
   const designSwitcher = (
     <div className="mt-6 flex items-center gap-2">
       <button
-        onClick={() => setHomeDesign('classic')}
+        onClick={() => { setHomeDesign('classic'); try { window.dispatchEvent(new CustomEvent('bp-home-design', { detail: 'classic' })); } catch {} }}
         className={`px-4 py-2 rounded-full text-xs font-medium border transition-colors ${design === 'classic' ? 'bg-white/[0.1] border-white/20 text-white' : 'bg-white/[0.03] border-white/[0.08] text-white/50 hover:text-white/80'}`}
       >
         Old homepage design
       </button>
       <button
-        onClick={() => setHomeDesign('bento')}
+        onClick={() => { setHomeDesign('bento'); try { window.dispatchEvent(new CustomEvent('bp-home-design', { detail: 'bento' })); } catch {} }}
         className={`px-4 py-2 rounded-full text-xs font-medium border transition-colors ${design === 'bento' ? 'bg-white/[0.1] border-white/20 text-white' : 'bg-white/[0.03] border-white/[0.08] text-white/50 hover:text-white/80'}`}
       >
         New homepage design

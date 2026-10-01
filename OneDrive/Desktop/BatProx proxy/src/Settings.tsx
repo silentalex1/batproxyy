@@ -293,6 +293,15 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
   }, [isOpen]);
 
   const profileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [homeDesign, setHomeDesign] = useState<'classic' | 'bento'>(() => {
+    try { return localStorage.getItem('bp-home-design') === 'classic' ? 'classic' : 'bento'; } catch { return 'bento'; }
+  });
+
+  const applyHomeDesign = (next: 'classic' | 'bento') => {
+    setHomeDesign(next);
+    try { localStorage.setItem('bp-home-design', next); } catch {}
+    try { window.dispatchEvent(new CustomEvent('bp-home-design', { detail: next })); } catch {}
+  };
 
   const updateSettings = (next: SettingsData) => {
     setSettings(next);
@@ -746,6 +755,24 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose }) => {
 
             {activeSection === 'background' && (
               <div className="max-w-2xl">
+                <p className="text-sm font-medium text-white/90 mb-1">Homepage design</p>
+                <p className="text-xs text-white/40 mb-3">Switch between the new homepage and the old one.</p>
+                <div className="flex flex-wrap gap-2.5 mb-7">
+                  <button
+                    onClick={() => applyHomeDesign('classic')}
+                    className={`flex-1 min-w-[180px] text-left px-4 py-3 rounded-xl border transition-colors ${homeDesign === 'classic' ? 'border-[var(--bp-accent)] bg-white/[0.06]' : 'border-white/10 bg-white/[0.03] hover:border-white/25'}`}
+                  >
+                    <span className="block text-[13px] font-medium text-white">Old homepage design</span>
+                    <span className="block text-[11px] text-white/40 mt-0.5">clock, icon row and wide nav</span>
+                  </button>
+                  <button
+                    onClick={() => applyHomeDesign('bento')}
+                    className={`flex-1 min-w-[180px] text-left px-4 py-3 rounded-xl border transition-colors ${homeDesign === 'bento' ? 'border-[var(--bp-accent)] bg-white/[0.06]' : 'border-white/10 bg-white/[0.03] hover:border-white/25'}`}
+                  >
+                    <span className="block text-[13px] font-medium text-white">New homepage design</span>
+                    <span className="block text-[11px] text-white/40 mt-0.5">search card, sites and tools panels</span>
+                  </button>
+                </div>
                 <p className="text-sm font-medium text-white/90 mb-1">Pick a background or a custom background. This applies to every page.</p>
                 <p className="text-xs text-white/40 mb-5">Designs tint to your theme.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
