@@ -1,27 +1,150 @@
 const AI_BOT='batprox-ai';
-const FILTER_WORDS=[
-  /^n+[il]+g{2,}[e3]+r+[sz]*$/,
-  /^f+[a4]+g+[o0]+t+[sz]*$/,
-  /^f+[a4]+g+[sz]*$/,
-  /^b+[il]+t+c+h+[e3]*[sz]*$/
+const FILTER_SUB=[
+  /n+[il]+g{2,}(?:e+r+|a+h*|u+h+)/,
+  /f+a+g{2,}o+t+/,
+  /b+i+t+c+h+/
 ];
-function hitsFilter(w){ return !!w && FILTER_WORDS.some(r=>r.test(w)); }
+const FILTER_WHOLE=[
+  /^n+[il]+g+a+h*[sz]*$/,
+  /^n+[il]+g{2,}[sz]*$/,
+  /^f+a+g+[sz]*$/,
+  /^f+a+g+o+t+[sz]*$/,
+  /^k+[il]+k+e+[sz]*$/,
+  /^s+p+[il]+c+[sz]*$/,
+  /^c+h+[il]+n+k+[sz]*$/,
+  /^w+e+t+b+a+c+k+[sz]*$/,
+  /^b+e+a+n+e+r+[sz]*$/,
+  /^g+o+o+k+[sz]*$/,
+  /^r+a+g+h+e+a+d+[sz]*$/,
+  /^t+o+w+e+l+h+e+a+d+[sz]*$/,
+  /^t+r+a+n+n+(?:y+|i+e+[sz]+)$/
+];
+const FILTER_ALLOW=new Set(['snigger','sniggers','sniggered','sniggering','niggard','niggards','niggardly','niggardliness']);
+const FILTER_HOMO={'\u0430':'a','\u0435':'e','\u043e':'o','\u0440':'p','\u0441':'c','\u0443':'y','\u0445':'x','\u0456':'i','\u0457':'i','\u0458':'j','\u0455':'s','\u0501':'d','\u0261':'g','\u0131':'i','\u04cf':'l','\u03b1':'a','\u03b5':'e','\u03b9':'i','\u03bf':'o','\u03c1':'p','\u03c4':'t','\u03ba':'k','\u03bd':'v'};
+const FILTER_JOIN=FILTER_SUB.slice(0,2);
+const FILTER_ALLOW_I=new Set([...FILTER_ALLOW].map(w=>w.replace(/l/g,'i')));
+function allowed(w){ return FILTER_ALLOW.has(w)||FILTER_ALLOW_I.has(w); }
+function tokenHit(w){ return !!w && !allowed(w) && (FILTER_SUB.some(r=>r.test(w)) || FILTER_WHOLE.some(r=>r.test(w))); }
+function joinHit(w){ return !!w && !allowed(w) && FILTER_JOIN.some(r=>r.test(w)); }
 function scanVariant(low){
   const words=low.split(/\s+/).map(w=>w.replace(/[^a-z]/g,'')).filter(Boolean);
-  if(words.some(hitsFilter)) return true;
-  let run='';
-  for(const w of words){
-    if(w.length===1){ run+=w; if(hitsFilter(run)) return true; }
-    else run='';
+  for(let i=0;i<words.length;i++){
+    if(allowed(words[i])) continue;
+    if(tokenHit(words[i])) return true;
+    let joined=words[i];
+    let spelled=words[i].length===1;
+    for(let k=i+1;k<Math.min(words.length,i+8);k++){
+      if(words[k].length>4||allowed(words[k])) break;
+      joined+=words[k];
+      spelled=spelled&&words[k].length===1;
+      if(joined.length>20) break;
+      if(joinHit(joined)) return true;
+      if(spelled&&FILTER_WHOLE.some(r=>r.test(joined))) return true;
+    }
   }
-  const joined=low.replace(/[^a-z]/g,'');
-  return joined.length<=12 && hitsFilter(joined);
+  const letters=words.filter(w=>!allowed(w)).join('');
+  return letters.length<=24 && joinHit(letters);
+}
+function normChat(text){
+  return String(text||'').normalize('NFKD').replace(/[\u0300-\u036f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u3164\ufe00-\ufe0f\ufeff\uffa0]/g,'').toLowerCase().replace(/[\u0250-\u02af\u0370-\u03ff\u0400-\u052f]/g,c=>FILTER_HOMO[c]||c);
 }
 function isFilteredText(text){
-  const base=String(text||'').normalize('NFKD').replace(/[\u0300-\u036f\u200B-\u200D\uFEFF]/g,'').toLowerCase();
+  const base=normChat(text);
   if(scanVariant(base)) return true;
-  const leet=base.replace(/[1!|]/g,'i').replace(/3/g,'e').replace(/[@4]/g,'a').replace(/0/g,'o').replace(/\$/g,'s');
-  return leet!==base && scanVariant(leet);
+  const leet=base.replace(/[1!|\u00a1]/g,'i').replace(/3/g,'e').replace(/[@4]/g,'a').replace(/0/g,'o').replace(/[5$]/g,'s').replace(/7/g,'t').replace(/[69]/g,'g').replace(/8/g,'b');
+  if(leet!==base && scanVariant(leet)) return true;
+  const ell=leet.replace(/l/g,'i');
+  return ell!==leet && scanVariant(ell);
+}
+
+const CHAT_OWNER='realalex';
+const MUTED_MSG='You cannot speak you have been muted from an admin.';
+const MUTE_DEFAULT_MS=300000;
+function parseMuteTime(v){
+  const m=/^(\d+(?:\.\d+)?)(s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)?$/i.exec(String(v||''));
+  if(!m) return 0;
+  const n=parseFloat(m[1]);
+  const u=(m[2]||'m').toLowerCase();
+  const mult=u[0]==='s'?1000:u[0]==='h'?3600000:u[0]==='d'?86400000:u[0]==='w'?604800000:60000;
+  return Math.min(Math.round(n*mult), 365*86400000);
+}
+async function chatMuteOf(chatGet, chatPut, name){
+  const k=String(name||'').toLowerCase();
+  if(!k) return null;
+  const mutes=await chatGet('chat_mutes',{});
+  const m=mutes&&mutes[k];
+  if(!m) return null;
+  if(!(Number(m.until)>Date.now())){ delete mutes[k]; await chatPut('chat_mutes',mutes); return null; }
+  return m;
+}
+async function runChatCommand(o){
+  const {t, rm, h, kv, chatGet, chatPut}=o;
+  const parts=t.slice(1).trim().split(/\s+/).filter(Boolean);
+  const cmd=(parts.shift()||'').toLowerCase();
+  const done=(extra)=>new Response(JSON.stringify(Object.assign({success:true, command:true}, extra||{})),{headers:h});
+  const fail=(msg)=>new Response(JSON.stringify({success:false, command:true, error:msg}),{status:400, headers:h});
+  const say=async(text)=>{
+    const after=await chatGet('chat_messages',[]);
+    const nid=after.length?Math.max(...after.map(m=>m.id||0))+1:1;
+    after.push({id:nid, room:rm, user:AI_BOT, display:AI_BOT, text, ts:Date.now()});
+    await chatPut('chat_messages',trimRooms(after));
+  };
+  const findUser=async(raw)=>{
+    const want=String(raw||'').replace(/^@+/,'').trim().toLowerCase();
+    if(!want) return '';
+    try{
+      const rawU=kv?await kv.get('users'):null;
+      const arr=rawU?JSON.parse(rawU):[];
+      const f=arr.find(x=>x&&String(x.username).toLowerCase()===want);
+      if(f) return String(f.username);
+    }catch{}
+    const names=await chatGet('chat_names',{});
+    return Object.keys(names||{}).find(u=>u.toLowerCase()===want||String(names[u]||'').toLowerCase()===want)||'';
+  };
+  if(cmd==='mute'){
+    if(!parts.length) return fail('Use it like this: /mute @user 10m reason');
+    const name=await findUser(parts.shift());
+    if(!name) return fail('I could not find that user.');
+    const low=name.toLowerCase();
+    if(low===CHAT_OWNER||low==='admin'||low===AI_BOT) return fail('That account cannot be muted.');
+    let ms=parseMuteTime(parts[0]);
+    const timed=ms>0;
+    if(timed) parts.shift(); else ms=MUTE_DEFAULT_MS;
+    const reason=parts.join(' ').trim().slice(0,200);
+    if(reason&&isFilteredText(reason)) return fail('That reason has a filtered word in it.');
+    const until=Date.now()+ms;
+    const mutes=await chatGet('chat_mutes',{});
+    mutes[low]={user:name, until, reason, by:CHAT_OWNER, at:Date.now()};
+    await chatPut('chat_mutes',mutes);
+    await say(reason?'@'+name+' has been muted for '+reason:(timed?'@'+name+' has been muted.':'@'+name+' has been timed for 5mins.'));
+    return done({muted:name, until});
+  }
+  if(cmd==='unmute'){
+    if(!parts.length) return fail('Use it like this: /unmute @user');
+    const name=await findUser(parts.shift());
+    if(!name) return fail('I could not find that user.');
+    const low=name.toLowerCase();
+    const mutes=await chatGet('chat_mutes',{});
+    if(!mutes[low]||!(Number(mutes[low].until)>Date.now())){
+      if(mutes[low]){ delete mutes[low]; await chatPut('chat_mutes',mutes); }
+      return fail('@'+name+' is not muted.');
+    }
+    delete mutes[low];
+    await chatPut('chat_mutes',mutes);
+    await say('@'+name+' has been unmuted.');
+    return done({unmuted:name});
+  }
+  if(cmd==='clear'){
+    const n=parseInt(parts[0]||'',10);
+    if(!(n>=1)) return fail('Use it like this: /clear 10');
+    const count=Math.min(n,500);
+    const all=await chatGet('chat_messages',[]);
+    const drop=new Set();
+    for(let i=all.length-1;i>=0&&drop.size<count;i--) if(all[i]&&all[i].room===rm) drop.add(i);
+    await chatPut('chat_messages',all.filter((_,i)=>!drop.has(i)));
+    return done({cleared:drop.size});
+  }
+  return fail('Unknown command. Use /mute, /unmute or /clear.');
 }
 
 const VALID_CODES = new Set(['BATPROX-2026','WELCOME-BAT','NIGHT-PROX','FOX-CORE','batprox-admin$$']);
@@ -262,6 +385,12 @@ function stripCodeComments(text){
   joined=joined.replace(/\n{3,}/g,'\n\n');
   return joined;
 }
+function aiText(c){
+  if(c===null||c===undefined) return '';
+  if(typeof c==='string') return c;
+  if(Array.isArray(c)) return c.map(x=>typeof x==='string'?x:(x&&typeof x.text==='string'?x.text:'')).join('');
+  try{ return JSON.stringify(c); }catch{ return ''; }
+}
 async function askBatprox(kv, env, messages, want){
   let hasImages=false;
   try{ for(const m of (messages||[])) if(m&&typeof m.content!=='string'&&Array.isArray(m.content)) { for(const c of m.content) if(c&&c.type==='image_url') hasImages=true; } }catch{}
@@ -276,7 +405,7 @@ async function askBatprox(kv, env, messages, want){
       clearTimeout(tmr);
       if(r.ok){
         const d=await r.json().catch(()=>null);
-        const out=d?.message?.content||'';
+        const out=aiText(d?.message?.content);
         if(out) return {text:out, backend:'local'};
       }
     }catch{}
@@ -302,7 +431,7 @@ async function askBatprox(kv, env, messages, want){
         clearTimeout(tmr);
         if(!r.ok) continue;
         const d=await r.json().catch(()=>null);
-        const out=d?.choices?.[0]?.message?.content||'';
+        const out=aiText(d?.choices?.[0]?.message?.content);
         if(out) return {text:out, backend:'inferforge'};
       }catch{}
     }
@@ -877,7 +1006,7 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true, domains:list}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
-  if(url.pathname==='/api/music/library' || url.pathname==='/api/music/like' || url.pathname==='/api/music/playlists'){
+  if(url.pathname==='/api/music/library' || url.pathname==='/api/music/like' || url.pathname==='/api/music/playlists' || url.pathname==='/api/music/play' || url.pathname==='/api/music/ai'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const send=(o,s)=>new Response(JSON.stringify(o),{status:s||200, headers:h});
     const who=await tokenPayload(request, env);
@@ -888,19 +1017,93 @@ function blockedHost(host){
       const id=String(t.id||'').slice(0,24);
       if(!/^[A-Za-z0-9]+$/.test(id)) return null;
       const art=String(t.artwork||'');
-      return {id, title:String(t.title||'Untitled').slice(0,200), artist:String(t.artist||'Unknown artist').slice(0,120), handle:String(t.handle||'').slice(0,60), artwork:/^https:\/\/[^\s"'<>]{1,400}$/.test(art)?art:'', duration:Math.max(0,Math.min(86400,Math.round(Number(t.duration)||0))), genre:String(t.genre||'').slice(0,40), addedAt:Date.now()};
+      return {id, title:String(t.title||'Untitled').slice(0,200), artist:String(t.artist||'Unknown artist').slice(0,120), handle:String(t.handle||'').slice(0,60), artwork:/^https:\/\/[^\s"'<>]{1,400}$/.test(art)?art:'', duration:Math.max(0,Math.min(86400,Math.round(Number(t.duration)||0))), genre:String(t.genre||'').slice(0,40), mood:String(t.mood||'').slice(0,40), tags:String(t.tags||'').slice(0,120), addedAt:Date.now()};
     };
-    const lib={liked:[],playlists:[]};
+    const lib={liked:[],playlists:[],plays:[]};
     try{
       const raw=kv?await kv.get(key):null;
-      if(raw){ const p=JSON.parse(raw); if(p&&typeof p==='object'){ if(Array.isArray(p.liked)) lib.liked=p.liked; if(Array.isArray(p.playlists)) lib.playlists=p.playlists; } }
+      if(raw){ const p=JSON.parse(raw); if(p&&typeof p==='object'){ if(Array.isArray(p.liked)) lib.liked=p.liked; if(Array.isArray(p.playlists)) lib.playlists=p.playlists; if(Array.isArray(p.plays)) lib.plays=p.plays; } }
     }catch{}
     if(url.pathname==='/api/music/library' && request.method==='GET') return send(lib);
     if(request.method!=='POST') return send({error:'Method not allowed'},405);
     if(!rl('music:'+who.username, 90, 60000)) return send({error:'Too many changes, slow down a moment'},429);
     let body={};
     try{ body=await request.json(); }catch{ return send({error:'Invalid JSON'},400); }
-    if(url.pathname==='/api/music/like'){
+    if(url.pathname==='/api/music/ai'){
+      if(!rl('musicai:'+who.username, 8, 60000)) return send({error:'BatProx AI needs a short break. Try again in a minute.'},429);
+      const prompt=String(body.prompt||'').replace(/\s+/g,' ').trim().slice(0,300);
+      if(prompt&&isFilteredText(prompt)) return send({error:'That word is filtered.'},400);
+      const top=lib.plays.slice().sort((a,b)=>(b.n||0)-(a.n||0)||(b.last||0)-(a.last||0)).slice(0,12);
+      const liked=lib.liked.slice(0,12);
+      if(!prompt&&!top.length&&!liked.length) return send({error:'Listen to a few songs or heart some first, then BatProx AI can learn your taste.'},400);
+      const line=(x)=>'"'+String(x.title||'').slice(0,70)+'" by '+String(x.artist||'').slice(0,40)+(x.genre?' ['+x.genre+(x.mood?', '+x.mood:'')+']':'')+(x.n?' played '+x.n+'x':'');
+      const tally=(list,f)=>{ const m={}; for(const x of list){ const v=String(f(x)||'').trim(); if(v) m[v]=(m[v]||0)+(x.n||1); } return Object.keys(m).sort((a,b)=>m[b]-m[a]); };
+      const pool=top.concat(liked);
+      const artists=tally(pool,x=>x.artist).slice(0,5);
+      const genres=tally(pool,x=>x.genre).slice(0,4);
+      const moods=tally(pool,x=>x.mood).slice(0,3);
+      const ask='You are BatProx AI inside the BatProx music player. The music catalog is Audius, which is mostly independent artists.'
+        +(top.length?' The listener plays these the most:'+nlj(top.map(line)):'')
+        +(liked.length?' They hearted:'+nlj(liked.map(line)):'')
+        +(prompt?' Their request: "'+prompt+'".':' They want a fresh playlist based on their taste, with songs they have not heard yet.')
+        +' Answer in exactly three lines and nothing else.'
+        +nlj(['REPLY: one or two friendly sentences about the picks','NAME: a short playlist name','QUERIES: 6 to 8 Audius searches separated by | where each is an artist name, genre, mood or style of 1 to 4 words'])
+        +nlj(['Mix close matches with a few that stretch their taste.']);
+      let reply='', name='', queries=[], fromAi=false;
+      try{
+        const {text:out}=await askBatprox(kv, env, [{role:'user', content:ask}]);
+        const lines=String(out||'').split(/\n+/).map(l=>l.replace(/^[\s*#>-]+/,'').trim()).filter(Boolean);
+        const label=(re)=>{ const l=lines.find(x=>re.test(x)); return l?l.replace(re,'').replace(/\*+/g,'').trim():''; };
+        const qLine=label(/^queries\s*\**\s*:\s*/i)||lines.find(l=>l.split('|').length>=3)||'';
+        const loose=lines.filter(l=>l!==qLine&&!/^(reply|name|queries)\s*\**\s*:/i.test(l)&&l.split('|').length<3);
+        reply=(label(/^reply\s*\**\s*:\s*/i)||loose[0]||'').replace(/\s+/g,' ').trim().slice(0,400);
+        name=(label(/^name\s*\**\s*:\s*/i)||loose.find(l=>l!==loose[0]&&l.length<=60)||'').replace(/^["']|["']$/g,'').replace(/\s+/g,' ').trim().slice(0,60);
+        queries=qLine.replace(/^queries\s*:\s*/i,'').split(/\s*[|,]\s*/).map(q=>q.replace(/[^\p{L}\p{N}&' .-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,50)).filter(q=>q.length>1&&!isFilteredText(q));
+        fromAi=queries.length>0;
+      }catch{}
+      if(reply&&isFilteredText(reply)) reply='';
+      if(name&&isFilteredText(name)) name='';
+      if(!queries.length){
+        queries=artists.slice(0,3).concat(genres.slice(0,3).map((g,i)=>moods[i]?moods[i]+' '+g:g));
+        if(prompt) queries.unshift(prompt.split(' ').slice(0,4).join(' '));
+        reply='BatProx AI is busy right now, so I built this from the artists and genres you play the most.';
+      }
+      queries=[...new Set(queries.map(q=>q.toLowerCase()))].slice(0,8);
+      const seen=new Set(pool.map(x=>x.id));
+      const lists=await Promise.all(queries.map(async q=>{
+        try{
+          const ctl=new AbortController();
+          const tm=setTimeout(()=>ctl.abort(), 8000);
+          const r=await fetch('https://api.audius.co/v1/tracks/search?app_name=BatProx&limit=12&query='+encodeURIComponent(q),{signal:ctl.signal, headers:{'Accept':'application/json'}});
+          clearTimeout(tm);
+          if(!r.ok) return [];
+          const d=await r.json();
+          return (Array.isArray(d&&d.data)?d.data:[]).filter(x=>x&&x.id&&x.is_streamable!==false&&!x.is_stream_gated&&!x.stream_conditions&&!x.is_delete&&!x.is_unlisted).map(x=>({id:String(x.id), title:String(x.title||'Untitled'), artist:String((x.user&&(x.user.name||x.user.handle))||'Unknown artist'), handle:String((x.user&&x.user.handle)||''), artwork:String((x.artwork&&(x.artwork['480x480']||x.artwork['1000x1000']||x.artwork['150x150']))||''), duration:Number(x.duration)||0, genre:String(x.genre||''), mood:String(x.mood||''), tags:String(x.tags||'').slice(0,120), plays:Number(x.play_count)||0}));
+        }catch{ return []; }
+      }));
+      const picked=[], ids=new Set(), keys=new Set(), perArtist={};
+      for(let round=0;round<12&&picked.length<30;round++){
+        for(const list of lists){
+          const x=list[round];
+          if(!x||ids.has(x.id)||seen.has(x.id)) continue;
+          const k=(x.title+'|'+x.artist).toLowerCase();
+          if(keys.has(k)||(perArtist[x.artist]||0)>=3||isFilteredText(x.title)) continue;
+          ids.add(x.id); keys.add(k); perArtist[x.artist]=(perArtist[x.artist]||0)+1;
+          picked.push(x);
+          if(picked.length>=30) break;
+        }
+      }
+      if(!picked.length) return send({error:'BatProx AI could not find songs for that right now. Try again or ask for something else.'},424);
+      return send({reply:reply||'Here is a mix built around what you listen to.', name:name||(prompt?prompt.slice(0,40):'Made for you'), tracks:picked, queries, basedOn:{artists:artists.slice(0,3), genres:genres.slice(0,3)}, ai:fromAi});
+    }
+    if(url.pathname==='/api/music/play'){
+      const t=cleanTrack(body.track);
+      if(!t) return send({error:'Invalid track'},400);
+      const cur=lib.plays.find(x=>x&&x.id===t.id);
+      if(cur){ cur.n=(cur.n||0)+1; cur.last=Date.now(); cur.title=t.title; cur.artist=t.artist; cur.artwork=t.artwork; cur.genre=t.genre; cur.mood=t.mood; }
+      else lib.plays.push(Object.assign(t,{n:1, last:Date.now()}));
+      lib.plays=lib.plays.filter(Boolean).sort((a,b)=>(b.n||0)-(a.n||0)||(b.last||0)-(a.last||0)).slice(0,300);
+    } else if(url.pathname==='/api/music/like'){
       const t=cleanTrack(body.track);
       if(!t) return send({error:'Invalid track'},400);
       lib.liked=lib.liked.filter(x=>x&&x.id!==t.id);
@@ -917,6 +1120,12 @@ function blockedHost(host){
         const np={id:'pl'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name, tracks:[], createdAt:Date.now()};
         const first=cleanTrack(body.track);
         if(first) np.tracks.push(first);
+        if(Array.isArray(body.tracks)){
+          for(const raw of body.tracks.slice(0,100)){
+            const t=cleanTrack(raw);
+            if(t&&!np.tracks.some(x=>x.id===t.id)) np.tracks.push(t);
+          }
+        }
         lib.playlists.unshift(np);
       } else if(!pl){
         return send({error:'Playlist not found'},400);
@@ -2007,6 +2216,7 @@ function blockedHost(host){
       const m=all.find(x=>x.id===mid);
       if(!m) return new Response(JSON.stringify({error:'Gone'}),{status:404, headers:h});
       if(m.user!==cu) return new Response(JSON.stringify({error:'Denied'}),{status:403, headers:h});
+      if(m.room==='community'&&await chatMuteOf(chatGet, chatPut, cu)) return new Response(JSON.stringify({success:false, muted:true, error:MUTED_MSG}),{status:403, headers:h});
       if(isFilteredText(t)) return new Response(JSON.stringify({error:'That word is filtered.', filtered:true}),{status:400, headers:h});
       m.text=t;
       m.edited=Date.now();
@@ -2033,6 +2243,11 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/chat/mute-status' && request.method==='GET'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const m=await chatMuteOf(chatGet, chatPut, String(url.searchParams.get('user')||'').slice(0,32));
+    return new Response(JSON.stringify(m?{muted:true, until:m.until, reason:m.reason||'', message:MUTED_MSG}:{muted:false}),{headers:h});
+  }
   if(url.pathname==='/api/chat/messages' && request.method==='POST'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     try{
@@ -2049,6 +2264,18 @@ function blockedHost(host){
         } else if(rooms[rm]) {
           if(!(rooms[rm].members||[]).includes(cu)) return new Response(JSON.stringify({error:'Not a member'}),{status:403, headers:h});
         } else return new Response(JSON.stringify({error:'No room'}),{status:404, headers:h});
+      }
+      if(cu!==AI_BOT && t.startsWith('/')){
+        const who=await tokenPayload(request, env);
+        const owner=!!(who&&String(who.username).toLowerCase()===CHAT_OWNER&&cu.toLowerCase()===CHAT_OWNER);
+        if(!owner) return new Response(JSON.stringify({success:false, command:true, error:'Commands that start with / are only for admins.'}),{status:403, headers:h});
+        return await runChatCommand({t, rm, h, kv, chatGet, chatPut});
+      }
+      if(cu!==AI_BOT && rm==='community'){
+        const who=await tokenPayload(request, env);
+        const alt=who&&who.username&&String(who.username).toLowerCase()!==cu.toLowerCase()?String(who.username):'';
+        const mute=(await chatMuteOf(chatGet, chatPut, cu))||(alt?await chatMuteOf(chatGet, chatPut, alt):null);
+        if(mute) return new Response(JSON.stringify({success:false, muted:true, until:mute.until, error:MUTED_MSG}),{status:403, headers:h});
       }
       const names=await chatGet('chat_names',{});
       const all=await chatGet('chat_messages',[]);

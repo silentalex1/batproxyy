@@ -5,6 +5,9 @@ import { GENRES, fmtTime, searchTracks, shouldRelayFirst, streamUrl, trending, t
 import {
   EMPTY_LIBRARY,
   addToPlaylist,
+  askMusicAi,
+  recordPlay,
+  type AiMix,
   cachedLibrary,
   createPlaylist,
   deletePlaylist,
@@ -16,7 +19,16 @@ import {
   type Library
 } from './music/library';
 
-type View = { kind: 'home' } | { kind: 'search' } | { kind: 'liked' } | { kind: 'library' } | { kind: 'playlist'; id: string };
+type View = { kind: 'home' } | { kind: 'search' } | { kind: 'liked' } | { kind: 'library' } | { kind: 'ai' } | { kind: 'playlist'; id: string };
+type AiTurn = { id: number; role: 'user' | 'ai'; text: string; mix?: AiMix; error?: boolean };
+
+const AI_CHIPS: { label: string; prompt: string }[] = [
+  { label: 'Make a playlist from my taste', prompt: '' },
+  { label: 'Songs like my most played', prompt: 'songs that sound like my most played tracks' },
+  { label: 'Something new for me', prompt: 'something new I have not heard that still fits my taste' },
+  { label: 'Chill late night', prompt: 'chill late night music' },
+  { label: 'Gym energy', prompt: 'high energy workout music' }
+];
 type Repeat = 'off' | 'all' | 'one';
 
 const TIMES: { id: TrendTime; label: string }[] = [
@@ -72,6 +84,7 @@ const Icon = {
   trash: <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" />,
   close: <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />,
   back: <path strokeLinecap="round" strokeLinejoin="round" d="M19 12H5M12 19l-7-7 7-7" />,
+  spark: <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.9 5.8L20 10.7l-6.1 1.9L12 18.5l-1.9-5.9L4 10.7l6.1-1.9L12 3zM19 3v4M17 5h4" />,
   note: <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19a3 3 0 11-6 0 3 3 0 016 0zm12-3a3 3 0 11-6 0 3 3 0 016 0z" />
 };
 
@@ -96,6 +109,14 @@ function Art({ src, className }: { src: string; className: string }) {
         />
       )}
     </div>
+  );
+}
+
+function AiBadge({ size }: { size: string }) {
+  return (
+    <span className={`${size} shrink-0 rounded-full flex items-center justify-center text-white shadow-lg`} style={{ background: 'linear-gradient(135deg, var(--bp-accent), #ec4899)' }}>
+      <Svg className="w-1/2 h-1/2" sw={1.8}>{Icon.spark}</Svg>
+    </span>
   );
 }
 
@@ -149,6 +170,10 @@ export default function MusicPage() {
   const [lib, setLib] = useState<Library>(() => (signedIn ? cachedLibrary() : EMPTY_LIBRARY));
   const [recent, setRecent] = useState<Track[]>(() => readJson<Track[]>('bp-music-recent-' + owner, []));
   const [toast, setToast] = useState('');
+  const [aiThread, setAiThread] = useState<AiTurn[]>(() => readJson<AiTurn[]>('bp-music-ai-' + userKey(), []));
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiInput, setAiInput] = useState('');
+  const listened = useRef({ id: '', secs: 0, last: 0, counted: false });
   const [pickFor, setPickFor] = useState<Track | null>(null);
   const [newName, setNewName] = useState('');
   const [renaming, setRenaming] = useState('');
@@ -178,6 +203,7 @@ export default function MusicPage() {
 
   const current = index >= 0 ? queue[index] || null : null;
   const likedIds = useMemo(() => new Set(lib.liked.map(t => t.id)), [lib.liked]);
+  const topPlayed = useMemo(() => (lib.plays || []).slice().sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 8), [lib.plays]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -221,7 +247,7 @@ export default function MusicPage() {
     writeJson('bp-music-session-' + owner, { queue: queue.slice(0, 200), index, pos: audioRef.current?.currentTime || 0 });
   }, [queue, index, owner]);
 
-  const ctl = useRef({ onEnded: () => {}, onError: () => {} });
+  const ctl = useRef<{ onEnded: () => void; onError: () => void; onTick: (a: HTMLAudioElement) => void }>({ onEnded: () => {}, onError: () => {}, onTick: () => {} });
 
   useEffect(() => {
     const a = new Audio();
@@ -229,6 +255,7 @@ export default function MusicPage() {
     audioRef.current = a;
     const onTime = () => {
       setPos(a.currentTime);
+      ctl.current.onTick(a);
       const now = Date.now();
       if (now - lastSave.current > 5000) {
         lastSave.current = now;
@@ -355,7 +382,22 @@ export default function MusicPage() {
     try { a.currentTime = Math.max(0, Math.min(v, a.duration || v)); setPos(a.currentTime); } catch {}
   }, []);
 
-  ctl.current.onEnded = () => next(true);
+  ctl.current.onEnded = () => { listened.current = { id: '', secs: 0, last: 0, counted: false }; next(true); };
+  ctl.current.onTick = (a: HTMLAudioElement) => {
+    const L = listened.current;
+    if (!current || L.id !== current.id) {
+      listened.current = { id: current ? current.id : '', secs: 0, last: a.currentTime, counted: false };
+      return;
+    }
+    const d = a.currentTime - L.last;
+    L.last = a.currentTime;
+    if (d > 0 && d < 1.5 && !a.paused) L.secs += d;
+    const need = Math.min(30, Math.max(5, (current.duration || a.duration || 60) * 0.5));
+    if (!L.counted && L.secs >= need) {
+      L.counted = true;
+      if (signedIn) recordPlay(current).then(setLib).catch(() => {});
+    }
+  };
   ctl.current.onError = () => {
     const a = audioRef.current;
     if (!a || !current) return;
@@ -573,6 +615,28 @@ export default function MusicPage() {
     </button>
   );
 
+  useEffect(() => writeJson('bp-music-ai-' + owner, aiThread.slice(-8)), [aiThread, owner]);
+
+  const runAi = async (prompt: string, shown?: string) => {
+    if (aiBusy || !guard()) return;
+    const q = prompt.trim();
+    const uid = Date.now();
+    setAiThread(t => [...t, { id: uid, role: 'user' as const, text: shown || q || 'Make me a playlist from my taste' }].slice(-12));
+    setAiBusy(true);
+    setAiInput('');
+    window.setTimeout(() => document.getElementById('bp-ai-end')?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 60);
+    try {
+      const mix = await askMusicAi(q);
+      setAiThread(t => [...t, { id: uid + 1, role: 'ai' as const, text: mix.reply, mix }].slice(-12));
+    } catch (e) {
+      setAiThread(t => [...t, { id: uid + 1, role: 'ai' as const, text: e instanceof Error ? e.message : 'BatProx AI could not answer right now.', error: true }].slice(-12));
+    }
+    setAiBusy(false);
+    window.setTimeout(() => document.getElementById('bp-ai-end')?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 60);
+  };
+
+  const saveMix = (mix: AiMix) => libAction(() => createPlaylist(mix.name, undefined, mix.tracks), `Saved "${mix.name}" to your playlists`);
+
   const createFromPicker = async () => {
     const name = newName.trim();
     if (!name || !pickFor) return;
@@ -583,6 +647,18 @@ export default function MusicPage() {
   if (view.kind === 'home') {
     body = (
       <>
+        <button
+          onClick={() => { go({ kind: 'ai' }); if (!aiThread.length) void runAi('', 'Make a playlist from my taste'); }}
+          className="w-full mb-8 text-left rounded-2xl p-5 flex items-center gap-4 border border-white/[0.08] hover:border-white/20 transition-colors"
+          style={{ background: 'linear-gradient(120deg, rgba(var(--bp-glow), 0.28), rgba(236, 72, 153, 0.12) 60%, rgba(255, 255, 255, 0.02))' }}
+        >
+          <AiBadge size="w-12 h-12" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold">Made for you by BatProx AI</span>
+            <span className="block text-[12px] text-white/55">{(lib.plays || []).length ? `Built from your most played songs and your likes` : 'Play and heart a few songs, then BatProx AI builds playlists from your taste'}</span>
+          </span>
+          <span className="hidden sm:block px-4 py-2 rounded-full bg-white text-black text-[13px] font-semibold">Make my mix</span>
+        </button>
         {recent.length > 0 && (
           <section className="mb-9">
             <h2 className="text-lg font-semibold mb-3">Recently played</h2>
@@ -669,6 +745,102 @@ export default function MusicPage() {
         {!signedIn && <p className="mt-6 text-sm text-white/40">Sign in to BatProx to keep a library.</p>}
       </section>
     );
+  } else if (view.kind === 'ai') {
+    body = (
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <section className="min-w-0">
+          <div className="flex items-center gap-3 mb-6">
+            <AiBadge size="w-12 h-12" />
+            <div>
+              <h1 className="text-2xl font-bold">BatProx AI</h1>
+              <p className="text-[13px] text-white/45">Learns from what you play and heart, then finds songs you have not heard yet.</p>
+            </div>
+          </div>
+          {aiThread.length === 0 && !aiBusy && (
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5 mb-5">
+              <p className="text-[14px] text-white/75">Ask for a vibe, an artist or a mood, or let me build a playlist from your taste.</p>
+              <p className="text-[12px] text-white/40 mt-1.5">Songs count toward your taste after you listen for 30 seconds.</p>
+            </div>
+          )}
+          <div className="space-y-5">
+            {aiThread.map(turn => turn.role === 'user' ? (
+              <div key={turn.id} className="flex justify-end">
+                <p className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md text-[14px] text-white" style={{ background: 'var(--bp-accent)' }}>{turn.text}</p>
+              </div>
+            ) : (
+              <div key={turn.id} className="flex gap-3">
+                <AiBadge size="w-8 h-8" />
+                <div className="min-w-0 flex-1">
+                  <p className={`text-[14px] leading-relaxed pt-1 ${turn.error ? 'text-red-300' : 'text-white/85'}`}>{turn.text}</p>
+                  {turn.mix && turn.mix.tracks.length > 0 && (
+                    <div className="mt-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3">
+                      <div className="flex flex-wrap items-center gap-2 px-1 pb-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[15px] font-semibold truncate">{turn.mix.name}</p>
+                          <p className="text-[11px] text-white/40">
+                            {turn.mix.tracks.length} songs · {totalTime(turn.mix.tracks)}
+                            {turn.mix.basedOn.artists.length ? ` · because you play ${turn.mix.basedOn.artists.slice(0, 2).join(' and ')}` : ''}
+                          </p>
+                        </div>
+                        <button onClick={() => { const m = turn.mix; if (m) playList(m.tracks, 0); }} className="h-9 px-4 rounded-full text-[13px] font-semibold text-white flex items-center gap-1.5" style={{ background: 'var(--bp-accent)' }}>
+                          <Svg className="w-3.5 h-3.5">{Icon.play}</Svg>Play
+                        </button>
+                        <button onClick={() => { const m = turn.mix; if (m) void saveMix(m); }} className="h-9 px-4 rounded-full text-[13px] bg-white/[0.07] hover:bg-white/[0.12] border border-white/10">Save as playlist</button>
+                      </div>
+                      {listOf(turn.mix.tracks, '')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {aiBusy && (
+              <div className="flex gap-3 items-center">
+                <AiBadge size="w-8 h-8" />
+                <span className="text-[13px] text-white/50">BatProx AI is picking songs for you</span>
+                <span className="flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-white/50 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}</span>
+              </div>
+            )}
+            <div id="bp-ai-end" />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-7">
+            {AI_CHIPS.map(c => (
+              <button key={c.label} disabled={aiBusy} onClick={() => void runAi(c.prompt, c.label)} className="px-3.5 py-2 rounded-full text-[13px] border border-white/10 text-white/70 hover:text-white hover:border-white/25 disabled:opacity-40">{c.label}</button>
+            ))}
+          </div>
+          <form onSubmit={e => { e.preventDefault(); if (aiInput.trim()) void runAi(aiInput); }} className="mt-3 flex gap-2">
+            <input
+              value={aiInput}
+              maxLength={300}
+              onChange={e => setAiInput(e.target.value)}
+              placeholder="Ask BatProx AI for a vibe, an artist or a mood"
+              className="flex-1 h-11 px-4 rounded-full bg-white/[0.07] border border-white/10 text-sm placeholder:text-white/35 focus:outline-none focus:border-white/30"
+            />
+            <button type="submit" disabled={aiBusy || !aiInput.trim()} className="h-11 px-5 rounded-full text-sm font-semibold text-white disabled:opacity-35" style={{ background: 'var(--bp-accent)' }}>Ask</button>
+          </form>
+          {aiThread.length > 0 && !aiBusy && <button onClick={() => setAiThread([])} className="mt-3 text-[12px] text-white/35 hover:text-white/70">Clear conversation</button>}
+        </section>
+        <aside className="min-w-0">
+          <h2 className="text-sm font-semibold mb-3">Your most played</h2>
+          {topPlayed.length === 0 ? (
+            <p className="text-[12px] text-white/40 leading-relaxed">Songs you listen to for 30 seconds or more show up here. BatProx AI uses them to learn your taste.</p>
+          ) : (
+            <div className="space-y-0.5">
+              {topPlayed.map((t, i) => (
+                <button key={t.id} onClick={() => playList(topPlayed, i)} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-white/[0.05] text-left">
+                  <span className="w-4 text-[12px] text-white/35 tabular-nums">{i + 1}</span>
+                  <Art src={t.artwork} className="w-9 h-9 rounded shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] truncate">{t.title}</span>
+                    <span className="block text-[11px] text-white/40 truncate">{t.artist}</span>
+                  </span>
+                  <span className="text-[11px] text-white/35 tabular-nums">{t.n || 1}x</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+    );
   } else if (playlist) {
     body = (
       <>
@@ -720,6 +892,7 @@ export default function MusicPage() {
           {navBtn(view.kind === 'home', 'Discover', <Svg className="w-5 h-5">{Icon.home}</Svg>, () => go({ kind: 'home' }))}
           {navBtn(view.kind === 'search', 'Search', <Svg className="w-5 h-5">{Icon.search}</Svg>, () => { go({ kind: 'search' }); window.setTimeout(() => document.getElementById('bp-music-q')?.focus(), 0); })}
           {navBtn(view.kind === 'library', 'Your library', <Svg className="w-5 h-5">{Icon.library}</Svg>, () => go({ kind: 'library' }))}
+          {navBtn(view.kind === 'ai', 'BatProx AI', <AiBadge size="w-5 h-5" />, () => go({ kind: 'ai' }))}
           <div className="h-px bg-white/[0.06] my-3" />
           {navBtn(view.kind === 'liked', 'Liked Songs', <span className="w-5 h-5 rounded flex items-center justify-center" style={{ background: 'var(--bp-accent)' }}><Svg className="w-3 h-3" fill="currentColor">{Icon.heart}</Svg></span>, () => go({ kind: 'liked' }), lib.liked.length)}
           <div className="flex items-center mt-4 mb-1 px-3">
@@ -756,6 +929,7 @@ export default function MusicPage() {
             <div className="lg:hidden flex gap-1">
               {navBtnSmall(view.kind === 'home', 'Discover', () => go({ kind: 'home' }))}
               {navBtnSmall(view.kind === 'library' || view.kind === 'liked' || view.kind === 'playlist', 'Library', () => go({ kind: 'library' }))}
+              {navBtnSmall(view.kind === 'ai', 'AI', () => go({ kind: 'ai' }))}
             </div>
             <p className="hidden md:block ml-auto text-[11px] text-white/30">Music by Audius</p>
           </div>

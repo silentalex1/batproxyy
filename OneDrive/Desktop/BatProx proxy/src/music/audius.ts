@@ -6,8 +6,11 @@ export interface Track {
   artwork: string;
   duration: number;
   genre: string;
+  mood?: string;
+  tags?: string;
   plays?: number;
   addedAt?: number;
+  n?: number;
 }
 
 export type TrendTime = 'week' | 'month' | 'year' | 'allTime';
@@ -64,6 +67,8 @@ function toTrack(raw: any): Track | null {
     artwork: String(art['480x480'] || art['1000x1000'] || art['150x150'] || ''),
     duration: Number(raw.duration) || 0,
     genre: String(raw.genre || ''),
+    mood: String(raw.mood || ''),
+    tags: String(raw.tags || '').slice(0, 120),
     plays: Number(raw.play_count) || 0
   };
 }

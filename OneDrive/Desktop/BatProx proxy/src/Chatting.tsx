@@ -20,6 +20,19 @@ const dmId = (a: string, b: string) => 'dm:' + [a, b].sort().join(':');
 const cacheKey = (roomId: string) => 'bp-chat-cache:' + roomId;
 const MENTION = /@[\w$%.-]+/g;
 const AI_BOT = 'batprox-ai';
+const MUTED_TEXT = 'You cannot speak you have been muted from an admin.';
+const CMD_HINTS = [
+  { cmd: '/mute', usage: '/mute @user 10m reason', desc: 'mute someone, 5 mins if you leave out the time' },
+  { cmd: '/unmute', usage: '/unmute @user', desc: 'let them talk again' },
+  { cmd: '/clear', usage: '/clear 10', desc: 'delete the last messages in this chat' }
+];
+const leftText = (ms: number) => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = String(s % 60).padStart(2, '0');
+  return h ? `${h}h ${m}m left` : `${m}:${r} left`;
+};
 const AI_MENTION = /@(batprox-ai|mochaai)\b/i;
 const avatarColor = (name: string) => {
   let h = 0;
@@ -42,6 +55,35 @@ export default function Chatting() {
   const [gcs, setGcs] = useState<Gc[]>([]);
   const [online, setOnline] = useState<Presence[]>([]);
   const [blocked, setBlocked] = useState('');
+  const [notice, setNotice] = useState('');
+  const [muteUntil, setMuteUntil] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
+  const isOwner = me.toLowerCase() === 'realalex';
+  const mutedHere = room.id === 'community' && muteUntil > clock;
+
+  useEffect(() => {
+    if (!me || isOwner) return;
+    let stop = false;
+    const check = () => {
+      fetch('/api/chat/mute-status?user=' + encodeURIComponent(me))
+        .then(r => r.json())
+        .then(d => { if (!stop) { setClock(Date.now()); setMuteUntil(d && d.muted ? Number(d.until) || 0 : 0); } })
+        .catch(() => {});
+    };
+    check();
+    const t = window.setInterval(check, 20000);
+    return () => { stop = true; window.clearInterval(t); };
+  }, [me, isOwner]);
+
+  useEffect(() => {
+    if (!muteUntil) return;
+    const t = window.setInterval(() => {
+      const now = Date.now();
+      setClock(now);
+      if (now >= muteUntil) setMuteUntil(0);
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [muteUntil]);
   const dmWith = room.kind === 'dm' || room.id.startsWith('dm:') ? (room.id.split(':').slice(1).find(u => u !== me) || room.id.split(':')[1] || '') : '';
   const sideList: Presence[] = dmWith ? [online.find(o => o.username === dmWith) || { username: dmWith, active: false }] : online;
   const [text, setText] = useState('');
@@ -391,6 +433,35 @@ export default function Chatting() {
       } catch {}
       return;
     }
+    if (t.startsWith('/')) {
+      setText('');
+      shrink();
+      setMentionOpen(false);
+      setMentionStart(-1);
+      setBlocked('');
+      setNotice('');
+      try {
+        const tok = (() => { try { return localStorage.getItem('batprox-token') || ''; } catch { return ''; } })();
+        const r = await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ room: room.id, user: me, text: t }) });
+        const d = await r.json().catch(() => ({}));
+        if (d && d.success) {
+          setNotice(typeof d.cleared === 'number' ? `Cleared ${d.cleared} message${d.cleared === 1 ? '' : 's'}.` : d.muted ? `Muted @${d.muted}.` : d.unmuted ? `Unmuted @${d.unmuted}.` : 'Done.');
+        } else {
+          setBlocked((d && d.error) || 'That command did not work.');
+          setText(t);
+        }
+        loadMessages(room.id);
+      } catch {
+        setBlocked('Could not reach the chat server.');
+        setText(t);
+      }
+      window.setTimeout(() => { setBlocked(''); setNotice(''); }, 5000);
+      return;
+    }
+    if (mutedHere) {
+      setBlocked(MUTED_TEXT);
+      return;
+    }
     setText('');
     shrink();
     const shots = pending;
@@ -411,6 +482,13 @@ export default function Chatting() {
         setBlocked('That word is filtered. Please dont say that.');
         setTimeout(() => setBlocked(''), 4000);
         loadMessages(room.id);
+        return;
+      }
+      if (sd && sd.muted) {
+        setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+        setBlocked(sd.error || MUTED_TEXT);
+        if (sd.until) { setClock(Date.now()); setMuteUntil(Number(sd.until)); }
+        setText(t);
         return;
       }
       loadMessages(room.id);
@@ -821,6 +899,29 @@ export default function Chatting() {
                   <button type="button" onClick={() => setReplyTo(null)} className="text-white/40 hover:text-white">×</button>
                 </div>
               )}
+              {mutedHere && (
+                <div className="flex items-center gap-2 mx-1 mb-2 px-3.5 py-2 rounded-xl text-xs bg-red-500/10 border border-red-400/30 text-red-200">
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5L6 9H3v6h3l5 4V5zM22 9l-6 6M16 9l6 6" /></svg>
+                  <span className="flex-1">{MUTED_TEXT}</span>
+                  <span className="tabular-nums text-red-200/70">{leftText(muteUntil - clock)}</span>
+                </div>
+              )}
+              {isOwner && !editing && text.startsWith('/') && CMD_HINTS.some(c => c.cmd.startsWith(text.split(/\s/)[0].toLowerCase())) && (
+                <div className="mx-1 mb-2 rounded-xl border border-white/10 bg-[#121218] overflow-hidden">
+                  {CMD_HINTS.filter(c => c.cmd.startsWith(text.split(/\s/)[0].toLowerCase())).map(c => (
+                    <button
+                      type="button"
+                      key={c.cmd}
+                      onMouseDown={e => { e.preventDefault(); if (text.split(/\s/)[0].toLowerCase() !== c.cmd) setText(c.cmd + ' '); inputRef.current?.focus(); }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-white/[0.05] flex flex-wrap gap-x-3 text-xs"
+                    >
+                      <span className="font-mono text-white">{c.usage}</span>
+                      <span className="text-white/40">{c.desc}</span>
+                    </button>
+                  ))}
+                  <p className="px-3.5 py-1.5 text-[10px] text-white/25 border-t border-white/[0.06]">admin commands, only you can use these</p>
+                </div>
+              )}
               {pending.length > 0 && (
                 <div className="flex flex-wrap gap-2 mx-1 mb-2 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/10">
                   {pending.map((src, i) => (
@@ -863,7 +964,8 @@ export default function Chatting() {
                       if (e.key === 'Escape' && editing) { e.preventDefault(); cancelEdit(); return; }
                       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
                     }}
-                    placeholder={`Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`}
+                    disabled={mutedHere}
+                    placeholder={mutedHere ? 'You are muted' : `Message ${room.kind === 'community' ? 'Community' : dispOf(room.label)} (Shift+Enter for new line)`}
                     className="relative w-full bg-transparent text-transparent caret-white placeholder-white/30 focus:outline-none text-sm leading-6 resize-none py-2 max-h-52 overflow-y-auto"
                     maxLength={4000}
                   />
@@ -873,6 +975,7 @@ export default function Chatting() {
                 </button>
               </div>
               {blocked && <p className="text-center text-[12px] text-red-300 mt-2">{blocked}</p>}
+              {notice && <p className="text-center text-[12px] text-emerald-300 mt-2">{notice}</p>}
               <p className="text-center text-[10px] text-white/25 mt-1.5">double click a message to reply · press ↑ on an empty box to edit your last message</p>
             </form>
           </div>
