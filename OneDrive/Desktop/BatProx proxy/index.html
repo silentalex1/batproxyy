@@ -15,6 +15,30 @@
         console.log=function(){try{if(f(Array.from(arguments).join(' ')))return;}catch(e){} return ol.apply(console,arguments);};
         window.addEventListener('error',function(e){try{if(f(e.message))e.preventDefault();}catch(ex){}},true);
         window.addEventListener('unhandledrejection',function(e){try{var m=e.reason&& (e.reason.message||String(e.reason)); if(f(m))e.preventDefault();}catch(ex){}},true);
+        window.addEventListener('error',function(e){
+          var t=e&&e.target;
+          if(!t||t.tagName!=='SCRIPT'||!/\/assets\/index-[^/]+\.js/.test(t.src||''))return;
+          var src=t.src,key='bp-heal:'+src,n=0,tries=0;
+          try{n=Number(sessionStorage.getItem(key)||0);}catch(x){}
+          var give=function(){
+            var d=document.createElement('div');
+            d.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#07070b;color:#e5e5f0;font:14px system-ui,sans-serif;z-index:2147483647;text-align:center;padding:24px';
+            d.innerHTML='<div><p style="margin:0 0 6px;font-size:16px;font-weight:600">BatProx just updated</p><p style="margin:0 0 16px;color:#8b8ba0">Reload to get the new version.</p><button style="border:0;border-radius:999px;padding:10px 20px;background:#7c3aed;color:#fff;font-weight:600;cursor:pointer">Reload</button></div>';
+            d.querySelector('button').onclick=function(){try{sessionStorage.removeItem(key);}catch(x){}location.reload();};
+            (document.body||document.documentElement).appendChild(d);
+          };
+          if(n>=2){give();return;}
+          try{sessionStorage.setItem(key,String(n+1));}catch(x){}
+          var attempt=function(){
+            tries++;
+            var again=function(){if(tries<4)setTimeout(attempt,1500*tries);else give();};
+            fetch(src,{cache:'reload',credentials:'same-origin'}).then(function(r){
+              if(r.ok&&(r.headers.get('content-type')||'').indexOf('javascript')>=0)location.reload();
+              else again();
+            }).catch(again);
+          };
+          attempt();
+        },true);
       })();
     </script>
     <script src="/baremux/index.js"></script>

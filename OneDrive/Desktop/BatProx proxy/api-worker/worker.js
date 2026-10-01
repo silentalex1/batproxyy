@@ -877,6 +877,74 @@ function blockedHost(host){
       return new Response(JSON.stringify({success:true, domains:list}),{headers:h});
     }catch{ return new Response(JSON.stringify({error:'Invalid'}),{status:400, headers:h});}
   }
+  if(url.pathname==='/api/music/library' || url.pathname==='/api/music/like' || url.pathname==='/api/music/playlists'){
+    const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
+    const send=(o,s)=>new Response(JSON.stringify(o),{status:s||200, headers:h});
+    const who=await tokenPayload(request, env);
+    if(!who) return send({error:'Sign in to use your music library'},401);
+    const key='music_'+String(who.username).slice(0,32);
+    const cleanTrack=(t)=>{
+      if(!t||typeof t!=='object') return null;
+      const id=String(t.id||'').slice(0,24);
+      if(!/^[A-Za-z0-9]+$/.test(id)) return null;
+      const art=String(t.artwork||'');
+      return {id, title:String(t.title||'Untitled').slice(0,200), artist:String(t.artist||'Unknown artist').slice(0,120), handle:String(t.handle||'').slice(0,60), artwork:/^https:\/\/[^\s"'<>]{1,400}$/.test(art)?art:'', duration:Math.max(0,Math.min(86400,Math.round(Number(t.duration)||0))), genre:String(t.genre||'').slice(0,40), addedAt:Date.now()};
+    };
+    const lib={liked:[],playlists:[]};
+    try{
+      const raw=kv?await kv.get(key):null;
+      if(raw){ const p=JSON.parse(raw); if(p&&typeof p==='object'){ if(Array.isArray(p.liked)) lib.liked=p.liked; if(Array.isArray(p.playlists)) lib.playlists=p.playlists; } }
+    }catch{}
+    if(url.pathname==='/api/music/library' && request.method==='GET') return send(lib);
+    if(request.method!=='POST') return send({error:'Method not allowed'},405);
+    if(!rl('music:'+who.username, 90, 60000)) return send({error:'Too many changes, slow down a moment'},429);
+    let body={};
+    try{ body=await request.json(); }catch{ return send({error:'Invalid JSON'},400); }
+    if(url.pathname==='/api/music/like'){
+      const t=cleanTrack(body.track);
+      if(!t) return send({error:'Invalid track'},400);
+      lib.liked=lib.liked.filter(x=>x&&x.id!==t.id);
+      if(body.liked!==false) lib.liked.unshift(t);
+      lib.liked=lib.liked.slice(0,2000);
+    } else {
+      const action=String(body.action||'');
+      const pid=String(body.playlistId||'').slice(0,40);
+      const name=String(body.name||'').trim().slice(0,60);
+      const pl=lib.playlists.find(p=>p&&p.id===pid);
+      if(action==='create'){
+        if(!name) return send({error:'Give the playlist a name'},400);
+        if(lib.playlists.length>=50) return send({error:'You can have up to 50 playlists'},400);
+        const np={id:'pl'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name, tracks:[], createdAt:Date.now()};
+        const first=cleanTrack(body.track);
+        if(first) np.tracks.push(first);
+        lib.playlists.unshift(np);
+      } else if(!pl){
+        return send({error:'Playlist not found'},400);
+      } else if(action==='rename'){
+        if(!name) return send({error:'Give the playlist a name'},400);
+        pl.name=name;
+      } else if(action==='delete'){
+        lib.playlists=lib.playlists.filter(p=>p&&p.id!==pid);
+      } else if(action==='add'){
+        const t=cleanTrack(body.track);
+        if(!t) return send({error:'Invalid track'},400);
+        if(!Array.isArray(pl.tracks)) pl.tracks=[];
+        if(!pl.tracks.some(x=>x&&x.id===t.id)){
+          if(pl.tracks.length>=500) return send({error:'That playlist is full'},400);
+          pl.tracks.push(t);
+        }
+      } else if(action==='remove'){
+        const tid=String(body.trackId||'');
+        pl.tracks=(pl.tracks||[]).filter(x=>x&&x.id!==tid);
+      } else {
+        return send({error:'Unknown action'},400);
+      }
+    }
+    const out=JSON.stringify(lib);
+    if(out.length>1800000) return send({error:'Your music library is full. Remove some songs first.'},400);
+    try{ if(!kv) throw new Error('no storage'); await kv.put(key, out); }catch{ return send({error:'Could not save your library right now'},424); }
+    return send(lib);
+  }
   if(url.pathname==='/api/drops' && request.method==='GET'){
     const h=cors(new Headers(), request.headers.get('Origin')); h.set('Content-Type','application/json'); h.set('Cache-Control','no-store');
     const u=String(url.searchParams.get('user')||'').trim().slice(0,32);

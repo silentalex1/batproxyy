@@ -1,7 +1,26 @@
 export async function onRequest(context:any){
   if(context.request.method==='OPTIONS') return new Response(null,{status:204, headers:{'Access-Control-Allow-Origin': context.request.headers.get('Origin') || '*','Access-Control-Allow-Credentials':'true','Access-Control-Allow-Methods':'GET, POST, PUT, DELETE, OPTIONS','Access-Control-Allow-Headers':'*'}});
   const url=new URL(context.request.url);
-  const known=['/api/domains','/api/drops','/api/feedback-comments','/api/feedback-responses','/api/feedbacks','/api/fnad-scores','/api/generate','/api/login-report','/api/login-vote','/api/pw-reset','/api/status-overrides','/api/user','/api/votes','/api/errors','/api/ai','/api/auth','/api/admin','/api/account','/api/bridge','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/recentgames','/api/gamestats','/api/presence','/api/search'];
+  if(url.pathname.startsWith('/api/music/audius/') && (context.request.method==='GET'||context.request.method==='HEAD')){
+    const rest=url.pathname.slice('/api/music/audius/'.length);
+    const allow={'Access-Control-Allow-Origin':'*','Access-Control-Expose-Headers':'Content-Length, Content-Range, Accept-Ranges'};
+    if(!/^[A-Za-z0-9/_-]{1,160}$/.test(rest)) return new Response(JSON.stringify({error:'Bad path'}),{status:400, headers:{...allow,'Content-Type':'application/json'}});
+    const qs=new URLSearchParams(url.search);
+    qs.set('app_name','BatProx');
+    const fwd:Record<string,string>={'User-Agent':'BatProx/1.0','Accept':context.request.headers.get('accept')||'*/*'};
+    const range=context.request.headers.get('range');
+    if(range) fwd['Range']=range;
+    try{
+      const r=await fetch('https://api.audius.co/v1/'+rest+'?'+qs.toString(),{method:context.request.method, headers:fwd, redirect:'follow'});
+      const h=new Headers();
+      for(const k of ['content-type','content-length','content-range','accept-ranges','cache-control']){ const v=r.headers.get(k); if(v) h.set(k,v); }
+      for(const [k,v] of Object.entries(allow)) h.set(k,v);
+      return new Response(r.body,{status:r.status>=500?424:r.status, headers:h});
+    }catch{
+      return new Response(JSON.stringify({error:'Music service unreachable'}),{status:424, headers:{...allow,'Content-Type':'application/json'}});
+    }
+  }
+  const known=['/api/domains','/api/drops','/api/feedback-comments','/api/feedback-responses','/api/feedbacks','/api/fnad-scores','/api/generate','/api/login-report','/api/login-vote','/api/pw-reset','/api/status-overrides','/api/user','/api/votes','/api/errors','/api/ai','/api/auth','/api/admin','/api/account','/api/bridge','/api/sites','/api/check-blacklist','/api/user/settings','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/recentgames','/api/gamestats','/api/presence','/api/search','/api/music'];
   if(!known.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))){
     const ref=context.request.headers.get('referer')||'';
     const m=ref.match(/proxy\?url=([^&]+)/);
@@ -18,7 +37,7 @@ export async function onRequest(context:any){
       }catch{}
     }
   }
-  const direct=['/api/domains','/api/drops','/api/feedback-comments','/api/feedback-responses','/api/feedbacks','/api/fnad-scores','/api/generate','/api/login-report','/api/login-vote','/api/pw-reset','/api/status-overrides','/api/user','/api/votes','/api/errors','/api/ai','/api/users','/api/presence','/api/gamestats','/api/recentgames','/api/chat','/api/notes','/api/feedback-response','/api/notifications','/api/admin','/api/account','/api/bridge','/api/sites','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/search'];
+  const direct=['/api/domains','/api/drops','/api/feedback-comments','/api/feedback-responses','/api/feedbacks','/api/fnad-scores','/api/generate','/api/login-report','/api/login-vote','/api/pw-reset','/api/status-overrides','/api/user','/api/votes','/api/errors','/api/ai','/api/users','/api/presence','/api/gamestats','/api/recentgames','/api/chat','/api/notes','/api/feedback-response','/api/notifications','/api/admin','/api/account','/api/bridge','/api/sites','/api/status','/api/changelogs','/api/suggestions','/api/my-games','/api/ai','/api/search','/api/music'];
   const NEW_API='https://api-stealthybat.batprox-proxy.workers.dev';
   const backends=direct.some(k=>url.pathname===k||url.pathname.startsWith(k+'/'))?[NEW_API,'https://api.stealthybat.org','https://authlogin.stealthlybat.it.com']:[NEW_API,'https://authlogin.stealthlybat.it.com','https://api.stealthybat.org'];
   const reqBody=context.request.method==='GET'||context.request.method==='HEAD'?undefined:await context.request.arrayBuffer();
