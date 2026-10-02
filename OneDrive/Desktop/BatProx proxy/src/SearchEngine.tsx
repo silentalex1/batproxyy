@@ -37,10 +37,13 @@ export default function SearchEngine() {
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [showSuggest, setShowSuggest] = useState(false);
   useLowPower();
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [, setNavTick] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const skipNext = useRef(false);
+  const seenHref = useRef('');
+  const depth = useRef(0);
+  const ahead = useRef(0);
+  const stepping = useRef<'' | 'back' | 'forward'>('');
+  const typing = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stampRef = useRef(0);
   const lastRealTarget = useRef('');
@@ -103,6 +106,10 @@ export default function SearchEngine() {
     lastRealTarget.current = resolved;
     retriedRef.current = false;
     escapedRef.current = false;
+    seenHref.current = '';
+    depth.current = 0;
+    ahead.current = 0;
+    stepping.current = '';
     setUrl(resolved);
     setLoading(!skipLoading);
     setHasError(false);
@@ -123,7 +130,7 @@ export default function SearchEngine() {
           if (!retriedRef.current) { retryOnNewRelay(resolved); return; }
           setLoading(false);
           setHasError(true);
-        }, 20000);
+        }, 10000);
       }
       setSrc(getUvUrl(resolved));
       setKey(v => v + 1);
@@ -151,38 +158,65 @@ export default function SearchEngine() {
   useEffect(() => {
     const t = decodeUrlParam(new URLSearchParams(location.search).get('url'));
     if (!t) return;
-    if (skipNext.current) { skipNext.current = false; setUrl(t); return; }
-    setHistory(prev => {
-      const n = prev.slice(0, historyIndex + 1);
-      if (!n.includes(t)) return [...n, t];
-      return n;
-    });
-    setHistoryIndex(prev => {
-      const n = history.slice(0, prev + 1);
-      if (!n.includes(t)) return n.length;
-      return prev;
-    });
     openTarget(t);
   }, [location.search]);
+
+  const go = useCallback((dest: string) => {
+    const next = `?url=${encodeUrlParam(dest)}`;
+    if (location.search === next || window.location.search === next) openTarget(dest);
+    else navigate(`/search-engine${next}`);
+  }, [location.search, navigate, openTarget]);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (!e.data || e.data.type !== 'batprox-nav' || !e.data.url) return;
-      const next = e.data.url;
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      const next = String(e.data.url);
       if (next.includes('banned.stealthybat.org')) return;
-      skipNext.current = true;
-      setUrl(next);
-      setHistory(prev => {
-        const trim = prev.slice(0, historyIndex + 1);
-        if (trim[trim.length - 1] === next) return trim;
-        return [...trim, next];
-      });
-      setHistoryIndex(v => v + 1);
-      navigate(`/search-engine?url=${encodeUrlParam(next)}`);
+      go(next);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [historyIndex, navigate]);
+  }, [go]);
+
+  useEffect(() => {
+    if (!src) return;
+    const tick = () => {
+      const f = iframeRef.current;
+      if (!f) return;
+      let href = '';
+      let ready = '';
+      try { href = f.contentWindow?.location.href || ''; ready = f.contentDocument?.readyState || ''; } catch { return; }
+      if (!href || href === 'about:blank') return;
+      if (ready && ready !== 'loading') {
+        setLoading(prev => {
+          if (prev) clearTimer();
+          return false;
+        });
+      }
+      if (href === seenHref.current) return;
+      const first = !seenHref.current;
+      seenHref.current = href;
+      const d = decodeProxiedLocation(href);
+      if (!d) return;
+      if (d.includes('banned.stealthybat.org')) { navigate('/dashboard'); return; }
+      if (!first) {
+        if (stepping.current === 'back') { depth.current = Math.max(0, depth.current - 1); ahead.current += 1; }
+        else if (stepping.current === 'forward') { depth.current += 1; ahead.current = Math.max(0, ahead.current - 1); }
+        else { depth.current += 1; ahead.current = 0; }
+        stepping.current = '';
+        setNavTick(n => n + 1);
+      }
+      lastRealTarget.current = d;
+      if (!typing.current) setUrl(d);
+      try {
+        const next = '/search-engine?url=' + encodeUrlParam(d);
+        if (window.location.pathname + window.location.search !== next) window.history.replaceState(window.history.state, '', next);
+      } catch {}
+    };
+    const t = window.setInterval(tick, 300);
+    return () => window.clearInterval(t);
+  }, [src, key, navigate, clearTimer]);
 
   const INTERNAL: Record<string, string> = {
     home: '/dashboard', dashboard: '/dashboard', games: '/homework#help', homework: '/homework#help',
@@ -227,19 +261,27 @@ export default function SearchEngine() {
     if (!url.trim()) return;
     const internal = resolveInternal(url);
     if (internal) {
-      if (internal.startsWith('/site/')) navigate(`/search-engine?url=${encodeUrlParam(window.location.origin + internal)}`);
+      if (internal.startsWith('/site/')) go(window.location.origin + internal);
       else navigate(internal);
       return;
     }
-    navigate(`/search-engine?url=${encodeUrlParam(buildSearchUrl(url))}`);
+    typing.current = false;
+    go(buildSearchUrl(url));
   };
 
   const handleBack = () => {
-    if (historyIndex > 0) { const n = historyIndex - 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeUrlParam(history[n])}`); }
-    else navigate('/dashboard');
+    const w = iframeRef.current?.contentWindow;
+    if (w && depth.current > 0) {
+      stepping.current = 'back';
+      try { w.history.back(); return; } catch { stepping.current = ''; }
+    }
+    navigate('/dashboard');
   };
   const handleForward = () => {
-    if (historyIndex < history.length - 1) { const n = historyIndex + 1; setHistoryIndex(n); navigate(`/search-engine?url=${encodeUrlParam(history[n])}`); }
+    const w = iframeRef.current?.contentWindow;
+    if (!w || ahead.current <= 0) return;
+    stepping.current = 'forward';
+    try { w.history.forward(); } catch { stepping.current = ''; }
   };
   const handleHome = () => navigate('/dashboard');
   const handleFullscreen = () => {
@@ -249,7 +291,14 @@ export default function SearchEngine() {
     else f.requestFullscreen();
   };
   const handleRefresh = () => {
-    const t = decodeUrlParam(new URLSearchParams(location.search).get('url')) || url;
+    const w = iframeRef.current?.contentWindow;
+    if (w && src && !hasError) {
+      try {
+        const here = w.location.href;
+        if (here && here !== 'about:blank' && decodeProxiedLocation(here)) { w.location.reload(); return; }
+      } catch {}
+    }
+    const t = lastRealTarget.current || decodeUrlParam(new URLSearchParams(window.location.search).get('url')) || url;
     if (t) openTarget(t, useSandbox);
   };
   const handleLoad = () => {
@@ -288,8 +337,7 @@ export default function SearchEngine() {
           f.contentDocument.addEventListener('click', (e) => {
             const a = (e.target as HTMLElement | null)?.closest('a');
             if (!a) return;
-            const go = a.getAttribute('data-go') || '';
-            let dest = go;
+            let dest = a.getAttribute('data-go') || '';
             if (!dest && a.href) {
               try {
                 const u = new URL(a.href, window.location.origin);
@@ -299,23 +347,21 @@ export default function SearchEngine() {
             }
             if (dest) {
               e.preventDefault(); e.stopPropagation();
-              navigate(`/search-engine?url=${encodeUrlParam(dest)}`);
+              go(dest);
               return;
             }
-            if (!a.href) return;
-            const d = decodeProxiedLocation(a.href);
-            if (!d) return;
-            e.preventDefault(); e.stopPropagation();
-            navigate(`/search-engine?url=${encodeUrlParam(d)}`);
           }, true);
-          f.contentDocument.addEventListener('submit', (e) => {
-            const form = e.target as HTMLFormElement | null;
-            if (!form?.action) return;
-            const d = decodeProxiedLocation(form.action);
-            if (!d) return;
-            e.preventDefault(); e.stopPropagation();
-            navigate(`/search-engine?url=${encodeUrlParam(d)}`);
-          }, true);
+          f.contentWindow?.addEventListener('click', (e) => {
+            const me = e as MouseEvent;
+            if (me.defaultPrevented || me.button !== 0 || me.ctrlKey || me.metaKey || me.shiftKey || me.altKey) return;
+            const a = (me.target as HTMLElement | null)?.closest?.('a') as HTMLAnchorElement | null;
+            if (!a || (a.getAttribute('target') || '').toLowerCase() !== '_blank') return;
+            const raw = a.href || '';
+            if (!/^https?:\/\//i.test(raw)) return;
+            const proxied = decodeProxiedLocation(raw) ? raw : getUvUrl(raw);
+            me.preventDefault();
+            try { if (f.contentWindow) f.contentWindow.location.href = new URL(proxied, window.location.origin).href; } catch {}
+          });
         }
         const panicInside = (e: KeyboardEvent) => {
           try {
@@ -370,15 +416,15 @@ export default function SearchEngine() {
       <main className="relative z-10 flex flex-col h-screen sm:pl-16">
         <div className="flex items-center gap-2 h-14 px-3 sm:px-4 bg-black/40 backdrop-blur-xl">
           <div className="flex items-center gap-1">
-            <button onClick={handleBack} disabled={historyIndex <= 0} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10 disabled:opacity-30">←</button>
-            <button onClick={handleForward} disabled={historyIndex >= history.length - 1} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10 disabled:opacity-30">→</button>
+            <button onClick={handleBack} title={depth.current > 0 ? 'Back' : 'Back to dashboard'} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10 disabled:opacity-30">←</button>
+            <button onClick={handleForward} disabled={ahead.current <= 0} title="Forward" className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10 disabled:opacity-30">→</button>
             <button onClick={handleRefresh} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10">↻</button>
             <button onClick={handleHome} className="w-8 h-8 rounded-lg text-white/70 hover:bg-white/10">⌂</button>
           </div>
           <form onSubmit={handleSearch} className="flex-1">
             <div className="relative flex items-center gap-2 bg-[#14141a] rounded-full px-4 py-1.5">
               <svg className="w-4 h-4 text-white/35 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-              <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="Search or type a URL" className="flex-1 bg-transparent text-white placeholder-white/35 focus:outline-none text-sm" />
+              <input type="text" value={url} onChange={e => setUrl(e.target.value)} onFocus={() => { typing.current = true; }} onBlur={() => { typing.current = false; }} placeholder="Search or type a URL" className="flex-1 bg-transparent text-white placeholder-white/35 focus:outline-none text-sm" />
             </div>
           </form>
           {targetUrl && <NavBtn className="hidden sm:inline-flex" onClick={handleFullscreen}>Fullscreen</NavBtn>}

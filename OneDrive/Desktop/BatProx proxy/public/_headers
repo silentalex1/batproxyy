@@ -1,5 +1,5 @@
 /*
-  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
   Cross-Origin-Embedder-Policy: unsafe-none
   X-Frame-Options: ALLOWALL
   Access-Control-Allow-Origin: https://stealthybat.org

@@ -38,8 +38,40 @@ self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
+const BP_ASSET_CACHE = 'bp-proxy-assets-v1';
+const BP_ASSET_MAX = 1800;
+
+function bpCacheable(req) {
+  if (req.method !== 'GET' || req.headers.has('range')) return false;
+  const d = req.destination;
+  return d === 'script' || d === 'style' || d === 'font' || d === 'image';
+}
+
+function bpLongLived(res) {
+  if (!res || res.status !== 200 || res.type === 'opaque') return false;
+  const cc = String(res.headers.get('cache-control') || '').toLowerCase();
+  if (/no-store|no-cache|private/.test(cc)) return false;
+  if (cc.includes('immutable')) return true;
+  const m = /max-age=(\d+)/.exec(cc);
+  return !!m && Number(m[1]) >= 86400;
+}
+
+async function bpTrimAssets(cache) {
+  try {
+    const keys = await cache.keys();
+    if (keys.length <= BP_ASSET_MAX) return;
+    for (const k of keys.slice(0, keys.length - BP_ASSET_MAX + 200)) await cache.delete(k);
+  } catch (e) {}
+}
+
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    try {
+      const names = await caches.keys();
+      await Promise.all(names.filter((n) => n.startsWith('bp-proxy-assets-') && n !== BP_ASSET_CACHE).map((n) => caches.delete(n)));
+    } catch (e) {}
+    await self.clients.claim();
+  })());
 });
 
 let bpReminders = [];
@@ -109,11 +141,28 @@ self.addEventListener('fetch', (event) => {
   }
   if (routed) {
     event.respondWith((async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const req = event.request;
+      let store = null;
+      if (bpCacheable(req)) {
         try {
-          return await uv.fetch(event);
+          store = await caches.open(BP_ASSET_CACHE);
+          const hit = await store.match(req.url);
+          if (hit) return hit;
+        } catch (e) { store = null; }
+      }
+      const tries = req.method === 'GET' || req.method === 'HEAD' ? 2 : 1;
+      for (let attempt = 0; attempt < tries; attempt++) {
+        try {
+          const res = await uv.fetch(event);
+          if (store && bpLongLived(res)) {
+            try {
+              const copy = res.clone();
+              event.waitUntil(store.put(req.url, copy).then(() => (Math.random() < 0.03 ? bpTrimAssets(store) : null)).catch(() => {}));
+            } catch (e) {}
+          }
+          return res;
         } catch {
-          if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
+          if (attempt + 1 < tries) await new Promise((r) => setTimeout(r, 700));
         }
       }
       if (event.request.mode === 'navigate') {
